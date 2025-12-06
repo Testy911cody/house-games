@@ -1,0 +1,40 @@
+name: Nightly Build Trigger
+
+# This workflow triggers a deployment every night
+# It works by creating an empty commit and pushing it
+# which triggers Vercel/Netlify automatic deployments
+
+on:
+  schedule:
+    # Runs every day at 2:00 AM UTC (adjust timezone as needed)
+    # Format: minute hour day month day-of-week
+    - cron: '0 2 * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  nightly-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Configure Git
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+      - name: Create empty commit to trigger deployment
+        run: |
+          git commit --allow-empty -m "Nightly build trigger - $(date +'%Y-%m-%d %H:%M:%S UTC')"
+          git push
+          
+      - name: Build status
+        run: |
+          echo "✅ Nightly build triggered at $(date)"
+          echo "This will trigger an automatic deployment on Vercel/Netlify"
+
+
+
+
