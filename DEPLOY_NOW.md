@@ -27,8 +27,10 @@ Go to: https://github.com/new
 
 3. **Authenticate with GitHub:**
    - When you run `git push`, GitHub will ask you to sign in
-   - A browser window will open automatically
-   - Sign in to GitHub and authorize
+   - A browser window will open automatically (or check for a popup)
+   - Sign in to GitHub with the **correct account** (the one that owns the repository)
+   - Authorize Git to access your repositories
+   - After signing in, the push will complete automatically
    - **OR** use a Personal Access Token (see Method 2 below)
 
 **Method 2: Using Personal Access Token (More Secure)**
@@ -44,7 +46,7 @@ Go to: https://github.com/new
 2. **Use the token when pushing:**
    - When Git asks for password, paste your token instead
    - Username: your GitHub username
-   - Password: paste the token
+   - Password: paste the token (keep it secret - never commit it to Git!)
 
 **Method 3: Using GitHub CLI (gh)**
 
@@ -125,6 +127,50 @@ git push -u origin main
 git remote set-url origin https://github.com/YOUR_USERNAME/house-games.git
 ```
 
+**🔧 Troubleshooting Common Issues:**
+
+**Issue 1: "error: src refspec main does not match any"**
+- **Solution:** You need to commit first! Run:
+  ```bash
+  git add .
+  git commit -m "Initial commit - Ready for production"
+  ```
+  Then try pushing again.
+
+**Issue 2: "error: remote origin already exists"**
+- **Solution:** Don't use `git remote add`, use `git remote set-url` instead:
+  ```bash
+  git remote set-url origin https://github.com/YOUR_USERNAME/house-games.git
+  ```
+- This updates the existing remote instead of trying to add a new one
+
+**Issue 3: "Repository not found" or wrong username**
+- **Check your remote URL:**
+  ```bash
+  git remote -v
+  ```
+- **If username is wrong, update it:**
+  ```bash
+  git remote set-url origin https://github.com/CORRECT_USERNAME/house-games.git
+  ```
+- **Verify the repository exists** at: https://github.com/YOUR_USERNAME/house-games
+
+**Issue 4: "Permission denied" or wrong account authentication**
+- **Clear cached credentials on Windows:**
+  ```bash
+  cmdkey /list | findstr github
+  ```
+- **Delete wrong credentials:**
+  ```bash
+  cmdkey /delete:LegacyGeneric:target=git:https:WRONG_USERNAME@github.com
+  ```
+- **Then push again** - it will prompt for correct account authentication
+
+**Issue 5: Browser authentication not working**
+- Make sure you're signed in to the **correct GitHub account** in your browser
+- If browser doesn't open, check for popup blockers
+- Alternative: Use Personal Access Token (Method 2 above)
+
 ### 4. Deploy to Vercel
 
 1. Go to: https://vercel.com
@@ -142,6 +188,48 @@ git remote set-url origin https://github.com/YOUR_USERNAME/house-games.git
 4. Add DNS records at your domain registrar
 5. Wait 5-60 minutes for DNS
 6. ✅ LIVE!
+
+---
+
+## 🔄 How to Update Your Website from Cursor
+
+**Yes! Once deployed, you can update from Cursor and it will automatically update on your website.**
+
+### Simple 3-Step Process:
+
+1. **Make changes in Cursor**
+   - Edit your files (games, pages, styles, etc.)
+   - Save your changes
+
+2. **Commit and push to GitHub:**
+   ```bash
+   git add .
+   git commit -m "Description of your changes"
+   git push
+   ```
+   (Open terminal in Cursor with `` Ctrl + ` ``)
+
+3. **Vercel automatically deploys! 🚀**
+   - Vercel detects the push to GitHub
+   - Automatically builds and deploys your changes
+   - Your website updates in ~2 minutes
+   - No manual steps needed!
+
+### Example Workflow:
+
+```bash
+# 1. Make changes to your code in Cursor
+# (e.g., update a game, fix a bug, add a feature)
+
+# 2. Open terminal (Ctrl + `) and run:
+git add .
+git commit -m "Added new game feature"
+git push
+
+# 3. Wait 2 minutes - your site is updated! ✅
+```
+
+**💡 Pro Tip:** Check your Vercel dashboard to see deployment status. You'll get a notification when it's live!
 
 ---
 
