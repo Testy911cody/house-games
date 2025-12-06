@@ -94,7 +94,7 @@ interface PropertyOwnership {
 const DiceIcon = ({ value }: { value: number }) => {
   const icons = [Dice1, Dice2, Dice3, Dice4, Dice5, Dice6];
   const Icon = icons[value - 1] || Dice1;
-  return <Icon className="w-12 h-12" />;
+  return <Icon className="w-12 h-12 animate-rotate-in" />;
 };
 
 export default function MonopolyPage() {
@@ -119,6 +119,40 @@ export default function MonopolyPage() {
       return;
     }
     setCurrentUser(JSON.parse(user));
+
+    // Check if there's a current group and auto-populate players
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup) {
+      try {
+        const group = JSON.parse(currentGroup);
+        const groupMemberNames: string[] = [];
+        
+        // Add admin
+        const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
+        const admin = allUsers.find((u: any) => u.id === group.adminId);
+        if (admin) {
+          groupMemberNames.push(admin.name);
+        }
+        
+        // Add members
+        group.members.forEach((member: any) => {
+          groupMemberNames.push(member.name);
+        });
+        
+        // Update player names and count
+        if (groupMemberNames.length > 0) {
+          const newNames = [...groupMemberNames];
+          // Fill remaining slots with default names
+          while (newNames.length < 6) {
+            newNames.push(`Player ${newNames.length + 1}`);
+          }
+          setPlayerNames(newNames);
+          setPlayerCount(Math.min(groupMemberNames.length, 6));
+        }
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
   }, [router]);
 
   const initializeGame = () => {
@@ -359,14 +393,14 @@ export default function MonopolyPage() {
 
   const getSpaceColor = (color: string) => {
     const colors: Record<string, string> = {
-      brown: "bg-amber-900",
-      lightblue: "bg-sky-300",
-      pink: "bg-pink-400",
-      orange: "bg-orange-500",
-      red: "bg-red-600",
-      yellow: "bg-yellow-400",
-      green: "bg-green-600",
-      blue: "bg-blue-800",
+      brown: "#8B4513", // Dark brown like real Monopoly
+      lightblue: "#87CEEB", // Sky blue
+      pink: "#FF69B4", // Hot pink
+      orange: "#FF8C00", // Dark orange
+      red: "#DC143C", // Crimson red
+      yellow: "#FFD700", // Gold yellow
+      green: "#228B22", // Forest green
+      blue: "#0000CD", // Medium blue
     };
     return colors[color] || "";
   };
@@ -375,38 +409,70 @@ export default function MonopolyPage() {
 
   // Setup screen
   if (gameState === "setup") {
+    const currentGroup = localStorage.getItem("currentGroup");
+    let groupInfo = null;
+    if (currentGroup) {
+      try {
+        groupInfo = JSON.parse(currentGroup);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
     return (
-      <div className="min-h-screen p-4 sm:p-8">
+      <div className="min-h-screen p-4 sm:p-8 page-enter">
         <div className="max-w-4xl mx-auto">
           <Link
             href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 active:opacity-80 mb-4 sm:mb-8 font-semibold min-h-[44px]"
+            className="inline-flex items-center gap-2 text-cyan-400 active:opacity-80 mb-4 sm:mb-8 font-semibold min-h-[44px] animate-fade-in-left hover:animate-pulse-glow"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
             <span className="text-sm sm:text-base">BACK TO GAMES</span>
           </Link>
 
-          <div className="text-center mb-4 sm:mb-8">
-            <h1 className="pixel-font text-2xl sm:text-3xl md:text-4xl font-bold text-green-400 neon-glow-green mb-2 sm:mb-4">
-              🎩 MONOPOLY 🎩
+          <div className="text-center mb-4 sm:mb-8 animate-fade-in-down delay-200">
+            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2 sm:mb-4 animate-glow-pulse" style={{ 
+              color: "#DC143C",
+              textShadow: "2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff",
+              letterSpacing: "0.1em"
+            }}>
+              MONOPOLY
             </h1>
-            <p className="text-sm sm:text-base text-cyan-300">Set up your multiplayer game</p>
+            <p className="text-sm sm:text-base text-cyan-300 animate-fade-in-up delay-300">Set up your multiplayer game</p>
           </div>
 
-          <div className="neon-card neon-box-green p-4 sm:p-6 lg:p-8 max-w-lg mx-auto card-3d">
+          {/* Group Info Banner */}
+          {groupInfo && (
+            <div className="neon-card neon-box-purple p-4 mb-6 card-3d max-w-lg mx-auto animate-slide-fade-in delay-400">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3 animate-fade-in-left">
+                  <Users className="w-5 h-5 text-purple-400 animate-pulse" />
+                  <div>
+                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as players
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="neon-card neon-box-green p-4 sm:p-6 lg:p-8 max-w-lg mx-auto card-3d animate-scale-in delay-400">
             <div className="space-y-4 sm:space-y-6">
-              <div>
+              <div className="animate-fade-in-up delay-500">
                 <label className="block text-green-400 mb-2 pixel-font text-xs">NUMBER OF PLAYERS</label>
                 <div className="flex gap-2 flex-wrap">
-                  {[2, 3, 4, 5, 6].map(num => (
+                  {[2, 3, 4, 5, 6].map((num, idx) => (
                     <button
                       key={num}
                       onClick={() => setPlayerCount(num)}
-                      className={`px-4 py-2 rounded-lg font-bold transition-all min-h-[44px] min-w-[44px] active:scale-95 ${
+                      className={`px-4 py-2 rounded-lg font-bold transition-all min-h-[44px] min-w-[44px] active:scale-95 hover:animate-scale-up ${
                         playerCount === num 
-                          ? "bg-green-500 text-black" 
+                          ? "bg-green-500 text-black animate-pulse" 
                           : "bg-green-900/50 text-green-400 border border-green-500 active:bg-green-800/50"
                       }`}
+                      style={{ animationDelay: `${idx * 0.1}s` }}
                     >
                       {num}
                     </button>
@@ -414,11 +480,11 @@ export default function MonopolyPage() {
                 </div>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3 animate-fade-in-up delay-600">
                 <label className="block text-green-400 mb-2 pixel-font text-xs">PLAYER NAMES</label>
                 {Array.from({ length: playerCount }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-2 sm:gap-3">
-                    <span className="text-xl sm:text-2xl flex-shrink-0">{PLAYER_TOKENS[i]}</span>
+                  <div key={i} className="flex items-center gap-2 sm:gap-3 card-enter" style={{ animationDelay: `${i * 0.1}s` }}>
+                    <span className="text-xl sm:text-2xl flex-shrink-0 animate-bounce-in">{PLAYER_TOKENS[i]}</span>
                     <input
                       type="text"
                       value={playerNames[i]}
@@ -427,12 +493,12 @@ export default function MonopolyPage() {
                         newNames[i] = e.target.value;
                         setPlayerNames(newNames);
                       }}
-                      className="flex-1 p-2 sm:p-3 rounded-lg text-base sm:text-lg min-h-[48px]"
+                      className="flex-1 p-2 sm:p-3 rounded-lg text-base sm:text-lg min-h-[48px] input-3d focus:animate-pulse-glow"
                       placeholder={`Player ${i + 1}`}
                     />
                     <div 
-                      className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex-shrink-0" 
-                      style={{ backgroundColor: PLAYER_COLORS[i] }}
+                      className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex-shrink-0 animate-bounce-in" 
+                      style={{ backgroundColor: PLAYER_COLORS[i], animationDelay: `${i * 0.1 + 0.2}s` }}
                     />
                   </div>
                 ))}
@@ -440,9 +506,9 @@ export default function MonopolyPage() {
 
               <button
                 onClick={initializeGame}
-                className="neon-btn neon-btn-green w-full text-base sm:text-lg min-h-[48px] btn-3d"
+                className="neon-btn neon-btn-green w-full text-base sm:text-lg min-h-[48px] btn-3d animate-fade-in-up delay-700 hover:animate-button-press"
               >
-                <Zap className="w-4 h-4 sm:w-5 sm:h-5 inline mr-2" />
+                <Zap className="w-4 h-4 sm:w-5 sm:h-5 inline mr-2 animate-spin-pulse" />
                 START GAME
               </button>
             </div>
@@ -498,8 +564,12 @@ export default function MonopolyPage() {
           <span className="text-xs sm:text-sm">BACK TO GAMES</span>
         </Link>
 
-        <h1 className="pixel-font text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-green-400 neon-glow-green mb-2 sm:mb-4 text-center">
-          🎩 MONOPOLY 🎩
+        <h1 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold mb-2 sm:mb-4 text-center" style={{ 
+          color: "#DC143C",
+          textShadow: "2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff",
+          letterSpacing: "0.1em"
+        }}>
+          MONOPOLY
         </h1>
 
         <div className="grid lg:grid-cols-[1fr_280px] gap-2 sm:gap-4">
@@ -510,82 +580,107 @@ export default function MonopolyPage() {
               <p className="text-cyan-300 text-sm sm:text-base lg:text-lg">{message}</p>
             </div>
 
-            {/* Compact Board Display */}
-            <div className="neon-card neon-box-green p-4 card-3d">
-              <div className="grid grid-cols-11 gap-1">
-                {/* Top row */}
-                {BOARD_SPACES.slice(20, 31).map((space) => (
-                  <BoardSpace 
-                    key={space.id} 
-                    space={space} 
-                    players={players.filter(p => p.position === space.id)}
-                    owner={propertyOwnership[space.id]}
-                    playerColors={PLAYER_COLORS}
-                    getSpaceColor={getSpaceColor}
-                    isCorner={space.id === 20 || space.id === 30}
-                  />
-                ))}
-                
-                {/* Middle rows */}
-                <div className="col-span-11 grid grid-cols-11 gap-1">
-                  {/* Left column (reversed) */}
-                  <div className="col-span-1 flex flex-col gap-1">
-                    {BOARD_SPACES.slice(11, 20).reverse().map((space) => (
-                      <BoardSpace 
-                        key={space.id} 
-                        space={space} 
-                        players={players.filter(p => p.position === space.id)}
-                        owner={propertyOwnership[space.id]}
-                        playerColors={PLAYER_COLORS}
-                        getSpaceColor={getSpaceColor}
-                        isCorner={false}
-                      />
-                    ))}
-                  </div>
-                  
-                  {/* Center area - Current Position Info */}
-                  <div className="col-span-9 flex items-center justify-center">
-                    <div className="text-center p-4">
-                      <p className="text-3xl mb-2">{currentPlayer?.token}</p>
-                      <p className="text-xl font-bold" style={{ color: currentPlayer?.color }}>
-                        {currentPlayer?.name}
-                      </p>
-                      <p className="text-sm text-gray-400 mt-2">on</p>
-                      <p className="text-lg text-cyan-300">{currentSpace?.name}</p>
-                      {currentSpace?.price && (
-                        <p className="text-yellow-400">${currentSpace.price}</p>
-                      )}
+            {/* Classic Monopoly Board */}
+            <div className="relative w-full max-w-4xl mx-auto" style={{ aspectRatio: "1/1" }}>
+              <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border-4 border-amber-800 shadow-2xl" style={{ backgroundColor: "#D4E8D1" }}>
+                {/* Board Grid */}
+                <div className="absolute inset-0 p-2 sm:p-4">
+                  <div className="grid grid-cols-11 h-full gap-0.5 sm:gap-1">
+                    {/* Top row (20-30, left to right) */}
+                    <div className="col-span-11 grid grid-cols-11 gap-0.5 sm:gap-1">
+                      {BOARD_SPACES.slice(20, 31).map((space) => (
+                        <BoardSpace 
+                          key={space.id} 
+                          space={space} 
+                          players={players.filter(p => p.position === space.id)}
+                          owner={propertyOwnership[space.id]}
+                          playerColors={PLAYER_COLORS}
+                          getSpaceColor={getSpaceColor}
+                          isCorner={space.id === 20 || space.id === 30}
+                          orientation="top"
+                        />
+                      ))}
+                    </div>
+                    
+                    {/* Middle section */}
+                    <div className="col-span-11 grid grid-cols-11 gap-0.5 sm:gap-1">
+                      {/* Left column (19-11, bottom to top) */}
+                      <div className="col-span-1 grid grid-rows-9 gap-0.5 sm:gap-1">
+                        {BOARD_SPACES.slice(11, 20).reverse().map((space) => (
+                          <BoardSpace 
+                            key={space.id} 
+                            space={space} 
+                            players={players.filter(p => p.position === space.id)}
+                            owner={propertyOwnership[space.id]}
+                            playerColors={PLAYER_COLORS}
+                            getSpaceColor={getSpaceColor}
+                            isCorner={false}
+                            orientation="left"
+                          />
+                        ))}
+                      </div>
+                      
+                      {/* Center - MONOPOLY Logo */}
+                      <div className="col-span-9 relative bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border-2 border-amber-700 shadow-inner" style={{ backgroundColor: "#F5E6D3" }}>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <div className="transform -rotate-45 origin-center">
+                            <div className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-bold" style={{ 
+                              textShadow: "3px 3px 0px #fff, -3px -3px 0px #fff, 3px -3px 0px #fff, -3px 3px 0px #fff",
+                              color: "#DC143C",
+                              letterSpacing: "0.1em"
+                            }}>
+                              MONOPOLY
+                            </div>
+                          </div>
+                        </div>
+                        {/* Current player info in center */}
+                        <div className="absolute bottom-2 left-0 right-0 text-center">
+                          <p className="text-lg sm:text-2xl mb-1">{currentPlayer?.token}</p>
+                          <p className="text-xs sm:text-sm font-bold" style={{ color: currentPlayer?.color }}>
+                            {currentPlayer?.name}
+                          </p>
+                          <p className="text-xs text-gray-600">on</p>
+                          <p className="text-xs sm:text-sm font-semibold text-gray-800">{currentSpace?.name}</p>
+                          {currentSpace?.price && (
+                            <p className="text-xs sm:text-sm font-bold text-amber-700">${currentSpace.price}</p>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Right column (31-39, top to bottom) */}
+                      <div className="col-span-1 grid grid-rows-9 gap-0.5 sm:gap-1">
+                        {BOARD_SPACES.slice(31, 40).map((space) => (
+                          <BoardSpace 
+                            key={space.id} 
+                            space={space} 
+                            players={players.filter(p => p.position === space.id)}
+                            owner={propertyOwnership[space.id]}
+                            playerColors={PLAYER_COLORS}
+                            getSpaceColor={getSpaceColor}
+                            isCorner={false}
+                            orientation="right"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                    
+                    {/* Bottom row (0-10, right to left) */}
+                    <div className="col-span-11 grid grid-cols-11 gap-0.5 sm:gap-1">
+                      {BOARD_SPACES.slice(0, 11).reverse().map((space) => (
+                        <BoardSpace 
+                          key={space.id} 
+                          space={space} 
+                          players={players.filter(p => p.position === space.id)}
+                          owner={propertyOwnership[space.id]}
+                          playerColors={PLAYER_COLORS}
+                          getSpaceColor={getSpaceColor}
+                          isCorner={space.id === 0 || space.id === 10}
+                          orientation="bottom"
+                        />
+                      ))}
                     </div>
                   </div>
-                  
-                  {/* Right column */}
-                  <div className="col-span-1 flex flex-col gap-1">
-                    {BOARD_SPACES.slice(31, 40).map((space) => (
-                      <BoardSpace 
-                        key={space.id} 
-                        space={space} 
-                        players={players.filter(p => p.position === space.id)}
-                        owner={propertyOwnership[space.id]}
-                        playerColors={PLAYER_COLORS}
-                        getSpaceColor={getSpaceColor}
-                        isCorner={false}
-                      />
-                    ))}
-                  </div>
                 </div>
-                
-                {/* Bottom row (reversed) */}
-                {BOARD_SPACES.slice(0, 11).reverse().map((space) => (
-                  <BoardSpace 
-                    key={space.id} 
-                    space={space} 
-                    players={players.filter(p => p.position === space.id)}
-                    owner={propertyOwnership[space.id]}
-                    playerColors={PLAYER_COLORS}
-                    getSpaceColor={getSpaceColor}
-                    isCorner={space.id === 0 || space.id === 10}
-                  />
-                ))}
               </div>
             </div>
 
@@ -593,10 +688,10 @@ export default function MonopolyPage() {
             <div className="neon-card neon-box-pink p-2 sm:p-4 card-3d">
               <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 sm:gap-6">
                 <div className="flex gap-2 sm:gap-4 text-white">
-                  <div className="bg-black/50 p-1 sm:p-2 rounded-lg">
+                  <div className="bg-black/50 p-1 sm:p-2 rounded-lg animate-bounce-in">
                     <DiceIcon value={dice[0]} />
                   </div>
-                  <div className="bg-black/50 p-1 sm:p-2 rounded-lg">
+                  <div className="bg-black/50 p-1 sm:p-2 rounded-lg animate-bounce-in delay-100">
                     <DiceIcon value={dice[1]} />
                   </div>
                 </div>
@@ -605,7 +700,7 @@ export default function MonopolyPage() {
                   <button
                     onClick={rollDice}
                     disabled={hasRolled || currentPlayer?.isBankrupt}
-                    className={`neon-btn min-h-[48px] text-xs sm:text-sm btn-3d ${!hasRolled ? "neon-btn-green" : "opacity-50 cursor-not-allowed border-gray-500 text-gray-500"}`}
+                    className={`neon-btn min-h-[48px] text-xs sm:text-sm btn-3d ${!hasRolled ? "neon-btn-green hover:animate-button-press" : "opacity-50 cursor-not-allowed border-gray-500 text-gray-500"}`}
                   >
                     🎲 ROLL DICE
                   </button>
@@ -686,14 +781,15 @@ export default function MonopolyPage() {
   );
 }
 
-// Board Space Component
+// Board Space Component - Classic Monopoly Style
 function BoardSpace({ 
   space, 
   players, 
   owner, 
   playerColors, 
   getSpaceColor,
-  isCorner
+  isCorner,
+  orientation = "top"
 }: { 
   space: typeof BOARD_SPACES[0];
   players: Player[];
@@ -701,58 +797,162 @@ function BoardSpace({
   playerColors: string[];
   getSpaceColor: (color: string) => string;
   isCorner: boolean;
+  orientation?: "top" | "bottom" | "left" | "right";
 }) {
-  const typeIcons: Record<string, string> = {
-    go: "→",
-    jail: "🔒",
-    parking: "🅿️",
-    gotojail: "👮",
-    chance: "❓",
-    chest: "📦",
-    railroad: "🚂",
-    utility: "💡",
-    tax: "💰",
-  };
+  const isHorizontal = orientation === "top" || orientation === "bottom";
+  const colorValue = space.color ? getSpaceColor(space.color) : "";
 
+  // Corner spaces are larger
+  if (isCorner) {
+    return (
+      <div 
+        className="relative bg-white border-2 border-gray-800 rounded-sm shadow-md"
+        style={{ 
+          backgroundColor: space.type === "go" ? "#FFE4B5" : 
+                          space.type === "jail" ? "#F5F5DC" :
+                          space.type === "parking" ? "#E0E0E0" :
+                          space.type === "gotojail" ? "#FFB6C1" : "#FFFFFF"
+        }}
+      >
+        <div className="absolute inset-0 flex flex-col items-center justify-center p-1 text-center">
+          {space.type === "go" && (
+            <>
+              <div className="text-xs sm:text-sm font-bold text-red-600 mb-1">GO</div>
+              <div className="text-[8px] sm:text-[10px] text-gray-600">Collect $200</div>
+              <div className="text-[8px] sm:text-[10px] text-gray-600">salary as you</div>
+              <div className="text-[8px] sm:text-[10px] text-gray-600">pass</div>
+            </>
+          )}
+          {space.type === "jail" && (
+            <>
+              <div className="text-xs sm:text-sm font-bold mb-1">IN JAIL</div>
+              <div className="text-[8px] sm:text-[10px] text-gray-600">Just</div>
+              <div className="text-[8px] sm:text-[10px] text-gray-600">Visiting</div>
+            </>
+          )}
+          {space.type === "parking" && (
+            <>
+              <div className="text-xs sm:text-sm font-bold mb-1">FREE</div>
+              <div className="text-xs sm:text-sm font-bold">PARKING</div>
+            </>
+          )}
+          {space.type === "gotojail" && (
+            <>
+              <div className="text-xs sm:text-sm font-bold text-red-600 mb-1">GO TO</div>
+              <div className="text-xs sm:text-sm font-bold text-red-600">JAIL</div>
+            </>
+          )}
+        </div>
+        {players.length > 0 && (
+          <div className="absolute top-1 left-1 flex gap-0.5">
+            {players.map(p => (
+              <span key={p.id} className="text-sm sm:text-base drop-shadow-lg">{p.token}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Regular property spaces
   return (
     <div 
-      className={`relative bg-gray-900/80 border border-gray-700 rounded text-center ${
-        isCorner ? "aspect-square" : "aspect-square"
-      }`}
-      style={{ minHeight: "40px", minWidth: "40px" }}
+      className="relative bg-white border border-gray-800 rounded-sm shadow-sm"
+      style={{ 
+        backgroundColor: "#FFFFFF",
+        minHeight: isHorizontal ? "60px" : "50px"
+      }}
     >
-      {/* Property color bar */}
-      {space.color && (
-        <div className={`absolute top-0 left-0 right-0 h-2 ${getSpaceColor(space.color)} rounded-t`} />
-      )}
-      
-      {/* Owner indicator */}
-      {owner !== undefined && (
+      {/* Property color bar at top for horizontal, left for vertical */}
+      {colorValue && (
         <div 
-          className="absolute bottom-0 left-0 right-0 h-1"
-          style={{ backgroundColor: playerColors[owner] }}
+          className={`absolute ${isHorizontal ? "top-0 left-0 right-0 h-3" : "top-0 left-0 bottom-0 w-3"} rounded-t`}
+          style={{ backgroundColor: colorValue }}
         />
       )}
       
       {/* Space content */}
-      <div className="absolute inset-0 flex items-center justify-center text-xs p-0.5 overflow-hidden">
-        {space.type !== "property" && typeIcons[space.type] ? (
-          <span className="text-base">{typeIcons[space.type]}</span>
-        ) : (
-          <span className="truncate text-[8px] leading-tight text-gray-400">
-            {space.name.split(' ')[0]}
-          </span>
+      <div className={`absolute inset-0 flex ${isHorizontal ? "flex-col" : "flex-row"} items-center justify-center p-0.5 sm:p-1 text-center`}>
+        {space.type === "property" && (
+          <div className="w-full">
+            <div className="text-[7px] sm:text-[9px] font-bold text-gray-800 leading-tight px-0.5">
+              {space.name.split(' ').slice(0, 2).join(' ')}
+            </div>
+            {space.price && (
+              <div className="text-[6px] sm:text-[8px] text-gray-600 mt-0.5 font-semibold">
+                ${space.price}
+              </div>
+            )}
+          </div>
+        )}
+        
+        {space.type === "railroad" && (
+          <div className="w-full">
+            <div className="text-[8px] sm:text-[10px] font-bold text-gray-800 mb-0.5">🚂</div>
+            <div className="text-[7px] sm:text-[9px] text-gray-800 leading-tight px-0.5">
+              {space.name.split(' ')[0]}
+            </div>
+            {space.price && (
+              <div className="text-[6px] sm:text-[8px] text-gray-600">${space.price}</div>
+            )}
+          </div>
+        )}
+        
+        {space.type === "utility" && (
+          <div className="w-full">
+            <div className="text-[8px] sm:text-[10px] font-bold text-gray-800 mb-0.5">💡</div>
+            <div className="text-[7px] sm:text-[9px] text-gray-800 leading-tight px-0.5">
+              {space.name}
+            </div>
+            {space.price && (
+              <div className="text-[6px] sm:text-[8px] text-gray-600">${space.price}</div>
+            )}
+          </div>
+        )}
+        
+        {space.type === "chance" && (
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="text-lg sm:text-xl mb-0.5">❓</div>
+            <div className="text-[8px] sm:text-[10px] font-bold text-orange-600">CHANCE</div>
+          </div>
+        )}
+        
+        {space.type === "chest" && (
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="text-lg sm:text-xl mb-0.5">📦</div>
+            <div className="text-[7px] sm:text-[9px] font-bold text-blue-600 leading-tight px-1">
+              COMMUNITY CHEST
+            </div>
+          </div>
+        )}
+        
+        {space.type === "tax" && (
+          <div className="w-full">
+            <div className="text-[8px] sm:text-[10px] font-bold text-gray-800 mb-0.5">💰</div>
+            <div className="text-[7px] sm:text-[9px] text-gray-800 leading-tight px-0.5">
+              {space.name}
+            </div>
+            {space.price && (
+              <div className="text-[6px] sm:text-[8px] text-red-600 font-bold">Pay ${space.price}</div>
+            )}
+          </div>
         )}
       </div>
       
+      {/* Owner indicator */}
+      {owner !== undefined && (
+        <div 
+          className={`absolute ${isHorizontal ? "bottom-0" : "right-0"} ${isHorizontal ? "left-0 right-0 h-1.5" : "top-0 bottom-0 w-1.5"} rounded-b`}
+          style={{ backgroundColor: playerColors[owner] }}
+        />
+      )}
+      
       {/* Player tokens */}
       {players.length > 0 && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="flex flex-wrap gap-0.5 justify-center">
-            {players.map(p => (
-              <span key={p.id} className="text-sm drop-shadow-lg">{p.token}</span>
-            ))}
-          </div>
+        <div className={`absolute ${isHorizontal ? "top-4" : "left-1"} ${isHorizontal ? "left-1 right-1" : "top-1 bottom-1"} flex ${isHorizontal ? "flex-row" : "flex-col"} gap-0.5 items-center justify-center`}>
+          {players.map(p => (
+            <span key={p.id} className="text-xs sm:text-sm drop-shadow-lg">{p.token}</span>
+          ))}
         </div>
       )}
     </div>
