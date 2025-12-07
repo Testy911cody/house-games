@@ -280,66 +280,115 @@ export default function Home() {
 
       {/* Africo Branding - Bottom Right */}
       <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 animate-fade-in delay-800 z-20 flex items-center gap-2">
-        {/* Africo Logo */}
+        <p className="text-cyan-400/60 text-xs sm:text-sm pixel-font neon-glow-cyan">
+          by
+        </p>
+        {/* Africo Logo - Africa Map with AFRICO text */}
         <div className="relative">
           <svg 
-            width="32" 
-            height="32" 
-            viewBox="0 0 32 32" 
-            className="w-6 h-6 sm:w-8 sm:h-8 animate-glow-pulse"
+            width="80" 
+            height="80" 
+            viewBox="0 0 80 80" 
+            className="w-12 h-12 sm:w-16 sm:h-16 animate-glow-pulse"
             style={{ filter: 'drop-shadow(0 0 8px rgba(0, 255, 255, 0.8)) drop-shadow(0 0 12px rgba(255, 0, 255, 0.6))' }}
           >
             <defs>
-              <linearGradient id="africoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="africaGradient" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#00ffff" />
                 <stop offset="50%" stopColor="#ff00ff" />
                 <stop offset="100%" stopColor="#00ff00" />
               </linearGradient>
-              <linearGradient id="africoGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="africaGradient2" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stopColor="#ff00ff" />
                 <stop offset="50%" stopColor="#00ff00" />
                 <stop offset="100%" stopColor="#00ffff" />
               </linearGradient>
             </defs>
             
-            {/* Letter A - Stylized */}
+            {/* Africa Continent Outline - Simplified but recognizable shape */}
             <path 
-              d="M 8 24 L 12 12 L 16 12 L 20 24 M 10 20 L 18 20" 
-              stroke="url(#africoGradient)" 
-              strokeWidth="2.5" 
-              fill="none" 
-              strokeLinecap="round" 
-              strokeLinejoin="round"
+              d="M 15 20 
+                 L 20 15 
+                 L 30 12 
+                 L 45 10 
+                 L 60 12 
+                 L 65 15 
+                 L 68 20 
+                 L 70 28 
+                 L 68 35 
+                 L 65 42 
+                 L 62 50 
+                 L 58 58 
+                 L 52 65 
+                 L 45 68 
+                 L 35 70 
+                 L 25 68 
+                 L 18 65 
+                 L 12 58 
+                 L 10 50 
+                 L 8 42 
+                 L 10 35 
+                 L 12 28 
+                 Z" 
+              fill="url(#africaGradient)" 
+              stroke="#00ffff" 
+              strokeWidth="1.5"
+              opacity="0.9"
             />
             
-            {/* Decorative elements */}
-            <circle cx="24" cy="10" r="2" fill="#00ffff">
-              <animate attributeName="opacity" values="0.5;1;0.5" dur="1.5s" repeatCount="indefinite"/>
-            </circle>
-            <circle cx="26" cy="14" r="1.5" fill="#ff00ff">
-              <animate attributeName="opacity" values="0.5;1;0.5" dur="1.8s" repeatCount="indefinite"/>
-            </circle>
-            <circle cx="24" cy="18" r="1" fill="#00ff00">
-              <animate attributeName="opacity" values="0.5;1;0.5" dur="2s" repeatCount="indefinite"/>
-            </circle>
-            
-            {/* Glow effect */}
+            {/* Glow effect for Africa outline */}
             <path 
-              d="M 8 24 L 12 12 L 16 12 L 20 24 M 10 20 L 18 20" 
-              stroke="url(#africoGradient2)" 
-              strokeWidth="1" 
+              d="M 15 20 
+                 L 20 15 
+                 L 30 12 
+                 L 45 10 
+                 L 60 12 
+                 L 65 15 
+                 L 68 20 
+                 L 70 28 
+                 L 68 35 
+                 L 65 42 
+                 L 62 50 
+                 L 58 58 
+                 L 52 65 
+                 L 45 68 
+                 L 35 70 
+                 L 25 68 
+                 L 18 65 
+                 L 12 58 
+                 L 10 50 
+                 L 8 42 
+                 L 10 35 
+                 L 12 28 
+                 Z" 
               fill="none" 
-              strokeLinecap="round" 
-              strokeLinejoin="round"
+              stroke="url(#africaGradient2)" 
+              strokeWidth="2"
               opacity="0.6"
             >
               <animate attributeName="opacity" values="0.3;0.8;0.3" dur="2s" repeatCount="indefinite"/>
             </path>
+            
+            {/* AFRICO Text inside the map */}
+            <text 
+              x="40" 
+              y="42" 
+              textAnchor="middle" 
+              fontSize="14"
+              fontWeight="bold"
+              fill="#ffffff"
+              stroke="#00ffff"
+              strokeWidth="1"
+              style={{ 
+                fontFamily: 'monospace',
+                filter: 'drop-shadow(0 0 6px rgba(0, 255, 255, 1)) drop-shadow(0 0 8px rgba(255, 0, 255, 0.9))',
+                textShadow: '0 0 10px rgba(0, 255, 255, 1), 0 0 15px rgba(255, 0, 255, 0.8)'
+              }}
+            >
+              AFRICO
+            </text>
           </svg>
         </div>
-        <p className="text-cyan-400/60 text-xs sm:text-sm pixel-font neon-glow-cyan">
-          by Africo
-        </p>
       </div>
     </div>
   );
