@@ -176,6 +176,24 @@ interface Card {
   word: string;
   type: CardType;
   revealed: boolean;
+  clickedBy?: string; // Player name who clicked this card
+}
+
+interface Player {
+  name: string;
+  role: PlayerRole;
+  team: "red" | "blue";
+  avatar?: string;
+}
+
+interface GameLogEntry {
+  type: "clue" | "guess" | "pass";
+  team: "red" | "blue";
+  player?: string;
+  clue?: string;
+  number?: number;
+  word?: string;
+  timestamp: Date;
 }
 
 interface Team {
@@ -206,6 +224,8 @@ export default function CodenamesPage() {
   const [clue, setClue] = useState({ word: "", number: 0 });
   const [guessesRemaining, setGuessesRemaining] = useState(0);
   const [gameOverReason, setGameOverReason] = useState<string>("");
+  const [players, setPlayers] = useState<Player[]>([]);
+  const [gameLog, setGameLog] = useState<GameLogEntry[]>([]);
 
   const redTeam: Team = {
     id: "red",
@@ -242,7 +262,29 @@ export default function CodenamesPage() {
       return;
     }
     setCurrentUser(JSON.parse(user));
+
+    // Check if there's a current group and set team name
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup) {
+      try {
+        const group = JSON.parse(currentGroup);
+        setRedTeamName(group.name);
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
   }, [router]);
+
+  const getPlayerInitials = (name: string) => {
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
+  };
+
+  const getPlayerAvatar = (name: string) => {
+    const initials = getPlayerInitials(name);
+    const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500'];
+    const colorIndex = name.charCodeAt(0) % colors.length;
+    return { initials, color: colors[colorIndex] };
+  };
 
   const generateBoard = () => {
     const shuffled = [...CODEWORDS].sort(() => Math.random() - 0.5);
@@ -275,6 +317,21 @@ export default function CodenamesPage() {
     setCurrentTeam("red");
     setClue({ word: "", number: 0 });
     setGuessesRemaining(0);
+    setGameLog([]);
+    // Initialize players if group exists
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup) {
+      try {
+        const group = JSON.parse(currentGroup);
+        const groupPlayers: Player[] = [
+          { name: currentUser.name, role: "operative", team: "red" },
+          ...group.members.map((m: any) => ({ name: m.name, role: "operative", team: "red" as const }))
+        ];
+        setPlayers(groupPlayers);
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
   };
 
   const revealCard = (index: number) => {
@@ -282,8 +339,18 @@ export default function CodenamesPage() {
     
     const newCards = [...cards];
     newCards[index].revealed = true;
+    newCards[index].clickedBy = currentUser.name;
     setCards(newCards);
     setGuessesRemaining(prev => prev - 1);
+    
+    // Add to game log
+    setGameLog(prev => [...prev, {
+      type: "guess",
+      team: currentTeam,
+      player: currentUser.name,
+      word: newCards[index].word,
+      timestamp: new Date()
+    }]);
     
     const card = newCards[index];
     
@@ -315,9 +382,24 @@ export default function CodenamesPage() {
   const giveClue = () => {
     if (!clue.word.trim() || clue.number < 1 || clue.number > 9) return;
     setGuessesRemaining(clue.number + 1); // +1 for the bonus guess
+    // Add to game log
+    setGameLog(prev => [...prev, {
+      type: "clue",
+      team: currentTeam,
+      player: currentUser.name,
+      clue: clue.word,
+      number: clue.number,
+      timestamp: new Date()
+    }]);
   };
 
   const passTurn = () => {
+    setGameLog(prev => [...prev, {
+      type: "pass",
+      team: currentTeam,
+      player: currentUser.name,
+      timestamp: new Date()
+    }]);
     setCurrentTeam(currentTeam === "red" ? "blue" : "red");
     setClue({ word: "", number: 0 });
     setGuessesRemaining(0);
@@ -340,6 +422,16 @@ export default function CodenamesPage() {
 
   // SETUP PHASE
   if (phase === "setup") {
+    const currentGroup = localStorage.getItem("currentGroup");
+    let groupInfo = null;
+    if (currentGroup) {
+      try {
+        groupInfo = JSON.parse(currentGroup);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
     return (
       <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
@@ -359,6 +451,23 @@ export default function CodenamesPage() {
               Two teams compete to find all their words first!
             </p>
           </div>
+
+          {/* Group Info Banner */}
+          {groupInfo && (
+            <div className="neon-card neon-box-purple p-4 mb-6 card-3d">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as RED TEAM
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="neon-card neon-box-pink p-8 mb-6 card-3d">
             <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center">
@@ -466,7 +575,19 @@ export default function CodenamesPage() {
               <h3 className="text-xl font-bold text-center text-cyan-400 mb-6">WHAT'S YOUR ROLE?</h3>
               <div className="grid md:grid-cols-2 gap-6">
                 <button
-                  onClick={() => { setRole("spymaster"); }}
+                  onClick={() => { 
+                    setRole("spymaster");
+                    // Add player to players list
+                    const newPlayer: Player = {
+                      name: currentUser.name,
+                      role: "spymaster",
+                      team: selectedTeam
+                    };
+                    setPlayers(prev => {
+                      const filtered = prev.filter(p => p.name !== currentUser.name);
+                      return [...filtered, newPlayer];
+                    });
+                  }}
                   className={`${selectedTeam === "red" ? redTeam.color.light : blueTeam.color.light} border-2 ${selectedTeam === "red" ? redTeam.color.border : blueTeam.color.border} ${selectedTeam === "red" ? redTeam.color.glow : blueTeam.color.glow} p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4`}
                 >
                   <div className={`w-20 h-20 ${selectedTeam === "red" ? redTeam.color.bg : blueTeam.color.bg} rounded-full flex items-center justify-center`}>
@@ -479,7 +600,19 @@ export default function CodenamesPage() {
                 </button>
 
                 <button
-                  onClick={() => { setRole("operative"); }}
+                  onClick={() => { 
+                    setRole("operative");
+                    // Add player to players list
+                    const newPlayer: Player = {
+                      name: currentUser.name,
+                      role: "operative",
+                      team: selectedTeam
+                    };
+                    setPlayers(prev => {
+                      const filtered = prev.filter(p => p.name !== currentUser.name);
+                      return [...filtered, newPlayer];
+                    });
+                  }}
                   className="bg-gray-800/50 border-2 border-gray-600 hover:border-cyan-500 hover:neon-box-cyan p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4"
                 >
                   <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center">
@@ -500,37 +633,140 @@ export default function CodenamesPage() {
 
   // PLAYING PHASE - Spymaster View
   if (phase === "playing" && role === "spymaster" && selectedTeam) {
+    const playerTeam = selectedTeam === "red" ? redTeam : blueTeam;
+    const opponentTeam = selectedTeam === "red" ? blueTeam : redTeam;
+    const redOperatives = players.filter(p => p.team === "red" && p.role === "operative");
+    const blueOperatives = players.filter(p => p.team === "blue" && p.role === "operative");
+    const redSpymasters = players.filter(p => p.team === "red" && p.role === "spymaster");
+    const blueSpymasters = players.filter(p => p.team === "blue" && p.role === "spymaster");
+
     return (
-      <div className="min-h-screen p-4 md:p-8">
-        <div className="max-w-6xl mx-auto">
-          {/* Header */}
-          {(() => {
-            const playerTeam = selectedTeam === "red" ? redTeam : blueTeam;
-            const opponentTeam = selectedTeam === "red" ? blueTeam : redTeam;
-            return (
-              <div className={`${playerTeam.color.light} rounded-2xl p-4 mb-6 border-2 ${playerTeam.color.border} ${playerTeam.color.glow}`}>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div>
-                    <div className="text-xs text-gray-400">SPYMASTER</div>
-                    <div className={`font-bold ${playerTeam.color.text} text-xl`}>{playerTeam.name}</div>
-                    {selectedTeam !== currentTeam && (
-                      <div className="text-xs text-yellow-400 mt-1">⏳ Not your turn</div>
+      <div className="min-h-screen p-2 md:p-4 bg-gradient-to-b from-gray-900 to-black">
+        <div className="max-w-7xl mx-auto">
+          {/* Top Bar - Teams and Game Log */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 mb-4">
+            {/* Blue Team Panel */}
+            <div className={`${blueTeam.color.light} rounded-xl p-3 md:p-4 border-2 ${blueTeam.color.border} ${currentTeam === "blue" ? blueTeam.color.glow : "opacity-80"}`}>
+              <div className="text-xs text-gray-400 mb-2 font-semibold">OPERATIVES</div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {blueOperatives.length > 0 ? blueOperatives.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className="flex flex-col items-center">
+                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full ${avatar.color} flex items-center justify-center text-white text-xs font-bold border-2 ${blueTeam.color.border}`}>
+                        {avatar.initials}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[50px]">{p.name}</div>
+                    </div>
+                  );
+                }) : (
+                  <div className="text-xs text-gray-500">No operatives</div>
+                )}
+              </div>
+              <div className="text-center mb-2">
+                <div className={`text-3xl md:text-4xl font-bold pixel-font ${blueTeam.color.text}`}>{blueTeam.cardsRemaining}</div>
+                <div className="text-[10px] text-gray-400">CARDS LEFT</div>
+              </div>
+              <div className="text-xs text-gray-400 mb-1 font-semibold">SPYMASTERS</div>
+              <div className="flex flex-wrap gap-2">
+                {blueSpymasters.length > 0 ? blueSpymasters.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className={`w-6 h-6 md:w-8 md:h-8 rounded-full ${avatar.color} flex items-center justify-center text-white text-[10px] font-bold border-2 ${blueTeam.color.border}`}>
+                      {avatar.initials}
+                    </div>
+                  );
+                }) : (
+                  <div className="text-[10px] text-gray-500">No spymasters</div>
+                )}
+              </div>
+            </div>
+
+            {/* Game Log */}
+            <div className="bg-black/40 rounded-xl p-3 md:p-4 border-2 border-gray-700">
+              <div className="text-xs text-gray-400 mb-2 font-semibold">GAME LOG</div>
+              <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                {gameLog.slice(-5).reverse().map((entry, i) => (
+                  <div key={i} className="text-[10px] md:text-xs">
+                    {entry.type === "clue" && (
+                      <div className="flex items-center gap-1">
+                        <span className={`font-bold ${entry.team === "red" ? "text-red-400" : "text-blue-400"}`}>
+                          {entry.clue} {entry.number}
+                        </span>
+                        {guessesRemaining > 0 && entry.team === currentTeam && (
+                          <span className="text-cyan-400 text-xs">∞</span>
+                        )}
+                      </div>
+                    )}
+                    {entry.type === "guess" && (
+                      <div className="flex items-center gap-1">
+                        {entry.word && (
+                          <>
+                            <div className={`w-4 h-4 rounded-full ${getPlayerAvatar(entry.player || "").color} flex items-center justify-center text-[8px] text-white`}>
+                              {getPlayerAvatar(entry.player || "").initials[0]}
+                            </div>
+                            <span className="text-gray-300">{entry.word}</span>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                  <div className="text-center">
-                    <div className="text-xs text-gray-400">YOUR CARDS LEFT</div>
-                    <div className={`text-4xl font-bold pixel-font ${playerTeam.color.text}`}>{playerTeam.cardsRemaining}</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-xs text-gray-400">OPPONENT CARDS LEFT</div>
-                    <div className={`text-4xl font-bold pixel-font ${opponentTeam.color.text}`}>
-                      {opponentTeam.cardsRemaining}
-                    </div>
-                  </div>
-                </div>
+                ))}
               </div>
-            );
-          })()}
+            </div>
+
+            {/* Red Team Panel */}
+            <div className={`${redTeam.color.light} rounded-xl p-3 md:p-4 border-2 ${redTeam.color.border} ${currentTeam === "red" ? redTeam.color.glow : "opacity-80"}`}>
+              <div className="text-xs text-gray-400 mb-2 font-semibold">OPERATIVES</div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {redOperatives.length > 0 ? redOperatives.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className="flex flex-col items-center">
+                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full ${avatar.color} flex items-center justify-center text-white text-xs font-bold border-2 ${redTeam.color.border}`}>
+                        {avatar.initials}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[50px]">{p.name}</div>
+                    </div>
+                  );
+                }) : (
+                  <div className="text-xs text-gray-500">No operatives</div>
+                )}
+              </div>
+              <div className="text-center mb-2">
+                <div className={`text-3xl md:text-4xl font-bold pixel-font ${redTeam.color.text}`}>{redTeam.cardsRemaining}</div>
+                <div className="text-[10px] text-gray-400">CARDS LEFT</div>
+              </div>
+              <div className="text-xs text-gray-400 mb-1 font-semibold">SPYMASTERS</div>
+              <div className="flex flex-wrap gap-2">
+                {redSpymasters.length > 0 ? redSpymasters.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className={`w-6 h-6 md:w-8 md:h-8 rounded-full ${avatar.color} flex items-center justify-center text-white text-[10px] font-bold border-2 ${redTeam.color.border}`}>
+                      {avatar.initials}
+                    </div>
+                  );
+                }) : (
+                  <div className="text-[10px] text-gray-500">No spymasters</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Current Turn Banner */}
+          <div className={`${activeTeam.color.light} rounded-xl p-3 md:p-4 mb-4 border-2 ${activeTeam.color.border} ${activeTeam.color.glow} text-center`}>
+            <div className="text-sm md:text-base font-bold text-gray-300">
+              {activeTeam.name.toUpperCase()} SPYMASTER TURN
+            </div>
+            {selectedTeam === currentTeam && guessesRemaining > 0 && (
+              <div className="mt-2">
+                <div className="text-xl md:text-2xl font-bold text-yellow-400 pixel-font">
+                  {clue.word} {clue.number}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">Your operatives are guessing...</div>
+              </div>
+            )}
+          </div>
 
           {/* Clue Input */}
           {guessesRemaining === 0 && selectedTeam === currentTeam && (
@@ -581,50 +817,82 @@ export default function CodenamesPage() {
             </div>
           )}
 
-          {guessesRemaining > 0 && selectedTeam === currentTeam && (
-            <div className="neon-card neon-box-green p-6 mb-6 text-center card-3d">
-              <div className="text-2xl font-bold text-green-400 mb-2">
-                CLUE: <span className="text-white">{clue.word}</span> <span className="text-yellow-400">{clue.number}</span>
-              </div>
-              <div className="text-gray-400">Your operatives are guessing... ({guessesRemaining} guesses remaining)</div>
-            </div>
-          )}
-
-          {selectedTeam !== currentTeam && (
-            <div className="neon-card neon-box-cyan p-6 mb-6 text-center card-3d">
-              <div className="text-xl text-cyan-400">
-                ⏳ Waiting for {currentTeam === "red" ? blueTeamName : redTeamName}'s turn...
-              </div>
-            </div>
-          )}
-
           {/* Board - Spymaster sees colors */}
-          <div className="neon-card neon-box-cyan p-3 md:p-6 card-3d">
-            <div className="grid grid-cols-5 gap-2 md:gap-3">
+          <div className="bg-black/30 rounded-xl p-3 md:p-5 border-2 border-gray-700 mb-4">
+            <div className="grid grid-cols-5 gap-3 md:gap-4 lg:gap-5">
               {cards.map((card, idx) => {
                 const isRevealed = card.revealed;
                 const getCardColor = () => {
                   if (isRevealed) {
-                    if (card.type === "red") return "bg-red-600 text-white";
-                    if (card.type === "blue") return "bg-blue-600 text-white";
-                    if (card.type === "assassin") return "bg-black text-white border-4 border-red-500";
-                    return "bg-yellow-600 text-black";
+                    if (card.type === "red") return "bg-gradient-to-br from-red-500 via-red-600 to-red-800 text-white shadow-xl shadow-red-500/60 border-2 border-red-300";
+                    if (card.type === "blue") return "bg-gradient-to-br from-blue-500 via-blue-600 to-blue-800 text-white shadow-xl shadow-blue-500/60 border-2 border-blue-300";
+                    if (card.type === "assassin") return "bg-gradient-to-br from-black via-gray-900 to-black text-white border-4 border-red-400 shadow-xl shadow-red-500/80";
+                    return "bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-700 text-black shadow-xl shadow-yellow-500/60 border-2 border-yellow-300";
                   }
-                  if (card.type === "red") return "bg-red-900/50 text-red-300 border-2 border-red-500";
-                  if (card.type === "blue") return "bg-blue-900/50 text-blue-300 border-2 border-blue-500";
-                  if (card.type === "assassin") return "bg-gray-900 text-gray-500 border-2 border-gray-700";
-                  return "bg-yellow-900/30 text-yellow-300 border-2 border-yellow-600";
+                  if (card.type === "red") return "bg-gradient-to-br from-red-800/70 to-red-950/70 text-red-100 border-2 border-red-400/80 shadow-lg shadow-red-500/40 hover:shadow-xl hover:shadow-red-500/60 hover:border-red-300";
+                  if (card.type === "blue") return "bg-gradient-to-br from-blue-800/70 to-blue-950/70 text-blue-100 border-2 border-blue-400/80 shadow-lg shadow-blue-500/40 hover:shadow-xl hover:shadow-blue-500/60 hover:border-blue-300";
+                  if (card.type === "assassin") return "bg-gradient-to-br from-gray-900 to-black text-gray-400 border-2 border-gray-600/80 shadow-lg shadow-gray-900/60";
+                  return "bg-gradient-to-br from-yellow-800/50 to-yellow-950/50 text-yellow-100 border-2 border-yellow-500/80 shadow-lg shadow-yellow-500/30 hover:shadow-xl hover:shadow-yellow-500/50 hover:border-yellow-400";
                 };
+                
+                // Asian pattern SVG
+                const asianPattern = `data:image/svg+xml,${encodeURIComponent(`
+                  <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      <pattern id="asian${idx}" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                        <circle cx="10" cy="10" r="1.5" fill="rgba(255,255,255,0.1)"/>
+                        <path d="M5,5 L15,15 M15,5 L5,15" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>
+                        <rect x="8" y="8" width="4" height="4" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.3"/>
+                      </pattern>
+                    </defs>
+                    <rect width="100" height="100" fill="url(#asian${idx})"/>
+                  </svg>
+                `)}`;
+                
+                const clickedByAvatar = card.clickedBy ? getPlayerAvatar(card.clickedBy) : null;
                 
                 return (
                   <div
                     key={idx}
-                    className={`p-2 md:p-4 rounded-lg font-bold text-[10px] md:text-xs lg:text-sm text-center transition-all ${getCardColor()}`}
+                    className={`relative p-3 md:p-5 lg:p-6 rounded-xl font-bold text-xs md:text-sm lg:text-base text-center transition-all duration-300 transform hover:scale-105 ${getCardColor()}`}
+                    style={{
+                      minHeight: '100px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backdropFilter: 'blur(4px)',
+                    }}
                   >
-                    {card.word}
-                    {card.type === "assassin" && !isRevealed && (
-                      <div className="text-[8px] mt-1">💀</div>
+                    {/* Player avatar on tile */}
+                    {card.clickedBy && (
+                      <div className="absolute top-1 left-1 z-20">
+                        <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full ${clickedByAvatar?.color} flex items-center justify-center text-white text-[8px] md:text-[10px] font-bold border border-white/50`}>
+                          {clickedByAvatar?.initials[0]}
+                        </div>
+                      </div>
                     )}
+                    
+                    {/* Asian pattern overlay */}
+                    <div 
+                      className="absolute inset-0 rounded-xl opacity-30"
+                      style={{
+                        backgroundImage: `url("${asianPattern}")`,
+                        backgroundSize: '40px 40px',
+                        backgroundRepeat: 'repeat',
+                      }}
+                    ></div>
+                    {/* Additional decorative border pattern */}
+                    <div className="absolute inset-0 rounded-xl" style={{
+                      background: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.05) 50%, transparent 70%)',
+                      backgroundSize: '20px 20px',
+                    }}></div>
+                    <div className="relative z-10 w-full font-semibold">
+                      {card.word}
+                      {card.type === "assassin" && !isRevealed && (
+                        <div className="text-sm mt-1 opacity-80">💀</div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -659,104 +927,237 @@ export default function CodenamesPage() {
 
   // PLAYING PHASE - Operative View
   if (phase === "playing" && role === "operative" && selectedTeam) {
+    const playerTeam = selectedTeam === "red" ? redTeam : blueTeam;
+    const opponentTeam = selectedTeam === "red" ? blueTeam : redTeam;
+    const redOperatives = players.filter(p => p.team === "red" && p.role === "operative");
+    const blueOperatives = players.filter(p => p.team === "blue" && p.role === "operative");
+    const redSpymasters = players.filter(p => p.team === "red" && p.role === "spymaster");
+    const blueSpymasters = players.filter(p => p.team === "blue" && p.role === "spymaster");
+
     return (
-      <div className="min-h-screen p-4 md:p-8">
-        <div className="max-w-6xl mx-auto">
-          {/* Header */}
-          {(() => {
-            const playerTeam = selectedTeam === "red" ? redTeam : blueTeam;
-            return (
-              <div className={`${playerTeam.color.light} rounded-2xl p-4 mb-6 border-2 ${playerTeam.color.border} ${playerTeam.color.glow}`}>
-                <div className="flex items-center justify-between flex-wrap gap-4">
-                  <div>
-                    <div className="text-xs text-gray-400">OPERATIVE</div>
-                    <div className={`font-bold ${playerTeam.color.text} text-xl`}>{playerTeam.name}</div>
-                    {selectedTeam !== currentTeam && (
-                      <div className="text-xs text-yellow-400 mt-1">⏳ Not your turn</div>
+      <div className="min-h-screen p-2 md:p-4 bg-gradient-to-b from-gray-900 to-black">
+        <div className="max-w-7xl mx-auto">
+          {/* Top Bar - Teams and Game Log */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-3 md:gap-4 mb-4">
+            {/* Blue Team Panel */}
+            <div className={`${blueTeam.color.light} rounded-xl p-3 md:p-4 border-2 ${blueTeam.color.border} ${currentTeam === "blue" ? blueTeam.color.glow : "opacity-80"}`}>
+              <div className="text-xs text-gray-400 mb-2 font-semibold">OPERATIVES</div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {blueOperatives.length > 0 ? blueOperatives.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className="flex flex-col items-center">
+                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full ${avatar.color} flex items-center justify-center text-white text-xs font-bold border-2 ${blueTeam.color.border}`}>
+                        {avatar.initials}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[50px]">{p.name}</div>
+                    </div>
+                  );
+                }) : (
+                  <div className="text-xs text-gray-500">No operatives</div>
+                )}
+              </div>
+              <div className="text-center mb-2">
+                <div className={`text-3xl md:text-4xl font-bold pixel-font ${blueTeam.color.text}`}>{blueTeam.cardsRemaining}</div>
+                <div className="text-[10px] text-gray-400">CARDS LEFT</div>
+              </div>
+              <div className="text-xs text-gray-400 mb-1 font-semibold">SPYMASTERS</div>
+              <div className="flex flex-wrap gap-2">
+                {blueSpymasters.length > 0 ? blueSpymasters.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className={`w-6 h-6 md:w-8 md:h-8 rounded-full ${avatar.color} flex items-center justify-center text-white text-[10px] font-bold border-2 ${blueTeam.color.border}`}>
+                      {avatar.initials}
+                    </div>
+                  );
+                }) : (
+                  <div className="text-[10px] text-gray-500">No spymasters</div>
+                )}
+              </div>
+            </div>
+
+            {/* Game Log */}
+            <div className="bg-black/40 rounded-xl p-3 md:p-4 border-2 border-gray-700">
+              <div className="text-xs text-gray-400 mb-2 font-semibold">GAME LOG</div>
+              <div className="space-y-1 max-h-[200px] overflow-y-auto">
+                {gameLog.slice(-5).reverse().map((entry, i) => (
+                  <div key={i} className="text-[10px] md:text-xs">
+                    {entry.type === "clue" && (
+                      <div className="flex items-center gap-1">
+                        <span className={`font-bold ${entry.team === "red" ? "text-red-400" : "text-blue-400"}`}>
+                          {entry.clue} {entry.number}
+                        </span>
+                        {guessesRemaining > 0 && entry.team === currentTeam && (
+                          <span className="text-cyan-400 text-xs">∞</span>
+                        )}
+                      </div>
+                    )}
+                    {entry.type === "guess" && (
+                      <div className="flex items-center gap-1">
+                        {entry.word && (
+                          <>
+                            <div className={`w-4 h-4 rounded-full ${getPlayerAvatar(entry.player || "").color} flex items-center justify-center text-[8px] text-white`}>
+                              {getPlayerAvatar(entry.player || "").initials[0]}
+                            </div>
+                            <span className="text-gray-300">{entry.word}</span>
+                          </>
+                        )}
+                      </div>
                     )}
                   </div>
-                  {selectedTeam === currentTeam && guessesRemaining > 0 && (
-                    <div className="text-center">
-                      <div className="text-xs text-gray-400">GUESSES LEFT</div>
-                      <div className={`text-4xl font-bold pixel-font ${playerTeam.color.text}`}>{guessesRemaining}</div>
-                    </div>
-                  )}
-                  <div className="text-center">
-                    <div className="text-xs text-gray-400">YOUR CARDS LEFT</div>
-                    <div className={`text-4xl font-bold pixel-font ${playerTeam.color.text}`}>{playerTeam.cardsRemaining}</div>
-                  </div>
-                </div>
+                ))}
               </div>
-            );
-          })()}
+            </div>
 
-          {/* Current Clue */}
-          {selectedTeam === currentTeam && guessesRemaining > 0 ? (
-            <div className="neon-card neon-box-green p-6 mb-6 text-center card-3d">
-              <div className="text-sm text-gray-400 mb-2">YOUR SPYMASTER'S CLUE:</div>
-              <div className="text-4xl font-bold text-green-400 mb-2 pixel-font">
-                {clue.word} <span className="text-yellow-400">{clue.number}</span>
+            {/* Red Team Panel */}
+            <div className={`${redTeam.color.light} rounded-xl p-3 md:p-4 border-2 ${redTeam.color.border} ${currentTeam === "red" ? redTeam.color.glow : "opacity-80"}`}>
+              <div className="text-xs text-gray-400 mb-2 font-semibold">OPERATIVES</div>
+              <div className="flex flex-wrap gap-2 mb-3">
+                {redOperatives.length > 0 ? redOperatives.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className="flex flex-col items-center">
+                      <div className={`w-8 h-8 md:w-10 md:h-10 rounded-full ${avatar.color} flex items-center justify-center text-white text-xs font-bold border-2 ${redTeam.color.border}`}>
+                        {avatar.initials}
+                      </div>
+                      <div className="text-[10px] text-gray-400 mt-1 truncate max-w-[50px]">{p.name}</div>
+                    </div>
+                  );
+                }) : (
+                  <div className="text-xs text-gray-500">No operatives</div>
+                )}
               </div>
-              <div className="text-gray-400">Click on words that match the clue!</div>
-            </div>
-          ) : selectedTeam === currentTeam ? (
-            <div className="neon-card neon-box-cyan p-6 mb-6 text-center card-3d">
-              <div className="text-xl text-cyan-400">
-                ⏳ Waiting for your spymaster to give a clue...
+              <div className="text-center mb-2">
+                <div className={`text-3xl md:text-4xl font-bold pixel-font ${redTeam.color.text}`}>{redTeam.cardsRemaining}</div>
+                <div className="text-[10px] text-gray-400">CARDS LEFT</div>
+              </div>
+              <div className="text-xs text-gray-400 mb-1 font-semibold">SPYMASTERS</div>
+              <div className="flex flex-wrap gap-2">
+                {redSpymasters.length > 0 ? redSpymasters.map((p, i) => {
+                  const avatar = getPlayerAvatar(p.name);
+                  return (
+                    <div key={i} className={`w-6 h-6 md:w-8 md:h-8 rounded-full ${avatar.color} flex items-center justify-center text-white text-[10px] font-bold border-2 ${redTeam.color.border}`}>
+                      {avatar.initials}
+                    </div>
+                  );
+                }) : (
+                  <div className="text-[10px] text-gray-500">No spymasters</div>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="neon-card neon-box-cyan p-6 mb-6 text-center card-3d">
-              <div className="text-xl text-cyan-400">
-                ⏳ Waiting for {currentTeam === "red" ? blueTeamName : redTeamName}'s turn...
-              </div>
+          </div>
+
+          {/* Current Turn Banner */}
+          <div className={`${activeTeam.color.light} rounded-xl p-3 md:p-4 mb-4 border-2 ${activeTeam.color.border} ${activeTeam.color.glow} text-center`}>
+            <div className="text-sm md:text-base font-bold text-gray-300">
+              {activeTeam.name.toUpperCase()} {role === "spymaster" ? "SPYMASTER" : "OPERATIVES"} {selectedTeam === currentTeam && guessesRemaining > 0 ? "ARE GUESSING" : "TURN"}
             </div>
-          )}
+            {selectedTeam === currentTeam && guessesRemaining > 0 && (
+              <div className="mt-2">
+                <div className="text-2xl md:text-3xl font-bold text-yellow-400 pixel-font">
+                  {clue.word} {clue.number}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">{guessesRemaining} guesses remaining</div>
+              </div>
+            )}
+          </div>
 
           {/* Board - Operatives only see words */}
-          <div className="neon-card neon-box-cyan p-3 md:p-6 card-3d">
-            <div className="grid grid-cols-5 gap-2 md:gap-3">
+          <div className="bg-black/30 rounded-xl p-3 md:p-5 border-2 border-gray-700 mb-4">
+            <div className="grid grid-cols-5 gap-3 md:gap-4 lg:gap-5">
               {cards.map((card, idx) => {
                 const isRevealed = card.revealed;
                 const canClick = selectedTeam === currentTeam && guessesRemaining > 0 && !isRevealed;
                 
                 const getCardStyle = () => {
                   if (isRevealed) {
-                    if (card.type === "red") return "bg-red-600 text-white cursor-default";
-                    if (card.type === "blue") return "bg-blue-600 text-white cursor-default";
-                    if (card.type === "assassin") return "bg-black text-white border-4 border-red-500 cursor-default";
-                    return "bg-yellow-600 text-black cursor-default";
+                    if (card.type === "red") return "bg-gradient-to-br from-red-500 via-red-600 to-red-800 text-white cursor-default shadow-xl shadow-red-500/60 border-2 border-red-300";
+                    if (card.type === "blue") return "bg-gradient-to-br from-blue-500 via-blue-600 to-blue-800 text-white cursor-default shadow-xl shadow-blue-500/60 border-2 border-blue-300";
+                    if (card.type === "assassin") return "bg-gradient-to-br from-black via-gray-900 to-black text-white border-4 border-red-400 cursor-default shadow-xl shadow-red-500/80";
+                    return "bg-gradient-to-br from-yellow-400 via-yellow-500 to-yellow-700 text-black cursor-default shadow-xl shadow-yellow-500/60 border-2 border-yellow-300";
                   }
                   if (canClick) {
-                    return "bg-gray-800/50 text-gray-300 border-2 border-gray-600 hover:border-cyan-400 hover:text-cyan-400 cursor-pointer";
+                    return "bg-gradient-to-br from-amber-800/80 to-amber-900/80 text-amber-100 border-2 border-amber-600 hover:border-cyan-300 hover:text-cyan-200 hover:shadow-xl hover:shadow-cyan-500/60 cursor-pointer active:scale-95";
                   }
-                  return "bg-gray-800/30 text-gray-500 border-2 border-gray-700 cursor-not-allowed";
+                  return "bg-gradient-to-br from-amber-800/40 to-amber-900/40 text-amber-200/60 border-2 border-amber-700/50 cursor-not-allowed opacity-60";
                 };
+                
+                // Asian pattern SVG
+                const asianPattern = `data:image/svg+xml,${encodeURIComponent(`
+                  <svg width="100" height="100" xmlns="http://www.w3.org/2000/svg">
+                    <defs>
+                      <pattern id="asianOp${idx}" x="0" y="0" width="20" height="20" patternUnits="userSpaceOnUse">
+                        <circle cx="10" cy="10" r="1.5" fill="rgba(255,255,255,0.1)"/>
+                        <path d="M5,5 L15,15 M15,5 L5,15" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>
+                        <rect x="8" y="8" width="4" height="4" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="0.3"/>
+                      </pattern>
+                    </defs>
+                    <rect width="100" height="100" fill="url(#asianOp${idx})"/>
+                  </svg>
+                `)}`;
+                
+                const clickedByAvatar = card.clickedBy ? getPlayerAvatar(card.clickedBy) : null;
                 
                 return (
                   <button
                     key={idx}
                     onClick={() => revealCard(idx)}
                     disabled={!canClick}
-                    className={`p-2 md:p-4 rounded-lg font-bold text-[10px] md:text-xs lg:text-sm text-center transition-all ${getCardStyle()}`}
+                    className={`relative p-3 md:p-5 lg:p-6 rounded-xl font-bold text-xs md:text-sm lg:text-base text-center transition-all duration-300 transform hover:scale-105 disabled:hover:scale-100 ${getCardStyle()}`}
+                    style={{
+                      minHeight: '100px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backdropFilter: 'blur(4px)',
+                    }}
                   >
-                    {card.word}
-                    {isRevealed && card.type === "assassin" && (
-                      <div className="text-xs mt-1">💀</div>
+                    {/* Player avatar on tile */}
+                    {card.clickedBy && (
+                      <div className="absolute top-1 left-1 z-20">
+                        <div className={`w-5 h-5 md:w-6 md:h-6 rounded-full ${clickedByAvatar?.color} flex items-center justify-center text-white text-[8px] md:text-[10px] font-bold border border-white/50`}>
+                          {clickedByAvatar?.initials[0]}
+                        </div>
+                      </div>
                     )}
+                    
+                    {/* Asian pattern overlay */}
+                    <div 
+                      className="absolute inset-0 rounded-xl opacity-30"
+                      style={{
+                        backgroundImage: `url("${asianPattern}")`,
+                        backgroundSize: '40px 40px',
+                        backgroundRepeat: 'repeat',
+                      }}
+                    ></div>
+                    {/* Additional decorative border pattern */}
+                    <div className="absolute inset-0 rounded-xl" style={{
+                      background: 'linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.05) 50%, transparent 70%)',
+                      backgroundSize: '20px 20px',
+                    }}></div>
+                    <div className="relative z-10 w-full font-semibold">
+                      {card.word}
+                      {isRevealed && card.type === "assassin" && (
+                        <div className="text-sm mt-1 opacity-80">💀</div>
+                      )}
+                    </div>
                   </button>
                 );
               })}
             </div>
           </div>
 
+          {/* Bottom Controls */}
           {selectedTeam === currentTeam && guessesRemaining > 0 && (
-            <button
-              onClick={passTurn}
-              className="w-full mt-6 py-4 bg-yellow-900/50 border-2 border-yellow-500 text-yellow-400 rounded-xl font-bold hover:neon-box-yellow transition-all"
-            >
-              PASS TURN
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={passTurn}
+                className="flex-1 py-3 bg-yellow-900/50 border-2 border-yellow-500 text-yellow-400 rounded-xl font-bold hover:neon-box-yellow transition-all text-sm md:text-base"
+              >
+                PASS TURN
+              </button>
+            </div>
           )}
         </div>
       </div>

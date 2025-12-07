@@ -71,6 +71,31 @@ export default function TabooPage() {
     setCurrentUser(JSON.parse(user));
   }, [router]);
 
+  // Separate effect to initialize team from group
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    // Check if there's a current group and auto-populate team
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup && teams.length === 0) {
+      try {
+        const group = JSON.parse(currentGroup);
+        const availableColor = TEAM_COLORS[0];
+        
+        // Create a team from the group
+        const groupTeam: Team = {
+          id: `group_${group.id}`,
+          name: group.name,
+          color: availableColor,
+          score: 0
+        };
+        setTeams([groupTeam]);
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
+  }, [currentUser, teams.length]);
+
   useEffect(() => {
     if (isPlaying && timeLeft > 0) {
       const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
@@ -294,28 +319,55 @@ export default function TabooPage() {
 
   // SETUP PHASE
   if (phase === "setup") {
+    const currentGroup = localStorage.getItem("currentGroup");
+    let groupInfo = null;
+    if (currentGroup) {
+      try {
+        groupInfo = JSON.parse(currentGroup);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
     return (
-      <div className="min-h-screen p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8 page-enter">
         <div className="max-w-4xl mx-auto">
           <Link
             href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold"
+            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold animate-fade-in-left hover:animate-pulse-glow"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
             BACK TO GAMES
           </Link>
 
-          <div className="text-center mb-8">
-            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float">
+          <div className="text-center mb-8 animate-fade-in-down delay-200">
+            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float animate-glow-pulse">
               🚫 TABOO
             </h1>
-            <p className="text-cyan-300">
+            <p className="text-cyan-300 animate-fade-in-up delay-300">
               Teams compete to guess words without saying them!
             </p>
           </div>
 
-          <div className="neon-card neon-box-pink p-8 card-3d">
-            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center">
+          {/* Group Info Banner */}
+          {groupInfo && (
+            <div className="neon-card neon-box-purple p-4 mb-6 card-3d animate-slide-fade-in delay-300">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as one team
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="neon-card neon-box-pink p-8 card-3d animate-scale-in delay-400">
+            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center animate-fade-in-up">
               🏆 CREATE YOUR TEAMS
             </h2>
 
@@ -324,16 +376,17 @@ export default function TabooPage() {
               {teams.map((team, idx) => (
                 <div
                   key={team.id}
-                  className={`${team.color.light} rounded-xl p-4 border-2 ${team.color.border} ${team.color.glow} flex items-center gap-4 transition-all`}
+                  className={`${team.color.light} rounded-xl p-4 border-2 ${team.color.border} ${team.color.glow} flex items-center gap-4 transition-all card-enter hover:animate-pulse-glow`}
+                  style={{ animationDelay: `${idx * 0.1}s` }}
                 >
-                  <div className={`w-10 h-10 rounded-full ${team.color.bg} flex items-center justify-center text-black font-bold text-lg`}>
+                  <div className={`w-10 h-10 rounded-full ${team.color.bg} flex items-center justify-center text-black font-bold text-lg animate-bounce-in`} style={{ animationDelay: `${idx * 0.1 + 0.2}s` }}>
                     {idx + 1}
                   </div>
                   <input
                     type="text"
                     value={team.name}
                     onChange={(e) => updateTeamName(team.id, e.target.value)}
-                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400"
+                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400 input-3d focus:animate-pulse-glow"
                     maxLength={20}
                   />
                   <div className="flex gap-1">
@@ -342,15 +395,15 @@ export default function TabooPage() {
                         key={color.name}
                         onClick={() => updateTeamColor(team.id, color)}
                         className={`w-6 h-6 rounded-full ${color.bg} ${
-                          team.color.name === color.name ? "ring-2 ring-white scale-110" : "opacity-50 hover:opacity-100"
-                        } transition-all`}
+                          team.color.name === color.name ? "ring-2 ring-white scale-110 animate-pulse" : "opacity-50 hover:opacity-100"
+                        } transition-all hover:animate-scale-up`}
                         title={color.name}
                       />
                     ))}
                   </div>
                   <button
                     onClick={() => removeTeam(team.id)}
-                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors"
+                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors hover:animate-shake"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
@@ -361,15 +414,15 @@ export default function TabooPage() {
             {teams.length < 6 && (
               <button
                 onClick={addTeam}
-                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2 animate-fade-in-up delay-500 hover:animate-pulse-glow"
               >
-                <Plus className="w-6 h-6" />
+                <Plus className="w-6 h-6 animate-rotate-in" />
                 ADD TEAM
               </button>
             )}
 
             {/* Rounds Setting */}
-            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50">
+            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50 animate-fade-in delay-600">
               <label className="block text-yellow-400 font-semibold mb-3">
                 ROUNDS PER TEAM
               </label>
@@ -378,9 +431,9 @@ export default function TabooPage() {
                   <button
                     key={num}
                     onClick={() => setRoundsPerTeam(num)}
-                    className={`w-12 h-12 rounded-lg font-bold text-lg transition-all ${
+                    className={`w-12 h-12 rounded-lg font-bold text-lg transition-all hover:animate-scale-up ${
                       roundsPerTeam === num
-                        ? "bg-yellow-500 text-black neon-box-yellow"
+                        ? "bg-yellow-500 text-black neon-box-yellow animate-pulse"
                         : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-yellow-500"
                     }`}
                   >
@@ -396,11 +449,11 @@ export default function TabooPage() {
               disabled={teams.length < 2}
               className={`w-full mt-8 py-5 rounded-xl text-xl font-bold transition-all flex items-center justify-center gap-3 ${
                 teams.length >= 2
-                  ? "neon-btn neon-btn-green"
+                  ? "neon-btn neon-btn-green hover:animate-button-press"
                   : "bg-gray-800 text-gray-500 cursor-not-allowed border-2 border-gray-700"
-              }`}
+              } animate-fade-in-up delay-700`}
             >
-              <Play className="w-6 h-6" />
+              <Play className="w-6 h-6 animate-pulse" />
               {teams.length < 2 ? "ADD AT LEAST 2 TEAMS" : "START GAME!"}
             </button>
 
@@ -424,7 +477,7 @@ export default function TabooPage() {
   // PLAYING PHASE - Role Selection
   if (phase === "playing" && !role) {
     return (
-      <div className="min-h-screen p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8 page-enter">
         <div className="max-w-4xl mx-auto">
           {/* Scoreboard */}
           <div className="mb-8 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -432,35 +485,36 @@ export default function TabooPage() {
               <div
                 key={team.id}
                 className={`${team.color.light} rounded-xl p-3 border-2 ${team.color.border} ${
-                  idx === currentTeamIndex ? `${team.color.glow} scale-105` : "opacity-70"
-                } transition-all`}
+                  idx === currentTeamIndex ? `${team.color.glow} scale-105 animate-pulse` : "opacity-70"
+                } transition-all card-enter hover:animate-pulse-glow`}
+                style={{ animationDelay: `${idx * 0.1}s` }}
               >
                 <div className={`${team.color.text} font-bold text-xs truncate`}>{team.name}</div>
-                <div className={`${team.color.text} text-2xl font-bold`}>{team.score}</div>
+                <div className={`${team.color.text} text-2xl font-bold animate-bounce-in`} style={{ animationDelay: `${idx * 0.1 + 0.2}s` }}>{team.score}</div>
                 <div className="text-xs text-gray-400">R{(roundsPlayed[team.id] || 0) + 1}/{roundsPerTeam}</div>
               </div>
             ))}
           </div>
 
           {/* Current Team Banner */}
-          <div className={`${currentTeam.color.light} rounded-2xl p-8 border-2 ${currentTeam.color.border} ${currentTeam.color.glow} text-center mb-8`}>
-            <div className="text-sm text-gray-400 mb-2">IT'S TIME FOR...</div>
-            <h2 className={`pixel-font text-3xl md:text-4xl font-bold ${currentTeam.color.text} mb-2`}>
+          <div className={`${currentTeam.color.light} rounded-2xl p-8 border-2 ${currentTeam.color.border} ${currentTeam.color.glow} text-center mb-8 animate-bounce-in delay-300`}>
+            <div className="text-sm text-gray-400 mb-2 animate-fade-in-up">IT'S TIME FOR...</div>
+            <h2 className={`pixel-font text-3xl md:text-4xl font-bold ${currentTeam.color.text} mb-2 animate-glow-pulse`}>
               {currentTeam.name}
             </h2>
-            <div className="text-gray-400">Round {(roundsPlayed[currentTeam.id] || 0) + 1} of {roundsPerTeam}</div>
+            <div className="text-gray-400 animate-fade-in-up delay-200">Round {(roundsPlayed[currentTeam.id] || 0) + 1} of {roundsPerTeam}</div>
           </div>
 
           {/* Role Selection */}
-          <div className="neon-card neon-box-cyan p-8 card-3d">
-            <h3 className="text-xl font-bold text-center text-cyan-400 mb-6">WHAT'S YOUR ROLE?</h3>
+          <div className="neon-card neon-box-cyan p-8 card-3d animate-scale-in delay-400">
+            <h3 className="text-xl font-bold text-center text-cyan-400 mb-6 animate-fade-in-up">WHAT'S YOUR ROLE?</h3>
             <div className="grid md:grid-cols-2 gap-6">
               <button
                 onClick={() => { setRole("describer"); startRound(); }}
-                className={`${currentTeam.color.light} border-2 ${currentTeam.color.border} ${currentTeam.color.glow} p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4`}
+                className={`${currentTeam.color.light} border-2 ${currentTeam.color.border} ${currentTeam.color.glow} p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4 card-enter animate-stagger-1 hover:animate-pulse-glow`}
               >
-                <div className={`w-20 h-20 ${currentTeam.color.bg} rounded-full flex items-center justify-center`}>
-                  <Crown className="w-10 h-10 text-black" />
+                <div className={`w-20 h-20 ${currentTeam.color.bg} rounded-full flex items-center justify-center animate-rotate-in`}>
+                  <Crown className="w-10 h-10 text-black animate-bounce" />
                 </div>
                 <span className={`text-2xl font-bold ${currentTeam.color.text} pixel-font text-sm`}>DESCRIBER</span>
                 <span className="text-gray-400 text-sm text-center">
@@ -470,10 +524,10 @@ export default function TabooPage() {
 
               <button
                 onClick={() => { setRole("guesser"); startRound(); }}
-                className="bg-gray-800/50 border-2 border-gray-600 hover:border-cyan-500 hover:neon-box-cyan p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4"
+                className="bg-gray-800/50 border-2 border-gray-600 hover:border-cyan-500 hover:neon-box-cyan p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4 card-enter animate-stagger-2 hover:animate-pulse-glow"
               >
-                <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center">
-                  <Users className="w-10 h-10 text-gray-300" />
+                <div className="w-20 h-20 bg-gray-700 rounded-full flex items-center justify-center animate-rotate-in delay-200">
+                  <Users className="w-10 h-10 text-gray-300 animate-pulse" />
                 </div>
                 <span className="text-2xl font-bold text-gray-300 pixel-font text-sm">GUESSER</span>
                 <span className="text-gray-500 text-sm text-center">
@@ -502,8 +556,8 @@ export default function TabooPage() {
                 </div>
               </div>
               <div className={`text-5xl md:text-6xl font-bold pixel-font ${
-                timeLeft <= 10 ? "text-red-400 neon-glow-pink animate-pulse" : currentTeam.color.text
-              }`}>
+                timeLeft <= 10 ? "text-red-400 neon-glow-pink animate-heartbeat" : currentTeam.color.text
+              } animate-bounce-in`}>
                 {timeLeft}
               </div>
               <div className="flex gap-6">
@@ -522,7 +576,7 @@ export default function TabooPage() {
           {/* Correct Feedback Animation */}
           {showCorrectFeedback && (
             <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
-              <div className="bg-green-500 text-black text-4xl md:text-6xl font-bold px-12 py-8 rounded-2xl neon-box-green animate-bounce pixel-font">
+              <div className="bg-green-500 text-black text-4xl md:text-6xl font-bold px-12 py-8 rounded-2xl neon-box-green animate-success pixel-font">
                 ✓ CORRECT!
               </div>
             </div>
@@ -530,43 +584,43 @@ export default function TabooPage() {
 
           {/* Current Word Display */}
           {currentWord ? (
-            <div className="neon-card neon-box-pink p-4 md:p-8 mb-6 card-3d">
+            <div className="neon-card neon-box-pink p-4 md:p-8 mb-6 card-3d animate-zoom-in">
               <div className="text-center">
-                <div className="text-xs md:text-sm text-pink-400 font-semibold mb-2">DESCRIBE THIS WORD:</div>
-                <div className="text-2xl md:text-4xl lg:text-6xl font-bold text-white mb-4 md:mb-6 pixel-font neon-glow-cyan">
+                <div className="text-xs md:text-sm text-pink-400 font-semibold mb-2 animate-fade-in-down">DESCRIBE THIS WORD:</div>
+                <div className="text-2xl md:text-4xl lg:text-6xl font-bold text-white mb-4 md:mb-6 pixel-font neon-glow-cyan animate-bounce-in">
                   {currentWord}
                 </div>
-                <div className="bg-red-900/50 border-2 border-red-500 neon-box-orange text-red-400 rounded-xl p-4 inline-block">
+                <div className="bg-red-900/50 border-2 border-red-500 neon-box-orange text-red-400 rounded-xl p-4 inline-block animate-shake">
                   <div className="text-lg font-bold">🚫 TABOO! Don't say "{currentWord}"!</div>
                 </div>
               </div>
-              <div className="flex flex-col sm:flex-row gap-2 md:gap-4 justify-center mt-4 md:mt-8">
+              <div className="flex flex-col sm:flex-row gap-2 md:gap-4 justify-center mt-4 md:mt-8 animate-fade-in-up delay-300">
                 <button
                   onClick={handleCorrect}
-                  className="neon-btn neon-btn-green px-4 md:px-8 py-3 md:py-4 text-sm md:text-xl flex items-center justify-center gap-2 btn-3d"
+                  className="neon-btn neon-btn-green px-4 md:px-8 py-3 md:py-4 text-sm md:text-xl flex items-center justify-center gap-2 btn-3d hover:animate-button-press"
                 >
-                  <Check className="w-4 h-4 md:w-6 md:h-6" />
+                  <Check className="w-4 h-4 md:w-6 md:h-6 animate-rotate-in" />
                   TEAM GOT IT!
                 </button>
                 <button
                   onClick={handleSkip}
-                  className="neon-btn neon-btn-yellow px-4 md:px-8 py-3 md:py-4 text-sm md:text-xl flex items-center justify-center gap-2 btn-3d"
+                  className="neon-btn neon-btn-yellow px-4 md:px-8 py-3 md:py-4 text-sm md:text-xl flex items-center justify-center gap-2 btn-3d hover:animate-button-press"
                 >
-                  <X className="w-4 h-4 md:w-6 md:h-6" />
+                  <X className="w-4 h-4 md:w-6 md:h-6 animate-rotate-in delay-100" />
                   SKIP
                 </button>
               </div>
             </div>
           ) : (
-            <div className="neon-card neon-box-cyan p-8 mb-6 text-center card-3d">
-              <div className="text-xl text-cyan-400">
+            <div className="neon-card neon-box-cyan p-8 mb-6 text-center card-3d animate-pulse">
+              <div className="text-xl text-cyan-400 animate-fade-in-up">
                 👇 CLICK A WORD FROM THE GRID TO START DESCRIBING!
               </div>
             </div>
           )}
 
           {/* Word Grid */}
-          <div className="neon-card neon-box-cyan p-3 md:p-6 card-3d">
+          <div className="neon-card neon-box-cyan p-3 md:p-6 card-3d animate-fade-in delay-400">
             <div className="grid grid-cols-5 gap-1 md:gap-2 lg:gap-3">
               {words.map((word, idx) => {
                 const isUsed = usedWords.includes(word);
@@ -579,12 +633,13 @@ export default function TabooPage() {
                     className={`
                       p-1 md:p-2 lg:p-4 rounded-lg font-bold text-[10px] md:text-xs lg:text-base transition-all
                       ${isCurrent 
-                        ? `${currentTeam.color.bg} text-black ${currentTeam.color.glow} scale-105` 
+                        ? `${currentTeam.color.bg} text-black ${currentTeam.color.glow} scale-105 animate-pulse` 
                         : isUsed
                         ? "bg-gray-800 text-gray-600 cursor-not-allowed line-through"
-                        : "bg-gray-800/50 text-gray-300 border-2 border-gray-600 hover:border-cyan-400 hover:text-cyan-400"
+                        : "bg-gray-800/50 text-gray-300 border-2 border-gray-600 hover:border-cyan-400 hover:text-cyan-400 hover:animate-scale-up"
                       }
                     `}
+                    style={{ animationDelay: `${idx * 0.02}s` }}
                   >
                     {word}
                   </button>

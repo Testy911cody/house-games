@@ -481,6 +481,31 @@ export default function JeopardyPage() {
     }
   }, [router]);
 
+  // Separate effect to initialize team from group
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    // Check if there's a current group and auto-populate team
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup && teams.length === 0) {
+      try {
+        const group = JSON.parse(currentGroup);
+        const availableColor = TEAM_COLORS[0];
+        
+        // Create a team from the group
+        const groupTeam: Team = {
+          id: `group_${group.id}`,
+          name: group.name,
+          color: availableColor,
+          score: 0
+        };
+        setTeams([groupTeam]);
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
+  }, [currentUser, teams.length]);
+
   const topicNames = Object.keys(TOPICS);
   const currentTopicData = selectedTopic ? TOPICS[selectedTopic] : null;
   
@@ -773,28 +798,55 @@ export default function JeopardyPage() {
 
   // SETUP PHASE
   if (phase === "setup") {
+    const currentGroup = localStorage.getItem("currentGroup");
+    let groupInfo = null;
+    if (currentGroup) {
+      try {
+        groupInfo = JSON.parse(currentGroup);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
     return (
-      <div className="min-h-screen p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8 page-enter">
         <div className="max-w-4xl mx-auto">
           <Link
             href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold"
+            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold animate-fade-in-left hover:animate-pulse-glow"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
             BACK TO GAMES
           </Link>
 
-          <div className="text-center mb-8">
-            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-yellow-400 neon-glow-yellow mb-4 float-3d text-3d">
+          <div className="text-center mb-8 animate-fade-in-down delay-200">
+            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-yellow-400 neon-glow-yellow mb-4 float-3d text-3d animate-glow-pulse">
               🎯 JEOPARDY! 🎯
             </h1>
-            <p className="text-cyan-300">
+            <p className="text-cyan-300 animate-fade-in-up delay-300">
               The Ultimate Trivia Showdown!
             </p>
           </div>
 
-          <div className="neon-card neon-box-yellow p-8 card-3d">
-            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center">
+          {/* Group Info Banner */}
+          {groupInfo && (
+            <div className="neon-card neon-box-purple p-4 mb-6 card-3d animate-slide-fade-in delay-400">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3 animate-fade-in-left">
+                  <Users className="w-5 h-5 text-purple-400 animate-pulse" />
+                  <div>
+                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as one team
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="neon-card neon-box-yellow p-8 card-3d animate-scale-in delay-400">
+            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center animate-fade-in-up">
               🏆 CREATE YOUR TEAMS
             </h2>
 
@@ -803,16 +855,17 @@ export default function JeopardyPage() {
               {teams.map((team, idx) => (
                 <div
                   key={team.id}
-                  className={`${team.color.light} rounded-xl p-4 border-2 ${team.color.border} ${team.color.glow} flex items-center gap-4 transition-all score-card-3d`}
+                  className={`${team.color.light} rounded-xl p-4 border-2 ${team.color.border} ${team.color.glow} flex items-center gap-4 transition-all score-card-3d card-enter hover:animate-pulse-glow`}
+                  style={{ animationDelay: `${idx * 0.1}s` }}
                 >
-                  <div className={`w-10 h-10 rounded-full ${team.color.bg} flex items-center justify-center text-black font-bold text-lg`}>
+                  <div className={`w-10 h-10 rounded-full ${team.color.bg} flex items-center justify-center text-black font-bold text-lg animate-bounce-in`} style={{ animationDelay: `${idx * 0.1 + 0.2}s` }}>
                     {idx + 1}
                   </div>
                   <input
                     type="text"
                     value={team.name}
                     onChange={(e) => updateTeamName(team.id, e.target.value)}
-                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400"
+                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400 input-3d focus:animate-pulse-glow"
                     maxLength={20}
                   />
                   <div className="flex gap-1">
@@ -821,15 +874,15 @@ export default function JeopardyPage() {
                         key={color.name}
                         onClick={() => updateTeamColor(team.id, color)}
                         className={`w-6 h-6 rounded-full ${color.bg} ${
-                          team.color.name === color.name ? "ring-2 ring-white scale-110" : "opacity-50 hover:opacity-100"
-                        } transition-all`}
+                          team.color.name === color.name ? "ring-2 ring-white scale-110 animate-pulse" : "opacity-50 hover:opacity-100"
+                        } transition-all hover:animate-scale-up`}
                         title={color.name}
                       />
                     ))}
                   </div>
                   <button
                     onClick={() => removeTeam(team.id)}
-                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors"
+                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors hover:animate-shake"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
@@ -840,9 +893,9 @@ export default function JeopardyPage() {
             {teams.length < 6 && (
               <button
                 onClick={addTeam}
-                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2"
+                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2 animate-fade-in-up delay-500 hover:animate-pulse-glow"
               >
-                <Plus className="w-6 h-6" />
+                <Plus className="w-6 h-6 animate-rotate-in" />
                 ADD TEAM
               </button>
             )}
@@ -853,11 +906,11 @@ export default function JeopardyPage() {
               disabled={teams.length < 2}
               className={`w-full mt-8 py-5 rounded-xl text-xl font-bold transition-all flex items-center justify-center gap-3 ${
                 teams.length >= 2
-                  ? "neon-btn neon-btn-green btn-3d"
+                  ? "neon-btn neon-btn-green btn-3d hover:animate-button-press"
                   : "bg-gray-800 text-gray-500 cursor-not-allowed border-2 border-gray-700"
-              }`}
+              } animate-fade-in-up delay-600`}
             >
-              <Play className="w-6 h-6" />
+              <Play className="w-6 h-6 animate-pulse" />
               {teams.length < 2 ? "ADD AT LEAST 2 TEAMS" : "CHOOSE TOPIC →"}
             </button>
 
@@ -881,28 +934,28 @@ export default function JeopardyPage() {
   // TOPIC SELECTION PHASE
   if (phase === "topicSelect") {
     return (
-      <div className="min-h-screen p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8 page-enter">
         <div className="max-w-5xl mx-auto">
           <button
             onClick={() => setPhase("setup")}
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-6 font-semibold"
+            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-6 font-semibold animate-fade-in-left hover:animate-pulse-glow"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
             BACK TO TEAMS
           </button>
 
-          <div className="text-center mb-8">
-            <h1 className="pixel-font text-2xl md:text-4xl font-bold text-yellow-400 neon-glow-yellow mb-2">
+          <div className="text-center mb-8 animate-fade-in-down delay-200">
+            <h1 className="pixel-font text-2xl md:text-4xl font-bold text-yellow-400 neon-glow-yellow mb-2 animate-glow-pulse">
               CHOOSE YOUR TOPIC
             </h1>
-            <p className="text-cyan-300">
+            <p className="text-cyan-300 animate-fade-in-up delay-300">
               Each topic has its own categories!
             </p>
           </div>
 
           {/* Topic Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {topicNames.map((topic) => {
+            {topicNames.map((topic, idx) => {
               const topicData = TOPICS[topic];
               const colorClass = COLOR_CLASSES[topicData.color];
               const regularCategoryCount = Object.keys(topicData.categories).length;
@@ -913,11 +966,12 @@ export default function JeopardyPage() {
                 <button
                   key={topic}
                   onClick={() => selectTopic(topic)}
-                  className={`${colorClass.bg} border-2 ${colorClass.border} ${colorClass.box} p-6 rounded-2xl transition-all hover:scale-105 text-center topic-card-3d`}
+                  className={`${colorClass.bg} border-2 ${colorClass.border} ${colorClass.box} p-6 rounded-2xl transition-all hover:scale-105 text-center topic-card-3d card-enter hover:animate-pulse-glow`}
+                  style={{ animationDelay: `${idx * 0.1}s` }}
                 >
-                  <div className="text-5xl mb-3 icon-3d">{topicData.icon}</div>
-                  <div className={`font-bold text-lg ${colorClass.text}`}>{topic}</div>
-                  <div className="text-gray-400 text-sm mt-1">
+                  <div className="text-5xl mb-3 icon-3d animate-bounce-in">{topicData.icon}</div>
+                  <div className={`font-bold text-lg ${colorClass.text} animate-fade-in-up`}>{topic}</div>
+                  <div className="text-gray-400 text-sm mt-1 animate-fade-in-up delay-200">
                     {totalCategoryCount} categories
                     {customCategoryCount > 0 && (
                       <span className="text-yellow-400 ml-1">
@@ -925,8 +979,8 @@ export default function JeopardyPage() {
                       </span>
                     )}
                   </div>
-                  <div className={`mt-3 ${colorClass.text} flex items-center justify-center gap-1`}>
-                    SELECT <ChevronRight className="w-4 h-4" />
+                  <div className={`mt-3 ${colorClass.text} flex items-center justify-center gap-1 animate-fade-in-up delay-300`}>
+                    SELECT <ChevronRight className="w-4 h-4 animate-fade-in-right" />
                   </div>
                 </button>
               );
@@ -934,14 +988,15 @@ export default function JeopardyPage() {
           </div>
 
           {/* Scoreboard Preview */}
-          <div className="mt-8 grid grid-cols-3 md:grid-cols-6 gap-2 grid-3d">
-            {teams.map((team) => (
+          <div className="mt-8 grid grid-cols-3 md:grid-cols-6 gap-2 grid-3d animate-fade-in delay-500">
+            {teams.map((team, idx) => (
               <div
                 key={team.id}
-                className={`${team.color.light} rounded-lg p-2 border-2 ${team.color.border} score-3d grid-item-3d`}
+                className={`${team.color.light} rounded-lg p-2 border-2 ${team.color.border} score-3d grid-item-3d hover:animate-pulse-glow`}
+                style={{ animationDelay: `${idx * 0.1}s` }}
               >
                 <div className={`${team.color.text} font-bold text-xs truncate`}>{team.name}</div>
-                <div className={`${team.color.text} text-xl font-bold`}>${team.score}</div>
+                <div className={`${team.color.text} text-xl font-bold animate-bounce-in`} style={{ animationDelay: `${idx * 0.1 + 0.2}s` }}>${team.score}</div>
               </div>
             ))}
           </div>
@@ -953,22 +1008,22 @@ export default function JeopardyPage() {
   // CATEGORY SELECTION PHASE
   if (phase === "categorySelect" && currentTopicData) {
     return (
-      <div className="min-h-screen p-4 md:p-8">
+      <div className="min-h-screen p-4 md:p-8 page-enter">
         <div className="max-w-5xl mx-auto">
           <button
             onClick={changeTopic}
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-6 font-semibold"
+            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-6 font-semibold animate-fade-in-left hover:animate-pulse-glow"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
             CHANGE TOPIC
           </button>
 
-          <div className="text-center mb-6">
-            <div className="text-5xl mb-2 icon-3d">{currentTopicData.icon}</div>
-            <h1 className={`pixel-font text-2xl md:text-4xl font-bold ${topicColor.text} mb-2`}>
+          <div className="text-center mb-6 animate-fade-in-down delay-200">
+            <div className="text-5xl mb-2 icon-3d animate-bounce-in">{currentTopicData.icon}</div>
+            <h1 className={`pixel-font text-2xl md:text-4xl font-bold ${topicColor.text} mb-2 animate-glow-pulse`}>
               {selectedTopic}
             </h1>
-            <p className="text-cyan-300">
+            <p className="text-cyan-300 animate-fade-in-up delay-300">
               Select {numCategories} categories ({selectedCategories.length}/{numCategories})
             </p>
           </div>
@@ -1088,9 +1143,9 @@ export default function JeopardyPage() {
           )}
 
           {/* Category Grid */}
-          <div className={`neon-card ${topicColor.box} p-6 mb-6 card-3d`}>
+          <div className={`neon-card ${topicColor.box} p-6 mb-6 card-3d animate-fade-in delay-400`}>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {availableCategories.map((category) => {
+              {availableCategories.map((category, idx) => {
                 const isSelected = selectedCategories.includes(category);
                 const canSelect = selectedCategories.length < numCategories || isSelected;
                 const isCustom = customCategories[selectedTopic || ""]?.some(cat => cat.name === category);
@@ -1103,16 +1158,17 @@ export default function JeopardyPage() {
                     className={`
                       p-4 rounded-xl font-bold text-sm transition-all text-center relative tile-3d
                       ${isSelected
-                        ? `${topicColor.bg} ${topicColor.border} border-2 text-white ${topicColor.box} scale-105`
+                        ? `${topicColor.bg} ${topicColor.border} border-2 text-white ${topicColor.box} scale-105 animate-pulse`
                         : canSelect
-                        ? "bg-gray-800/50 text-gray-300 border-2 border-gray-600 hover:border-gray-400"
+                        ? "bg-gray-800/50 text-gray-300 border-2 border-gray-600 hover:border-gray-400 hover:animate-scale-up"
                         : "bg-gray-900/50 text-gray-600 cursor-not-allowed border-2 border-gray-800"
                       }
                     `}
+                    style={{ animationDelay: `${idx * 0.05}s` }}
                   >
                     {category}
                     {isCustom && (
-                      <Star className="w-3 h-3 absolute top-1 right-1 text-yellow-400 fill-yellow-400" />
+                      <Star className="w-3 h-3 absolute top-1 right-1 text-yellow-400 fill-yellow-400 animate-pulse" />
                     )}
                   </button>
                 );

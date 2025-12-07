@@ -52,6 +52,55 @@ const BOARD_SPACES = [
 const PLAYER_COLORS = ["#ff00ff", "#00ffff", "#00ff00", "#ffff00", "#ff6600", "#9900ff"];
 const PLAYER_TOKENS = ["🎮", "🎯", "🚀", "⭐", "🎪", "🎨"];
 
+// Calculate board position for a space (returns x, y percentage)
+const getBoardPosition = (spaceId: number): { x: number; y: number } => {
+  // Board layout (11x11 grid):
+  // Top row: 20-30 (left to right, 11 spaces)
+  // Right column: 31-39 (top to bottom, 9 spaces)
+  // Bottom row: 0-10 (right to left, 11 spaces)
+  // Left column: 11-19 (bottom to top, 9 spaces)
+  // Center: 9x9 grid (spaces not on edges)
+  
+  // Each cell is approximately 9.09% (100% / 11)
+  const cellWidth = 100 / 11;
+  const cellHeight = 100 / 11;
+  
+  // Center offset for corner spaces
+  const cornerOffset = cellWidth / 2;
+  
+  if (spaceId >= 20 && spaceId <= 30) {
+    // Top row (left to right)
+    const index = spaceId - 20;
+    return { 
+      x: cornerOffset + (index * cellWidth), 
+      y: cornerOffset 
+    };
+  } else if (spaceId >= 31 && spaceId <= 39) {
+    // Right column (top to bottom)
+    const index = spaceId - 31;
+    return { 
+      x: 100 - cornerOffset, 
+      y: cornerOffset + cellHeight + (index * cellHeight) 
+    };
+  } else if (spaceId >= 0 && spaceId <= 10) {
+    // Bottom row (right to left)
+    const index = 10 - spaceId;
+    return { 
+      x: cornerOffset + (index * cellWidth), 
+      y: 100 - cornerOffset 
+    };
+  } else if (spaceId >= 11 && spaceId <= 19) {
+    // Left column (bottom to top)
+    const index = 19 - spaceId;
+    return { 
+      x: cornerOffset, 
+      y: cornerOffset + cellHeight + (index * cellHeight) 
+    };
+  }
+  
+  return { x: 50, y: 50 }; // Center fallback
+};
+
 const CHANCE_CARDS = [
   { text: "Advance to GO! Collect $200.", action: "move", value: 0 },
   { text: "Bank pays you dividend of $50.", action: "money", value: 50 },
@@ -91,10 +140,14 @@ interface PropertyOwnership {
   [spaceId: number]: number; // player id
 }
 
-const DiceIcon = ({ value }: { value: number }) => {
+const DiceIcon = ({ value, isRolling }: { value: number; isRolling?: boolean }) => {
   const icons = [Dice1, Dice2, Dice3, Dice4, Dice5, Dice6];
   const Icon = icons[value - 1] || Dice1;
-  return <Icon className="w-12 h-12 animate-rotate-in" />;
+  return (
+    <div className={`relative ${isRolling ? 'animate-dice-roll' : ''}`}>
+      <Icon className="w-12 h-12" />
+    </div>
+  );
 };
 
 export default function MonopolyPage() {
@@ -105,6 +158,11 @@ export default function MonopolyPage() {
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [dice, setDice] = useState<[number, number]>([1, 1]);
   const [hasRolled, setHasRolled] = useState(false);
+  const [isRollingDice, setIsRollingDice] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
+  const [animatingPlayerId, setAnimatingPlayerId] = useState<number | null>(null);
+  const [animatingFromPosition, setAnimatingFromPosition] = useState<number | null>(null);
+  const [animatingToPosition, setAnimatingToPosition] = useState<number | null>(null);
   const [propertyOwnership, setPropertyOwnership] = useState<PropertyOwnership>({});
   const [message, setMessage] = useState("");
   const [showCard, setShowCard] = useState<{ type: string; text: string } | null>(null);
@@ -179,216 +237,358 @@ export default function MonopolyPage() {
     setGameState("playing");
   };
 
-  const rollDice = useCallback(() => {
-    if (hasRolled) return;
-    
-    const die1 = Math.floor(Math.random() * 6) + 1;
-    const die2 = Math.floor(Math.random() * 6) + 1;
-    setDice([die1, die2]);
-    setHasRolled(true);
-    
-    const currentPlayer = players[currentPlayerIndex];
-    
-    // Handle jail
-    if (currentPlayer.inJail) {
-      if (die1 === die2) {
-        // Doubles get out of jail
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, inJail: false, jailTurns: 0 } : p
-        ));
-        setMessage(`${currentPlayer.name} rolled doubles and is out of jail!`);
-        movePlayer(die1 + die2);
-      } else {
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, jailTurns: p.jailTurns + 1 } : p
-        ));
-        if (currentPlayer.jailTurns >= 2) {
-          // 3rd turn, must pay to get out
-          setPlayers(prev => prev.map((p, i) => 
-            i === currentPlayerIndex ? { ...p, money: p.money - 50, inJail: false, jailTurns: 0 } : p
-          ));
-          setMessage(`${currentPlayer.name} paid $50 to get out of jail.`);
-          movePlayer(die1 + die2);
-        } else {
-          setMessage(`${currentPlayer.name} is still in jail. No doubles.`);
-        }
+  const handleLanding = useCallback((position: number) => {
+    setPlayers(prev => {
+      const currentPlayer = prev[currentPlayerIndex];
+      const space = BOARD_SPACES[position];
+      
+      switch (space.type) {
+        case "go":
+          setMessage(`${currentPlayer.name} landed on GO!`);
+          break;
+          
+        case "property":
+        case "railroad":
+        case "utility":
+          if (propertyOwnership[position] !== undefined) {
+            const ownerId = propertyOwnership[position];
+            if (ownerId !== currentPlayer.id) {
+              const owner = prev[ownerId];
+              const rent = space.rent || 25;
+              // Check if player can afford rent
+              if (currentPlayer.money >= rent) {
+                const updated = prev.map((p, i) => {
+                  if (i === currentPlayerIndex) return { ...p, money: p.money - rent };
+                  if (i === ownerId) return { ...p, money: p.money + rent };
+                  return p;
+                });
+                setMessage(`${currentPlayer.name} pays $${rent} rent to ${owner.name}!`);
+                // Check bankruptcy after rent payment
+                setTimeout(() => checkBankruptcy(), 100);
+                return updated;
+              } else {
+                // Player can't afford rent - bankrupt
+                setMessage(`${currentPlayer.name} cannot afford $${rent} rent! Bankrupt!`);
+                const updated = prev.map((p, i) => 
+                  i === currentPlayerIndex ? { ...p, money: 0, isBankrupt: true } : p
+                );
+                setTimeout(() => checkBankruptcy(), 100);
+                return updated;
+              }
+            } else {
+              setMessage(`${currentPlayer.name} landed on their own property.`);
+            }
+          } else {
+            setMessage(`${currentPlayer.name} landed on ${space.name}. Price: $${space.price}. Click to buy!`);
+          }
+          break;
+          
+        case "tax":
+          const taxAmount = space.price || 100;
+          if (currentPlayer.money >= taxAmount) {
+            const updated = prev.map((p, i) => 
+              i === currentPlayerIndex ? { ...p, money: p.money - taxAmount } : p
+            );
+            setMessage(`${currentPlayer.name} pays $${taxAmount} in taxes!`);
+            setTimeout(() => checkBankruptcy(), 100);
+            return updated;
+          } else {
+            // Can't afford tax - bankrupt
+            const updated = prev.map((p, i) => 
+              i === currentPlayerIndex ? { ...p, money: 0, isBankrupt: true } : p
+            );
+            setMessage(`${currentPlayer.name} cannot afford taxes! Bankrupt!`);
+            setTimeout(() => checkBankruptcy(), 100);
+            return updated;
+          }
+          
+        case "chance":
+          const chanceCard = CHANCE_CARDS[Math.floor(Math.random() * CHANCE_CARDS.length)];
+          setShowCard({ type: "Chance", text: chanceCard.text });
+          handleCard(chanceCard);
+          break;
+          
+        case "chest":
+          const chestCard = COMMUNITY_CARDS[Math.floor(Math.random() * COMMUNITY_CARDS.length)];
+          setShowCard({ type: "Community Chest", text: chestCard.text });
+          handleCard(chestCard);
+          break;
+          
+        case "gotojail":
+          const jailed = prev.map((p, i) => 
+            i === currentPlayerIndex ? { ...p, position: 10, inJail: true } : p
+          );
+          setMessage(`${currentPlayer.name} goes to Jail!`);
+          return jailed;
+          
+        case "jail":
+          setMessage(`${currentPlayer.name} is just visiting Jail.`);
+          break;
+          
+        case "parking":
+          setMessage(`${currentPlayer.name} landed on Free Parking.`);
+          break;
       }
-    } else {
-      movePlayer(die1 + die2);
-    }
-  }, [hasRolled, players, currentPlayerIndex]);
+      
+      return prev;
+    });
+  }, [currentPlayerIndex, propertyOwnership]);
 
-  const movePlayer = (spaces: number) => {
+  const movePlayer = useCallback((spaces: number) => {
+    if (isMoving) return;
+    
     const currentPlayer = players[currentPlayerIndex];
+    const startPosition = currentPlayer.position;
     let newPosition = (currentPlayer.position + spaces) % 40;
     
-    // Check if passed GO
-    if (newPosition < currentPlayer.position && !currentPlayer.inJail) {
+    // Check if passed GO (wrapped around)
+    const passedGo = (startPosition + spaces) >= 40 && !currentPlayer.inJail;
+    if (passedGo) {
       setPlayers(prev => prev.map((p, i) => 
         i === currentPlayerIndex ? { ...p, money: p.money + 200 } : p
       ));
       setMessage(prev => prev + ` Passed GO! Collect $200.`);
     }
     
+    // Update position immediately so piece stays visible
     setPlayers(prev => prev.map((p, i) => 
       i === currentPlayerIndex ? { ...p, position: newPosition } : p
     ));
     
-    // Handle landing on space
-    setTimeout(() => handleLanding(newPosition), 500);
-  };
-
-  const handleLanding = (position: number) => {
-    const space = BOARD_SPACES[position];
-    const currentPlayer = players[currentPlayerIndex];
+    // Start animation
+    setIsMoving(true);
+    setAnimatingPlayerId(currentPlayer.id);
+    setAnimatingFromPosition(startPosition);
+    setAnimatingToPosition(newPosition);
     
-    switch (space.type) {
-      case "go":
-        setMessage(`${currentPlayer.name} landed on GO!`);
-        break;
+    // Calculate total spaces to move (handling wrap-around)
+    let spacesToMove = spaces;
+    if (startPosition + spaces >= 40) {
+      // Need to wrap around
+      spacesToMove = spaces;
+    }
+    
+    // Animate movement space by space
+    let currentAnimPosition = startPosition;
+    let spacesMoved = 0;
+    const moveInterval = setInterval(() => {
+      currentAnimPosition = (currentAnimPosition + 1) % 40;
+      spacesMoved++;
+      setAnimatingFromPosition(currentAnimPosition);
+      
+      if (spacesMoved >= spacesToMove) {
+        clearInterval(moveInterval);
+        // Animation complete - position already updated above
+        setIsMoving(false);
+        setAnimatingPlayerId(null);
+        setAnimatingFromPosition(null);
+        setAnimatingToPosition(null);
         
-      case "property":
-      case "railroad":
-      case "utility":
-        if (propertyOwnership[position] !== undefined) {
-          const ownerId = propertyOwnership[position];
-          if (ownerId !== currentPlayer.id) {
-            const owner = players[ownerId];
-            const rent = space.rent || 25;
-            setPlayers(prev => prev.map((p, i) => {
-              if (i === currentPlayerIndex) return { ...p, money: p.money - rent };
-              if (i === ownerId) return { ...p, money: p.money + rent };
-              return p;
-            }));
-            setMessage(`${currentPlayer.name} pays $${rent} rent to ${owner.name}!`);
+        // Handle landing on space
+        setTimeout(() => handleLanding(newPosition), 300);
+      }
+    }, 200); // 200ms per space
+  }, [isMoving, players, currentPlayerIndex, handleLanding]);
+
+  const rollDice = useCallback(() => {
+    if (hasRolled || isRollingDice) return;
+    
+    setIsRollingDice(true);
+    
+    // Animate dice rolling for 1.5 seconds
+    const rollInterval = setInterval(() => {
+      const tempDie1 = Math.floor(Math.random() * 6) + 1;
+      const tempDie2 = Math.floor(Math.random() * 6) + 1;
+      setDice([tempDie1, tempDie2]);
+    }, 100);
+    
+    setTimeout(() => {
+      clearInterval(rollInterval);
+      const die1 = Math.floor(Math.random() * 6) + 1;
+      const die2 = Math.floor(Math.random() * 6) + 1;
+      setDice([die1, die2]);
+      setIsRollingDice(false);
+      setHasRolled(true);
+      
+      // Use functional update to get fresh player data
+      setPlayers(prev => {
+        const currentPlayer = prev[currentPlayerIndex];
+        
+        // Handle jail
+        if (currentPlayer.inJail) {
+          if (die1 === die2) {
+            // Doubles get out of jail
+            const updated = prev.map((p, i) => 
+              i === currentPlayerIndex ? { ...p, inJail: false, jailTurns: 0 } : p
+            );
+            setTimeout(() => {
+              setMessage(`${currentPlayer.name} rolled doubles and is out of jail!`);
+              movePlayer(die1 + die2);
+            }, 0);
+            return updated;
           } else {
-            setMessage(`${currentPlayer.name} landed on their own property.`);
+            const updated = prev.map((p, i) => 
+              i === currentPlayerIndex ? { ...p, jailTurns: p.jailTurns + 1 } : p
+            );
+            if (currentPlayer.jailTurns >= 2) {
+              // 3rd turn, must pay to get out
+              if (currentPlayer.money >= 50) {
+                const paid = updated.map((p, i) => 
+                  i === currentPlayerIndex ? { ...p, money: p.money - 50, inJail: false, jailTurns: 0 } : p
+                );
+                setTimeout(() => {
+                  setMessage(`${currentPlayer.name} paid $50 to get out of jail.`);
+                  movePlayer(die1 + die2);
+                  checkBankruptcy();
+                }, 0);
+                return paid;
+              } else {
+                // Can't afford to pay - bankrupt
+                const bankrupt = updated.map((p, i) => 
+                  i === currentPlayerIndex ? { ...p, money: 0, isBankrupt: true } : p
+                );
+                setTimeout(() => {
+                  setMessage(`${currentPlayer.name} cannot afford to pay $50 to get out of jail! Bankrupt!`);
+                  checkBankruptcy();
+                }, 0);
+                return bankrupt;
+              }
+            } else {
+              setTimeout(() => {
+                setMessage(`${currentPlayer.name} is still in jail. No doubles.`);
+              }, 0);
+              return updated;
+            }
           }
         } else {
-          setMessage(`${currentPlayer.name} landed on ${space.name}. Price: $${space.price}. Click to buy!`);
+          // Not in jail, move normally
+          setTimeout(() => {
+            movePlayer(die1 + die2);
+          }, 0);
+          return prev;
         }
-        break;
-        
-      case "tax":
-        const taxAmount = space.price || 100;
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, money: p.money - taxAmount } : p
-        ));
-        setMessage(`${currentPlayer.name} pays $${taxAmount} in taxes!`);
-        break;
-        
-      case "chance":
-        const chanceCard = CHANCE_CARDS[Math.floor(Math.random() * CHANCE_CARDS.length)];
-        setShowCard({ type: "Chance", text: chanceCard.text });
-        handleCard(chanceCard);
-        break;
-        
-      case "chest":
-        const chestCard = COMMUNITY_CARDS[Math.floor(Math.random() * COMMUNITY_CARDS.length)];
-        setShowCard({ type: "Community Chest", text: chestCard.text });
-        handleCard(chestCard);
-        break;
-        
-      case "gotojail":
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, position: 10, inJail: true } : p
-        ));
-        setMessage(`${currentPlayer.name} goes to Jail!`);
-        break;
-        
-      case "jail":
-        setMessage(`${currentPlayer.name} is just visiting Jail.`);
-        break;
-        
-      case "parking":
-        setMessage(`${currentPlayer.name} landed on Free Parking.`);
-        break;
-    }
-    
-    // Check for bankruptcy
-    checkBankruptcy();
-  };
+      });
+    }, 1500);
+  }, [hasRolled, isRollingDice, currentPlayerIndex, movePlayer]);
 
   const handleCard = (card: { text: string; action: string; value: number }) => {
-    const currentPlayer = players[currentPlayerIndex];
-    
-    switch (card.action) {
-      case "money":
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, money: p.money + card.value } : p
-        ));
-        break;
-      case "move":
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, position: card.value } : p
-        ));
-        if (card.value === 0) {
-          setPlayers(prev => prev.map((p, i) => 
-            i === currentPlayerIndex ? { ...p, money: p.money + 200 } : p
-          ));
-        }
-        break;
-      case "jail":
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, position: 10, inJail: true } : p
-        ));
-        break;
-      case "back":
-        const newPos = (currentPlayer.position - card.value + 40) % 40;
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex ? { ...p, position: newPos } : p
-        ));
-        break;
-    }
+    setPlayers(prev => {
+      const currentPlayer = prev[currentPlayerIndex];
+      if (!currentPlayer || currentPlayer.isBankrupt) return prev;
+      
+      switch (card.action) {
+        case "money":
+          const newMoney = currentPlayer.money + card.value;
+          const updated = prev.map((p, i) => 
+            i === currentPlayerIndex ? { ...p, money: Math.max(0, newMoney) } : p
+          );
+          setTimeout(() => checkBankruptcy(), 100);
+          return updated;
+          
+        case "move":
+          const moved = prev.map((p, i) => 
+            i === currentPlayerIndex ? { ...p, position: card.value } : p
+          );
+          if (card.value === 0) {
+            // Landed on GO
+            const withGoMoney = moved.map((p, i) => 
+              i === currentPlayerIndex ? { ...p, money: p.money + 200 } : p
+            );
+            setTimeout(() => handleLanding(0), 300);
+            return withGoMoney;
+          } else {
+            setTimeout(() => handleLanding(card.value), 300);
+            return moved;
+          }
+          
+        case "jail":
+          const jailed = prev.map((p, i) => 
+            i === currentPlayerIndex ? { ...p, position: 10, inJail: true } : p
+          );
+          return jailed;
+          
+        case "back":
+          const newPos = (currentPlayer.position - card.value + 40) % 40;
+          const movedBack = prev.map((p, i) => 
+            i === currentPlayerIndex ? { ...p, position: newPos } : p
+          );
+          setTimeout(() => handleLanding(newPos), 300);
+          return movedBack;
+          
+        default:
+          return prev;
+      }
+    });
   };
 
   const buyProperty = () => {
-    const currentPlayer = players[currentPlayerIndex];
-    const space = BOARD_SPACES[currentPlayer.position];
-    
-    if (space.price && propertyOwnership[currentPlayer.position] === undefined) {
-      if (currentPlayer.money >= space.price) {
-        setPlayers(prev => prev.map((p, i) => 
-          i === currentPlayerIndex 
-            ? { ...p, money: p.money - space.price!, properties: [...p.properties, currentPlayer.position] } 
-            : p
-        ));
-        setPropertyOwnership(prev => ({ ...prev, [currentPlayer.position]: currentPlayer.id }));
-        setMessage(`${currentPlayer.name} bought ${space.name} for $${space.price}!`);
-      } else {
-        setMessage(`${currentPlayer.name} doesn't have enough money!`);
+    setPlayers(prev => {
+      const currentPlayer = prev[currentPlayerIndex];
+      if (!currentPlayer || currentPlayer.isBankrupt) return prev;
+      
+      const space = BOARD_SPACES[currentPlayer.position];
+      
+      if (space.price && propertyOwnership[currentPlayer.position] === undefined) {
+        if (currentPlayer.money >= space.price) {
+          const updated = prev.map((p, i) => 
+            i === currentPlayerIndex 
+              ? { ...p, money: p.money - space.price!, properties: [...p.properties, currentPlayer.position] } 
+              : p
+          );
+          setPropertyOwnership(prevOwnership => ({ ...prevOwnership, [currentPlayer.position]: currentPlayer.id }));
+          setMessage(`${currentPlayer.name} bought ${space.name} for $${space.price}!`);
+          return updated;
+        } else {
+          setMessage(`${currentPlayer.name} doesn't have enough money to buy ${space.name}!`);
+          return prev;
+        }
       }
-    }
+      return prev;
+    });
   };
 
-  const checkBankruptcy = () => {
-    const updatedPlayers = players.map(p => ({
-      ...p,
-      isBankrupt: p.money < 0
-    }));
-    
-    const activePlayers = updatedPlayers.filter(p => !p.isBankrupt);
-    
-    if (activePlayers.length === 1) {
-      setWinner(activePlayers[0]);
-      setGameState("ended");
-    }
-    
-    setPlayers(updatedPlayers);
-  };
+  const checkBankruptcy = useCallback(() => {
+    setPlayers(prev => {
+      const updatedPlayers = prev.map(p => ({
+        ...p,
+        isBankrupt: p.money < 0 || p.isBankrupt
+      }));
+      
+      const activePlayers = updatedPlayers.filter(p => !p.isBankrupt);
+      
+      if (activePlayers.length === 1 && updatedPlayers.length > 1) {
+        setWinner(activePlayers[0]);
+        setGameState("ended");
+        setMessage(`${activePlayers[0].name} wins! All other players are bankrupt!`);
+      }
+      
+      return updatedPlayers;
+    });
+  }, []);
 
   const endTurn = () => {
     setShowCard(null);
-    let nextIndex = (currentPlayerIndex + 1) % players.length;
-    
-    // Skip bankrupt players
-    while (players[nextIndex].isBankrupt && nextIndex !== currentPlayerIndex) {
-      nextIndex = (nextIndex + 1) % players.length;
-    }
-    
-    setCurrentPlayerIndex(nextIndex);
-    setHasRolled(false);
-    setMessage(`${players[nextIndex].name}'s turn! Roll the dice.`);
+    setPlayers(prev => {
+      let nextIndex = (currentPlayerIndex + 1) % prev.length;
+      
+      // Skip bankrupt players
+      let attempts = 0;
+      while (prev[nextIndex].isBankrupt && attempts < prev.length) {
+        nextIndex = (nextIndex + 1) % prev.length;
+        attempts++;
+      }
+      
+      // If all players are bankrupt except one, game should have ended
+      const activePlayers = prev.filter(p => !p.isBankrupt);
+      if (activePlayers.length <= 1) {
+        return prev;
+      }
+      
+      setCurrentPlayerIndex(nextIndex);
+      setHasRolled(false);
+      setMessage(`${prev[nextIndex].name}'s turn! Roll the dice.`);
+      return prev;
+    });
   };
 
   const getSpaceColor = (color: string) => {
@@ -582,6 +782,15 @@ export default function MonopolyPage() {
 
             {/* Classic Monopoly Board */}
             <div className="relative w-full max-w-4xl mx-auto" style={{ aspectRatio: "1/1" }}>
+              {/* Animated Player Piece Overlay */}
+              {animatingPlayerId !== null && animatingFromPosition !== null && (
+                <AnimatedPlayerPiece
+                  player={players.find(p => p.id === animatingPlayerId)!}
+                  position={animatingFromPosition}
+                  playerColors={PLAYER_COLORS}
+                />
+              )}
+              
               <div className="absolute inset-0 bg-gradient-to-br from-green-50 to-green-100 rounded-lg border-4 border-amber-800 shadow-2xl" style={{ backgroundColor: "#D4E8D1" }}>
                 {/* Board Grid */}
                 <div className="absolute inset-0 p-2 sm:p-4">
@@ -592,7 +801,7 @@ export default function MonopolyPage() {
                         <BoardSpace 
                           key={space.id} 
                           space={space} 
-                          players={players.filter(p => p.position === space.id)}
+                          players={players.filter(p => p.position === space.id && p.id !== animatingPlayerId)}
                           owner={propertyOwnership[space.id]}
                           playerColors={PLAYER_COLORS}
                           getSpaceColor={getSpaceColor}
@@ -610,7 +819,7 @@ export default function MonopolyPage() {
                           <BoardSpace 
                             key={space.id} 
                             space={space} 
-                            players={players.filter(p => p.position === space.id)}
+                            players={players.filter(p => p.position === space.id && p.id !== animatingPlayerId)}
                             owner={propertyOwnership[space.id]}
                             playerColors={PLAYER_COLORS}
                             getSpaceColor={getSpaceColor}
@@ -653,7 +862,7 @@ export default function MonopolyPage() {
                           <BoardSpace 
                             key={space.id} 
                             space={space} 
-                            players={players.filter(p => p.position === space.id)}
+                            players={players.filter(p => p.position === space.id && p.id !== animatingPlayerId)}
                             owner={propertyOwnership[space.id]}
                             playerColors={PLAYER_COLORS}
                             getSpaceColor={getSpaceColor}
@@ -670,7 +879,7 @@ export default function MonopolyPage() {
                         <BoardSpace 
                           key={space.id} 
                           space={space} 
-                          players={players.filter(p => p.position === space.id)}
+                          players={players.filter(p => p.position === space.id && p.id !== animatingPlayerId)}
                           owner={propertyOwnership[space.id]}
                           playerColors={PLAYER_COLORS}
                           getSpaceColor={getSpaceColor}
@@ -689,20 +898,20 @@ export default function MonopolyPage() {
               <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 sm:gap-6">
                 <div className="flex gap-2 sm:gap-4 text-white">
                   <div className="bg-black/50 p-1 sm:p-2 rounded-lg animate-bounce-in">
-                    <DiceIcon value={dice[0]} />
+                    <DiceIcon value={dice[0]} isRolling={isRollingDice} />
                   </div>
                   <div className="bg-black/50 p-1 sm:p-2 rounded-lg animate-bounce-in delay-100">
-                    <DiceIcon value={dice[1]} />
+                    <DiceIcon value={dice[1]} isRolling={isRollingDice} />
                   </div>
                 </div>
                 
                 <div className="flex flex-wrap gap-2 sm:gap-3 justify-center w-full sm:w-auto">
                   <button
                     onClick={rollDice}
-                    disabled={hasRolled || currentPlayer?.isBankrupt}
-                    className={`neon-btn min-h-[48px] text-xs sm:text-sm btn-3d ${!hasRolled ? "neon-btn-green hover:animate-button-press" : "opacity-50 cursor-not-allowed border-gray-500 text-gray-500"}`}
+                    disabled={hasRolled || currentPlayer?.isBankrupt || isRollingDice || isMoving}
+                    className={`neon-btn min-h-[48px] text-xs sm:text-sm btn-3d ${!hasRolled && !isRollingDice && !isMoving ? "neon-btn-green hover:animate-button-press" : "opacity-50 cursor-not-allowed border-gray-500 text-gray-500"}`}
                   >
-                    🎲 ROLL DICE
+                    {isRollingDice ? "🎲 ROLLING..." : "🎲 ROLL DICE"}
                   </button>
                   
                   {canBuy && (
@@ -781,6 +990,45 @@ export default function MonopolyPage() {
   );
 }
 
+// Animated Player Piece Component
+function AnimatedPlayerPiece({ 
+  player, 
+  position, 
+  playerColors 
+}: { 
+  player: Player; 
+  position: number; 
+  playerColors: string[];
+}) {
+  const boardPos = getBoardPosition(position);
+  
+  if (!player) return null;
+  
+  return (
+    <div
+      className="absolute player-token-animated pointer-events-none"
+      style={{
+        left: `${boardPos.x}%`,
+        top: `${boardPos.y}%`,
+        transform: 'translate(-50%, -50%)',
+        fontSize: 'clamp(1.5rem, 4vw, 2.5rem)',
+        filter: `drop-shadow(0 4px 8px ${playerColors[player.id]}80)`,
+        zIndex: 100,
+        transition: 'left 0.2s ease-in-out, top 0.2s ease-in-out',
+      }}
+    >
+      <div
+        className="relative animate-piece-move"
+        style={{
+          textShadow: `0 0 10px ${playerColors[player.id]}, 0 0 20px ${playerColors[player.id]}`,
+        }}
+      >
+        {player.token}
+      </div>
+    </div>
+  );
+}
+
 // Board Space Component - Classic Monopoly Style
 function BoardSpace({ 
   space, 
@@ -844,9 +1092,19 @@ function BoardSpace({
           )}
         </div>
         {players.length > 0 && (
-          <div className="absolute top-1 left-1 flex gap-0.5">
-            {players.map(p => (
-              <span key={p.id} className="text-sm sm:text-base drop-shadow-lg">{p.token}</span>
+          <div className="absolute top-1 left-1 flex flex-wrap gap-1 z-10">
+            {players.map((p, idx) => (
+              <span 
+                key={p.id} 
+                className="text-lg sm:text-xl md:text-2xl drop-shadow-lg"
+                style={{
+                  filter: `drop-shadow(0 2px 4px ${playerColors[p.id]}80)`,
+                  textShadow: `0 0 4px ${playerColors[p.id]}`,
+                  transform: `translate(${idx * 3}px, ${idx * 3}px)`,
+                }}
+              >
+                {p.token}
+              </span>
             ))}
           </div>
         )}
@@ -949,9 +1207,19 @@ function BoardSpace({
       
       {/* Player tokens */}
       {players.length > 0 && (
-        <div className={`absolute ${isHorizontal ? "top-4" : "left-1"} ${isHorizontal ? "left-1 right-1" : "top-1 bottom-1"} flex ${isHorizontal ? "flex-row" : "flex-col"} gap-0.5 items-center justify-center`}>
-          {players.map(p => (
-            <span key={p.id} className="text-xs sm:text-sm drop-shadow-lg">{p.token}</span>
+        <div className={`absolute ${isHorizontal ? "top-1" : "left-1"} ${isHorizontal ? "left-1 right-1" : "top-1 bottom-1"} flex ${isHorizontal ? "flex-row" : "flex-col"} gap-0.5 sm:gap-1 items-center justify-center z-10`}>
+          {players.map((p, idx) => (
+            <span 
+              key={p.id} 
+              className="text-base sm:text-lg md:text-xl drop-shadow-lg"
+              style={{
+                filter: `drop-shadow(0 2px 4px ${playerColors[p.id]}80)`,
+                textShadow: `0 0 4px ${playerColors[p.id]}`,
+                transform: `translate(${idx * 2}px, ${idx * 2}px)`,
+              }}
+            >
+              {p.token}
+            </span>
           ))}
         </div>
       )}

@@ -61,6 +61,40 @@ export default function WerewolfPage() {
       return;
     }
     setCurrentUser(JSON.parse(user));
+
+    // Check if there's a current group and auto-populate players
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup) {
+      try {
+        const group = JSON.parse(currentGroup);
+        const groupMemberNames: string[] = [];
+        
+        // Add admin
+        const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
+        const admin = allUsers.find((u: any) => u.id === group.adminId);
+        if (admin) {
+          groupMemberNames.push(admin.name);
+        }
+        
+        // Add members
+        group.members.forEach((member: any) => {
+          groupMemberNames.push(member.name);
+        });
+        
+        // Update player names and count
+        if (groupMemberNames.length > 0) {
+          const newNames = [...groupMemberNames];
+          // Fill remaining slots with default names
+          while (newNames.length < 8) {
+            newNames.push(`Player ${newNames.length + 1}`);
+          }
+          setPlayerNames(newNames);
+          setPlayerCount(Math.min(Math.max(groupMemberNames.length, 5), 8));
+        }
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
   }, [router]);
 
   const assignRoles = (count: number): Role[] => {
@@ -298,6 +332,34 @@ export default function WerewolfPage() {
             </h1>
             <p className="text-cyan-300">A social deduction game of trust and betrayal</p>
           </div>
+
+          {/* Group Info Banner */}
+          {(() => {
+            const currentGroup = localStorage.getItem("currentGroup");
+            let groupInfo = null;
+            if (currentGroup) {
+              try {
+                groupInfo = JSON.parse(currentGroup);
+              } catch (e) {
+                // Ignore parse errors
+              }
+            }
+            return groupInfo ? (
+              <div className="neon-card neon-box-purple p-4 mb-6 card-3d max-w-lg mx-auto">
+                <div className="flex items-center justify-between flex-wrap gap-3">
+                  <div className="flex items-center gap-3">
+                    <Users className="w-5 h-5 text-purple-400" />
+                    <div>
+                      <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                      <div className="text-cyan-300/70 text-sm">
+                        {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as players
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null;
+          })()}
 
           <div className="neon-card neon-box-red p-8 max-w-lg mx-auto card-3d">
             <div className="space-y-6">

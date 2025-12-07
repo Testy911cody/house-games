@@ -3,58 +3,61 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, RotateCcw, Users } from "lucide-react";
+import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, RotateCcw, Users, Trophy, Zap } from "lucide-react";
 
-// Player colors
+// Player colors - matching the image
 const PLAYER_COLORS = [
-  { main: "#ff0000", light: "#ff6666", dark: "#cc0000", name: "Red" },
-  { main: "#00ff00", light: "#66ff66", dark: "#00cc00", name: "Green" },
-  { main: "#0000ff", light: "#6666ff", dark: "#0000cc", name: "Blue" },
-  { main: "#ffff00", light: "#ffff66", dark: "#cccc00", name: "Yellow" },
+  { main: "#ff0000", light: "#ff6666", dark: "#cc0000", name: "Red" },    // Red - top-left
+  { main: "#00ff00", light: "#66ff66", dark: "#00cc00", name: "Green" },  // Green - bottom-left
+  { main: "#0000ff", light: "#6666ff", dark: "#0000cc", name: "Blue" },  // Blue - top-right
+  { main: "#ffff00", light: "#ffff66", dark: "#cccc00", name: "Yellow" }, // Yellow - bottom-right
 ];
 
-// Board path positions (52 spaces around the board)
-// Path goes: top (right to left), left (top to bottom), bottom (left to right), right (bottom to top)
+// Board path positions (28 spaces around the board, then repeats)
+// Standard Ludo path: goes clockwise around the board
+// Red starts at (1,0), goes right, then down, then left, then up
 const BOARD_PATH: Array<{ x: number; y: number }> = [];
-// Top row: positions 0-5 (x: 6 to 1, y: 0)
+// Top row: positions 0-5 (x: 1 to 6, y: 0) - Red's starting area
 for (let i = 0; i < 6; i++) {
-  BOARD_PATH.push({ x: 6 - i, y: 0 });
+  BOARD_PATH.push({ x: 1 + i, y: 0 });
 }
-// Left column: positions 6-12 (x: 0, y: 1 to 6)
+// Right column: positions 6-11 (x: 6, y: 1 to 6) - Blue's area
 for (let i = 1; i <= 6; i++) {
-  BOARD_PATH.push({ x: 0, y: i });
-}
-// Bottom row: positions 13-18 (x: 1 to 6, y: 6)
-for (let i = 1; i <= 6; i++) {
-  BOARD_PATH.push({ x: i, y: 6 });
-}
-// Right column: positions 19-25 (x: 6, y: 5 to 0)
-for (let i = 5; i >= 0; i--) {
   BOARD_PATH.push({ x: 6, y: i });
 }
-// Repeat for second lap: positions 26-51
-for (let i = 0; i < 26; i++) {
-  BOARD_PATH.push(BOARD_PATH[i]);
+// Bottom row: positions 12-17 (x: 5 to 0, y: 6) - Yellow's area
+for (let i = 5; i >= 0; i--) {
+  BOARD_PATH.push({ x: i, y: 6 });
 }
+// Left column: positions 18-23 (x: 0, y: 5 to 0) - Green's area
+for (let i = 5; i >= 0; i--) {
+  BOARD_PATH.push({ x: 0, y: i });
+}
+// Total: 28 spaces. Each player needs to complete one full lap (28 spaces) before entering home column
 
-// Safe zones (home positions for each player)
-const SAFE_ZONES = [
-  { x: 1, y: 1 }, { x: 1, y: 2 }, { x: 1, y: 3 }, { x: 1, y: 4 }, { x: 1, y: 5 }, // Red
-  { x: 1, y: 5 }, { x: 2, y: 5 }, { x: 3, y: 5 }, { x: 4, y: 5 }, { x: 5, y: 5 }, // Green
-  { x: 5, y: 5 }, { x: 5, y: 4 }, { x: 5, y: 3 }, { x: 5, y: 2 }, { x: 5, y: 1 }, // Blue
-  { x: 5, y: 1 }, { x: 4, y: 1 }, { x: 3, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 1 }, // Yellow
-];
-
-// Starting positions for each player's tokens
+// Starting positions for each player's tokens (in their home bases)
 const START_POSITIONS = [
-  [{ x: 1, y: 1 }, { x: 1, y: 2 }, { x: 2, y: 1 }, { x: 2, y: 2 }], // Red
-  [{ x: 5, y: 5 }, { x: 5, y: 6 }, { x: 6, y: 5 }, { x: 6, y: 6 }], // Green
-  [{ x: 5, y: 1 }, { x: 5, y: 2 }, { x: 6, y: 1 }, { x: 6, y: 2 }], // Blue
-  [{ x: 1, y: 5 }, { x: 1, y: 6 }, { x: 2, y: 5 }, { x: 2, y: 6 }], // Yellow
+  [{ x: 0, y: 0 }, { x: 0, y: 1 }, { x: 1, y: 0 }, { x: 1, y: 1 }], // Red - top-left
+  [{ x: 0, y: 5 }, { x: 0, y: 6 }, { x: 1, y: 5 }, { x: 1, y: 6 }], // Green - bottom-left
+  [{ x: 5, y: 0 }, { x: 5, y: 1 }, { x: 6, y: 0 }, { x: 6, y: 1 }], // Blue - top-right
+  [{ x: 5, y: 5 }, { x: 5, y: 6 }, { x: 6, y: 5 }, { x: 6, y: 6 }], // Yellow - bottom-right
 ];
 
-// Entry points to the board path for each player
-const ENTRY_POINTS = [0, 13, 26, 39]; // Starting positions on the board path
+// Entry points to the board path for each player (where they enter the main path)
+const ENTRY_POINTS = [
+  0,   // Red enters at position 0 (x: 1, y: 0)
+  6,   // Blue enters at position 6 (x: 6, y: 1)
+  12,  // Yellow enters at position 12 (x: 5, y: 6)
+  18,  // Green enters at position 18 (x: 0, y: 5)
+];
+
+// Safe zones (white squares with stars) - these are safe from capture
+const SAFE_ZONES = [
+  { x: 1, y: 0 }, { x: 0, y: 1 }, // Red safe zones
+  { x: 6, y: 1 }, { x: 5, y: 0 }, // Blue safe zones
+  { x: 5, y: 6 }, { x: 6, y: 5 }, // Yellow safe zones
+  { x: 0, y: 5 }, { x: 1, y: 6 }, // Green safe zones
+];
 
 interface Token {
   id: number;
@@ -71,10 +74,14 @@ interface Player {
   startPosition: number; // Entry point on board
 }
 
-const DiceIcon = ({ value }: { value: number }) => {
+const DiceIcon = ({ value, isRolling }: { value: number; isRolling?: boolean }) => {
   const icons = [Dice1, Dice2, Dice3, Dice4, Dice5, Dice6];
   const Icon = icons[value - 1] || Dice1;
-  return <Icon className="w-8 h-8 sm:w-10 sm:h-10" />;
+  return (
+    <div className={`relative ${isRolling ? 'animate-dice-roll' : ''}`}>
+      <Icon className="w-10 h-10 sm:w-12 sm:h-12" />
+    </div>
+  );
 };
 
 export default function LudoPage() {
@@ -85,12 +92,19 @@ export default function LudoPage() {
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [diceValue, setDiceValue] = useState(0);
   const [hasRolled, setHasRolled] = useState(false);
+  const [isRollingDice, setIsRollingDice] = useState(false);
+  const [isMoving, setIsMoving] = useState(false);
   const [selectedToken, setSelectedToken] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [playerCount, setPlayerCount] = useState(2);
   const [playerNames, setPlayerNames] = useState<string[]>(["Player 1", "Player 2", "Player 3", "Player 4"]);
   const [winner, setWinner] = useState<Player | null>(null);
   const [consecutiveSixes, setConsecutiveSixes] = useState(0);
+  
+  // Animation states
+  const [animatingToken, setAnimatingToken] = useState<{ playerId: number; tokenId: number } | null>(null);
+  const [animatingFromPos, setAnimatingFromPos] = useState<{ x: number; y: number } | null>(null);
+  const [animatingToPos, setAnimatingToPos] = useState<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -99,6 +113,40 @@ export default function LudoPage() {
       return;
     }
     setCurrentUser(JSON.parse(user));
+
+    // Check if there's a current group and auto-populate players
+    const currentGroup = localStorage.getItem("currentGroup");
+    if (currentGroup) {
+      try {
+        const group = JSON.parse(currentGroup);
+        const groupMemberNames: string[] = [];
+        
+        // Add admin
+        const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
+        const admin = allUsers.find((u: any) => u.id === group.adminId);
+        if (admin) {
+          groupMemberNames.push(admin.name);
+        }
+        
+        // Add members
+        group.members.forEach((member: any) => {
+          groupMemberNames.push(member.name);
+        });
+        
+        // Update player names and count
+        if (groupMemberNames.length > 0) {
+          const newNames = [...groupMemberNames];
+          // Fill remaining slots with default names
+          while (newNames.length < 4) {
+            newNames.push(`Player ${newNames.length + 1}`);
+          }
+          setPlayerNames(newNames);
+          setPlayerCount(Math.min(groupMemberNames.length, 4));
+        }
+      } catch (e) {
+        console.error("Error loading group:", e);
+      }
+    }
   }, [router]);
 
   const initializeGame = () => {
@@ -129,27 +177,40 @@ export default function LudoPage() {
 
   const rollDice = useCallback(() => {
     if (hasRolled && diceValue !== 6) return;
+    if (isRollingDice) return;
     
-    const roll = Math.floor(Math.random() * 6) + 1;
-    setDiceValue(roll);
-    setHasRolled(true);
+    setIsRollingDice(true);
     
-    const currentPlayer = players[currentPlayerIndex];
+    // Animate dice rolling
+    const rollInterval = setInterval(() => {
+      const tempRoll = Math.floor(Math.random() * 6) + 1;
+      setDiceValue(tempRoll);
+    }, 100);
     
-    if (roll === 6) {
-      setConsecutiveSixes(prev => prev + 1);
-      if (consecutiveSixes >= 2) {
-        setMessage(`${currentPlayer.name} rolled three 6s! Turn skipped.`);
+    setTimeout(() => {
+      clearInterval(rollInterval);
+      const roll = Math.floor(Math.random() * 6) + 1;
+      setDiceValue(roll);
+      setIsRollingDice(false);
+      setHasRolled(true);
+      
+      const currentPlayer = players[currentPlayerIndex];
+      
+      if (roll === 6) {
+        setConsecutiveSixes(prev => prev + 1);
+        if (consecutiveSixes >= 2) {
+          setMessage(`${currentPlayer.name} rolled three 6s! Turn skipped.`);
+          setConsecutiveSixes(0);
+          nextTurn();
+          return;
+        }
+        setMessage(`${currentPlayer.name} rolled a 6! You can move a token out or move again.`);
+      } else {
         setConsecutiveSixes(0);
-        nextTurn();
-        return;
+        setMessage(`${currentPlayer.name} rolled a ${roll}. Select a token to move.`);
       }
-      setMessage(`${currentPlayer.name} rolled a 6! You can move a token out or move again.`);
-    } else {
-      setConsecutiveSixes(0);
-      setMessage(`${currentPlayer.name} rolled a ${roll}. Select a token to move.`);
-    }
-  }, [hasRolled, diceValue, players, currentPlayerIndex, consecutiveSixes]);
+    }, 1500);
+  }, [hasRolled, diceValue, players, currentPlayerIndex, consecutiveSixes, isRollingDice]);
 
   const canMoveToken = (player: Player, token: Token): boolean => {
     if (token.isFinished) return false;
@@ -159,12 +220,38 @@ export default function LudoPage() {
       return true;
     }
     
-    // Can only move if token is on board
-    return !token.isHome && token.position >= 0;
+    // Can only move if token is on board (not at home)
+    if (token.isHome) return false;
+    
+    // If token is in home column, check if move is valid
+    if (token.position >= 100) {
+      const homeColumnIndex = token.position - 100;
+      const newHomeColumnIndex = homeColumnIndex + diceValue;
+      return newHomeColumnIndex <= 6; // Can move if won't exceed finish
+    }
+    
+    // Token is on main path, can always move
+    return true;
+  };
+
+  const animateTokenMove = (fromPos: { x: number; y: number }, toPos: { x: number; y: number }, playerId: number, tokenId: number) => {
+    setAnimatingToken({ playerId, tokenId });
+    setAnimatingFromPos(fromPos);
+    setAnimatingToPos(toPos);
+    setIsMoving(true);
+    
+    // Clear animation after it completes (600ms for transition + small buffer)
+    setTimeout(() => {
+      setAnimatingToken(null);
+      setAnimatingFromPos(null);
+      setAnimatingToPos(null);
+      setIsMoving(false);
+    }, 650);
   };
 
   const moveToken = (playerIndex: number, tokenIndex: number) => {
     if (hasRolled && diceValue === 6 && consecutiveSixes >= 2) return;
+    if (isMoving) return;
     
     const player = players[playerIndex];
     const token = player.tokens[tokenIndex];
@@ -174,23 +261,37 @@ export default function LudoPage() {
       return;
     }
 
-    const newPlayers = [...players];
+    const newPlayers = players.map((p, idx) => 
+      idx === playerIndex 
+        ? { ...p, tokens: [...p.tokens] }
+        : { ...p, tokens: [...p.tokens] }
+    );
     const newToken = { ...token };
+    
+    const fromPos = getTokenPosition(player, token);
     
     if (token.isHome && diceValue === 6) {
       // Move token out of home - position 0 means at start of board path
       newToken.isHome = false;
       newToken.position = 0;
+      newPlayers[playerIndex].tokens[tokenIndex] = newToken;
+      // Update state immediately
+      setPlayers(newPlayers);
+      const toPos = getTokenPosition(newPlayers[playerIndex], newToken);
+      setTimeout(() => {
+        animateTokenMove(fromPos, toPos, playerIndex, tokenIndex);
+      }, 50);
       setMessage(`${player.name} moved token ${tokenIndex + 1} onto the board!`);
     } else if (!token.isHome && token.position < 100) {
-      // Move token on board (position is relative, 0-51)
+      // Move token on board (position is relative, 0-27 for one lap)
       let newPosition = token.position + diceValue;
       
       // Check if token can enter home column (needs exactly the right number to enter)
-      // Each player needs to travel 51 spaces to complete the loop
-      if (newPosition >= 51) {
+      // Each player needs to travel 28 spaces to complete one full lap
+      if (newPosition >= 28) {
         // Token can enter home column
-        const homeColumnPosition = 100 + (newPosition - 51);
+        const homeColumnPosition = 100 + (newPosition - 28);
+        // Home column has 6 spaces (100-105), position 106 means finished
         if (homeColumnPosition <= 106) {
           newToken.position = homeColumnPosition;
           if (homeColumnPosition === 106) {
@@ -205,27 +306,31 @@ export default function LudoPage() {
         }
       } else {
         // Normal movement around the board
-        newPosition = newPosition % 52;
+        newPosition = newPosition % 28;
         
         // Check for captures (except in safe zones)
-        // Safe zones are at entry points: 0, 13, 26, 39
-        const isSafeZone = newPosition === 0 || newPosition === 13 || newPosition === 26 || newPosition === 39;
+        const absolutePos = (player.startPosition + newPosition) % 28;
+        const boardPos = BOARD_PATH[absolutePos];
+        const isSafeZone = SAFE_ZONES.some(sz => sz.x === boardPos.x && sz.y === boardPos.y);
         
         if (!isSafeZone) {
-          // Check if any opponent token is on this same relative position
+          // Check if any opponent token is on this same position
           for (let i = 0; i < newPlayers.length; i++) {
             if (i === playerIndex) continue;
             const opponent = newPlayers[i];
             for (let j = 0; j < opponent.tokens.length; j++) {
               const opponentToken = opponent.tokens[j];
-              // Convert opponent's relative position to absolute and check
-              const opponentAbsolutePos = (opponent.startPosition + opponentToken.position) % 52;
-              const myAbsolutePos = (player.startPosition + newPosition) % 52;
-              if (!opponentToken.isHome && opponentToken.position < 100 && opponentAbsolutePos === myAbsolutePos) {
-                // Capture!
-                opponentToken.isHome = true;
-                opponentToken.position = -1;
-                setMessage(`${player.name} captured ${opponent.name}'s token!`);
+              if (!opponentToken.isHome && opponentToken.position < 100) {
+                const opponentAbsolutePos = (opponent.startPosition + opponentToken.position) % 28;
+                if (opponentAbsolutePos === absolutePos) {
+                  // Capture! Send opponent token back home
+                  newPlayers[i].tokens[j] = {
+                    ...opponentToken,
+                    isHome: true,
+                    position: -1
+                  };
+                  setMessage(`${player.name} captured ${opponent.name}'s token!`);
+                }
               }
             }
           }
@@ -234,6 +339,14 @@ export default function LudoPage() {
         newToken.position = newPosition;
         setMessage(`${player.name} moved token ${tokenIndex + 1}.`);
       }
+      
+      // Update state immediately before animation
+      newPlayers[playerIndex].tokens[tokenIndex] = newToken;
+      setPlayers(newPlayers);
+      const toPos = getTokenPosition(newPlayers[playerIndex], newToken);
+      setTimeout(() => {
+        animateTokenMove(fromPos, toPos, playerIndex, tokenIndex);
+      }, 50);
     } else if (token.position >= 100) {
       // Token is in home column
       const homeColumnIndex = token.position - 100;
@@ -246,14 +359,19 @@ export default function LudoPage() {
         } else {
           setMessage(`${player.name} moved token ${tokenIndex + 1} in home column!`);
         }
+        // Update state immediately before animation
+        newPlayers[playerIndex].tokens[tokenIndex] = newToken;
+        setPlayers(newPlayers);
+        const toPos = getTokenPosition(newPlayers[playerIndex], newToken);
+        setTimeout(() => {
+          animateTokenMove(fromPos, toPos, playerIndex, tokenIndex);
+        }, 50);
       } else {
         setMessage("Cannot move that far in home column!");
         return;
       }
     }
     
-    newPlayers[playerIndex].tokens[tokenIndex] = newToken;
-    setPlayers(newPlayers);
     setSelectedToken(null);
     
     // Check for win
@@ -278,9 +396,15 @@ export default function LudoPage() {
     setHasRolled(false);
     setDiceValue(0);
     setSelectedToken(null);
-    setCurrentPlayerIndex((prev) => (prev + 1) % playerCount);
-    const nextPlayer = players[(currentPlayerIndex + 1) % playerCount];
-    setMessage(`${nextPlayer.name}'s turn! Roll the dice.`);
+    setPlayers(prev => {
+      const nextIndex = (currentPlayerIndex + 1) % playerCount;
+      setCurrentPlayerIndex(nextIndex);
+      const nextPlayer = prev[nextIndex];
+      if (nextPlayer) {
+        setMessage(`${nextPlayer.name}'s turn! Roll the dice.`);
+      }
+      return prev;
+    });
   };
 
   const getTokenPosition = (player: Player, token: Token): { x: number; y: number } => {
@@ -294,10 +418,10 @@ export default function LudoPage() {
         return { x: 3, y: 3 };
       }
       // Home columns go from entry point towards center (3,3)
-      // Red enters at (1,0), home column: (1,1), (1,2), (1,3), (2,3), (3,3)
-      // Green enters at (6,5), home column: (5,5), (4,5), (3,5), (3,4), (3,3)
-      // Blue enters at (6,0), home column: (5,0), (4,0), (3,0), (3,1), (3,2), (3,3)
-      // Yellow enters at (0,5), home column: (0,4), (0,3), (1,3), (2,3), (3,3)
+      // Red: from (1,0) goes down then right to (3,3)
+      // Blue: from (6,1) goes left then down to (3,3)
+      // Yellow: from (5,6) goes left then up to (3,3)
+      // Green: from (0,5) goes right then up to (3,3)
       if (player.id === 0) {
         // Red: goes down then right
         if (homeColumnIndex < 3) {
@@ -306,32 +430,86 @@ export default function LudoPage() {
           return { x: 1 + (homeColumnIndex - 2), y: 3 };
         }
       } else if (player.id === 1) {
-        // Green: goes left then up
+        // Green: goes right then up
         if (homeColumnIndex < 3) {
-          return { x: 5 - homeColumnIndex, y: 5 };
+          return { x: 1 + homeColumnIndex, y: 5 };
         } else {
           return { x: 3, y: 5 - (homeColumnIndex - 2) };
         }
       } else if (player.id === 2) {
         // Blue: goes left then down
         if (homeColumnIndex < 3) {
-          return { x: 5 - homeColumnIndex, y: 0 };
+          return { x: 5 - homeColumnIndex, y: 1 };
         } else {
-          return { x: 3, y: homeColumnIndex - 2 };
+          return { x: 3, y: 1 + (homeColumnIndex - 2) };
         }
       } else {
-        // Yellow: goes up then right
+        // Yellow: goes left then up
         if (homeColumnIndex < 3) {
-          return { x: 0, y: 5 - homeColumnIndex };
+          return { x: 5 - homeColumnIndex, y: 5 };
         } else {
-          return { x: homeColumnIndex - 2, y: 3 };
+          return { x: 3, y: 5 - (homeColumnIndex - 2) };
         }
       }
     } else {
       // On board path - position is relative to player's start
-      const absolutePosition = (player.startPosition + token.position) % 52;
+      const absolutePosition = (player.startPosition + token.position) % 28;
       return BOARD_PATH[absolutePosition];
     }
+  };
+
+  // Helper function to determine cell type and color
+  const getCellInfo = (row: number, col: number) => {
+    // Player home bases (2x2 corners)
+    if (row < 2 && col < 2) {
+      return { type: "home", color: PLAYER_COLORS[0], playerId: 0 }; // Red
+    }
+    if (row < 2 && col >= 5) {
+      return { type: "home", color: PLAYER_COLORS[2], playerId: 2 }; // Blue
+    }
+    if (row >= 5 && col < 2) {
+      return { type: "home", color: PLAYER_COLORS[1], playerId: 1 }; // Green
+    }
+    if (row >= 5 && col >= 5) {
+      return { type: "home", color: PLAYER_COLORS[3], playerId: 3 }; // Yellow
+    }
+    
+    // Center area - cross-shaped yellow finish path
+    // Only the cross itself (row 3 OR col 3) is the finish path
+    if (row >= 2 && row <= 4 && col >= 2 && col <= 4) {
+      // Cross pattern: center row (row 3) OR center column (col 3)
+      if (row === 3 || col === 3) {
+        return { type: "finish", color: PLAYER_COLORS[3] }; // Yellow finish path
+      }
+      // Corner squares of center area - these are part of the board background
+      return { type: "center", color: null };
+    }
+    
+    // Safe zones
+    const isSafeZone = SAFE_ZONES.some(sz => sz.x === col && sz.y === row);
+    if (isSafeZone) {
+      return { type: "safe", color: null };
+    }
+    
+    // Main path - determine which player's colored section
+    // Top row (y=0): Red section (x: 1-6)
+    if (row === 0 && col >= 1 && col <= 6) {
+      return { type: "path", color: PLAYER_COLORS[0] }; // Red
+    }
+    // Right column (x=6): Blue section (y: 1-6)
+    if (col === 6 && row >= 1 && row <= 6) {
+      return { type: "path", color: PLAYER_COLORS[2] }; // Blue
+    }
+    // Bottom row (y=6): Yellow section (x: 0-5)
+    if (row === 6 && col >= 0 && col <= 5) {
+      return { type: "path", color: PLAYER_COLORS[3] }; // Yellow
+    }
+    // Left column (x=0): Green section (y: 0-5)
+    if (col === 0 && row >= 0 && row <= 5) {
+      return { type: "path", color: PLAYER_COLORS[1] }; // Green
+    }
+    
+    return { type: "empty", color: null };
   };
 
   if (!currentUser) {
@@ -357,6 +535,34 @@ export default function LudoPage() {
             Race your tokens around the board!
           </p>
         </div>
+
+        {/* Group Info Banner */}
+        {(() => {
+          const currentGroup = localStorage.getItem("currentGroup");
+          let groupInfo = null;
+          if (currentGroup) {
+            try {
+              groupInfo = JSON.parse(currentGroup);
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+          return groupInfo ? (
+            <div className="neon-card neon-box-purple p-4 mb-6 card-3d max-w-2xl mx-auto">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as players
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null;
+        })()}
 
         {gameState === "setup" && (
           <div className="neon-card neon-box-yellow p-6 sm:p-8 max-w-2xl mx-auto card-3d">
@@ -426,7 +632,7 @@ export default function LudoPage() {
                 <div>
                   <div className="text-sm text-cyan-300">Dice</div>
                   {diceValue > 0 ? (
-                    <DiceIcon value={diceValue} />
+                    <DiceIcon value={diceValue} isRolling={isRollingDice} />
                   ) : (
                     <div className="w-10 h-10 bg-gray-700 rounded"></div>
                   )}
@@ -434,103 +640,146 @@ export default function LudoPage() {
               </div>
             </div>
 
-            {/* Game Board */}
-            <div className="bg-gray-800 p-4 sm:p-6 rounded-lg">
-              <div className="grid grid-cols-7 gap-1 max-w-2xl mx-auto">
-                {Array.from({ length: 49 }).map((_, i) => {
-                  const row = Math.floor(i / 7);
-                  const col = i % 7;
-                  
-                  // Determine cell type
-                  let cellType = "path";
-                  let cellColor = "bg-gray-700";
-                  
-                  // Center area (home bases)
-                  if (row >= 2 && row <= 4 && col >= 2 && col <= 4) {
-                    cellType = "center";
-                    cellColor = "bg-yellow-900";
-                  }
-                  
-                  // Player home areas
-                  if (row < 2 && col < 2) {
-                    cellColor = "bg-red-900";
-                  } else if (row < 2 && col >= 5) {
-                    cellColor = "bg-blue-900";
-                  } else if (row >= 5 && col < 2) {
-                    cellColor = "bg-green-900";
-                  } else if (row >= 5 && col >= 5) {
-                    cellColor = "bg-yellow-900";
-                  }
-                  
-                  // Safe zones (white cells)
-                  const isSafeZone = (row === 0 && col === 1) || (row === 1 && col === 0) ||
-                                    (row === 0 && col === 5) || (row === 1 && col === 6) ||
-                                    (row === 5 && col === 0) || (row === 6 && col === 1) ||
-                                    (row === 5 && col === 6) || (row === 6 && col === 5);
-                  if (isSafeZone) {
-                    cellColor = "bg-white";
-                  }
-                  
-                  // Path cells
-                  if (cellType === "path" && !isSafeZone && 
-                      !(row >= 2 && row <= 4 && col >= 2 && col <= 4)) {
-                    if ((row === 0 && col > 1 && col < 5) ||
-                        (row === 6 && col > 1 && col < 5) ||
-                        (col === 0 && row > 1 && row < 5) ||
-                        (col === 6 && row > 1 && row < 5)) {
-                      cellColor = "bg-blue-600";
+            {/* Game Board - Realistic Design */}
+            <div className="relative w-full max-w-2xl mx-auto" style={{ aspectRatio: "1/1" }}>
+              {/* Animated Token Overlay */}
+              {animatingToken && animatingFromPos && animatingToPos && (
+                <AnimatedToken
+                  player={players[animatingToken.playerId]}
+                  fromPos={animatingFromPos}
+                  toPos={animatingToPos}
+                  tokenId={animatingToken.tokenId}
+                />
+              )}
+              
+              {/* Realistic Board */}
+              <div 
+                className="absolute inset-0 rounded-lg shadow-2xl border-4 border-amber-800"
+                style={{
+                  background: `
+                    linear-gradient(135deg, #8B4513 0%, #A0522D 25%, #8B4513 50%, #654321 75%, #8B4513 100%),
+                    repeating-linear-gradient(
+                      0deg,
+                      transparent,
+                      transparent 2px,
+                      rgba(0, 0, 0, 0.1) 2px,
+                      rgba(0, 0, 0, 0.1) 4px
+                    )
+                  `,
+                  boxShadow: `
+                    inset 0 0 50px rgba(0, 0, 0, 0.5),
+                    0 10px 40px rgba(0, 0, 0, 0.8),
+                    0 0 0 2px #654321
+                  `
+                }}
+              >
+                <div className="grid grid-cols-7 gap-1 h-full p-2 sm:p-4">
+                  {Array.from({ length: 49 }).map((_, i) => {
+                    const row = Math.floor(i / 7);
+                    const col = i % 7;
+                    const cellInfo = getCellInfo(row, col);
+                    const isSafeZone = SAFE_ZONES.some(sz => sz.x === col && sz.y === row);
+                    
+                    let cellStyle: React.CSSProperties = {};
+                    
+                    // Apply styles based on cell type
+                    if (cellInfo.type === "home") {
+                      cellStyle = {
+                        background: `linear-gradient(135deg, ${cellInfo.color!.dark} 0%, ${cellInfo.color!.main} 50%, ${cellInfo.color!.dark} 100%)`,
+                        boxShadow: "inset 0 0 15px rgba(0, 0, 0, 0.4)"
+                      };
+                    } else if (cellInfo.type === "finish") {
+                      cellStyle = {
+                        background: "linear-gradient(135deg, #D4AF37 0%, #FFD700 50%, #D4AF37 100%)",
+                        boxShadow: "inset 0 0 10px rgba(0, 0, 0, 0.3)"
+                      };
+                    } else if (cellInfo.type === "safe") {
+                      cellStyle = {
+                        background: "linear-gradient(135deg, #FFFFFF 0%, #F5F5F5 50%, #FFFFFF 100%)",
+                        boxShadow: "inset 0 0 10px rgba(0, 0, 0, 0.2), 0 0 20px rgba(255, 255, 255, 0.5)"
+                      };
+                    } else if (cellInfo.type === "path") {
+                      // Dark grey path with subtle player color accent
+                      cellStyle = {
+                        background: `linear-gradient(135deg, #374151 0%, #4B5563 50%, #374151 100%)`,
+                        boxShadow: "inset 0 0 5px rgba(0, 0, 0, 0.3)",
+                        border: `2px solid ${cellInfo.color!.main}40`
+                      };
+                    } else if (cellInfo.type === "center") {
+                      // Center corner squares - match board background
+                      cellStyle = {
+                        background: "linear-gradient(135deg, #8B4513 0%, #A0522D 50%, #8B4513 100%)",
+                        boxShadow: "inset 0 0 5px rgba(0, 0, 0, 0.3)"
+                      };
+                    } else {
+                      // Empty/fallback
+                      cellStyle = {
+                        background: "linear-gradient(135deg, #8B4513 0%, #A0522D 50%, #8B4513 100%)",
+                        boxShadow: "inset 0 0 5px rgba(0, 0, 0, 0.3)"
+                      };
                     }
-                  }
-                  
-                  return (
-                    <div
-                      key={i}
-                      className={`${cellColor} aspect-square rounded flex items-center justify-center relative`}
-                      style={{ minHeight: "40px" }}
-                    >
-                      {/* Render tokens */}
-                      {players.map((player) =>
-                        player.tokens.map((token, tokenIdx) => {
-                          const pos = getTokenPosition(player, token);
-                          if (pos.x === col && pos.y === row) {
-                            return (
-                              <div
-                                key={`${player.id}-${tokenIdx}`}
-                                className={`absolute w-6 h-6 sm:w-8 sm:h-8 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold cursor-pointer transition-transform hover:scale-110 ${
-                                  gameState === "playing" &&
-                                  currentPlayerIndex === player.id &&
-                                  canMoveToken(player, token) &&
-                                  hasRolled
-                                    ? "ring-2 ring-yellow-400 animate-pulse"
-                                    : ""
-                                }`}
-                                style={{
-                                  backgroundColor: player.color.main,
-                                  left: `${(tokenIdx % 2) * 50}%`,
-                                  top: `${Math.floor(tokenIdx / 2) * 50}%`,
-                                }}
-                                onClick={() => {
-                                  if (
-                                    gameState === "playing" &&
-                                    currentPlayerIndex === player.id &&
-                                    canMoveToken(player, token) &&
-                                    hasRolled
-                                  ) {
-                                    moveToken(player.id, token.id);
-                                  }
-                                }}
-                                title={`${player.name} Token ${tokenIdx + 1}${token.isFinished ? " (Finished)" : token.isHome ? " (Home)" : ""}`}
-                              >
-                                {tokenIdx + 1}
-                              </div>
-                            );
-                          }
-                          return null;
-                        })
-                      )}
-                    </div>
-                  );
-                })}
+                    
+                    return (
+                      <div
+                        key={i}
+                        className="aspect-square rounded flex items-center justify-center relative border border-gray-800/50"
+                        style={{ 
+                          minHeight: "40px",
+                          ...cellStyle
+                        }}
+                      >
+                        {/* Safe zone star indicator */}
+                        {isSafeZone && (
+                          <div className="absolute inset-0 flex items-center justify-center z-10">
+                            <div className="text-yellow-400 text-lg sm:text-2xl" style={{ textShadow: "0 0 10px rgba(255, 255, 0, 0.8)" }}>
+                              ⭐
+                            </div>
+                          </div>
+                        )}
+                        
+                        {/* Render tokens */}
+                        {players.map((player) =>
+                          player.tokens.map((token, tokenIdx) => {
+                            const pos = getTokenPosition(player, token);
+                            const isAnimating = animatingToken?.playerId === player.id && animatingToken?.tokenId === tokenIdx;
+                            
+                            // Show token if it's at this position and not currently animating
+                            // OR if it's animating but we want to show it at the new position
+                            if (pos.x === col && pos.y === row) {
+                              // Don't render if this exact token is animating (it's shown in the overlay)
+                              if (isAnimating) {
+                                return null;
+                              }
+                              return (
+                                <TokenPiece
+                                  key={`${player.id}-${tokenIdx}`}
+                                  player={player}
+                                  token={token}
+                                  tokenIdx={tokenIdx}
+                                  gameState={gameState}
+                                  currentPlayerIndex={currentPlayerIndex}
+                                  canMove={canMoveToken(player, token)}
+                                  hasRolled={hasRolled}
+                                  onClick={() => {
+                                    if (
+                                      gameState === "playing" &&
+                                      currentPlayerIndex === player.id &&
+                                      canMoveToken(player, token) &&
+                                      hasRolled
+                                    ) {
+                                      moveToken(player.id, token.id);
+                                    }
+                                  }}
+                                />
+                              );
+                            }
+                            return null;
+                          })
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
@@ -541,13 +790,14 @@ export default function LudoPage() {
               </div>
               
               <div className="flex gap-4 justify-center flex-wrap">
-                {!hasRolled || (diceValue === 6 && consecutiveSixes < 2) ? (
+                {(!hasRolled || (diceValue === 6 && consecutiveSixes < 2)) && !isRollingDice && !isMoving ? (
                   <button
                     onClick={rollDice}
+                    disabled={isRollingDice || isMoving}
                     className="neon-btn neon-btn-yellow px-6 py-3 text-lg font-bold flex items-center gap-2 btn-3d"
                   >
-                    <DiceIcon value={diceValue || 1} />
-                    ROLL DICE
+                    <DiceIcon value={diceValue || 1} isRolling={isRollingDice} />
+                    {isRollingDice ? "ROLLING..." : "ROLL DICE"}
                   </button>
                 ) : (
                   <div className="text-cyan-300">Select a token to move</div>
@@ -607,6 +857,7 @@ export default function LudoPage() {
 
         {gameState === "ended" && winner && (
           <div className="neon-card neon-box-yellow p-8 text-center max-w-2xl mx-auto card-3d">
+            <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4" />
             <div className="text-5xl mb-4">🎉</div>
             <h2 className="text-3xl font-bold text-yellow-400 mb-4">GAME OVER!</h2>
             <div className="text-2xl font-bold mb-6" style={{ color: winner.color.main }}>
@@ -629,3 +880,114 @@ export default function LudoPage() {
   );
 }
 
+// Animated Token Component
+function AnimatedToken({
+  player,
+  fromPos,
+  toPos,
+  tokenId
+}: {
+  player: Player;
+  fromPos: { x: number; y: number };
+  toPos: { x: number; y: number };
+  tokenId: number;
+}) {
+  const [position, setPosition] = useState(fromPos);
+  const cellSize = 100 / 7; // 7x7 grid
+  
+  useEffect(() => {
+    // Trigger animation after a brief delay
+    const timer = setTimeout(() => {
+      setPosition(toPos);
+    }, 10);
+    return () => clearTimeout(timer);
+  }, [toPos]);
+  
+  const x = (position.x * cellSize) + (cellSize / 2);
+  const y = (position.y * cellSize) + (cellSize / 2);
+  
+  return (
+    <div
+      className="absolute pointer-events-none z-50 player-token-animated"
+      style={{
+        left: `${x}%`,
+        top: `${y}%`,
+        transform: 'translate(-50%, -50%)',
+        transition: 'left 0.6s cubic-bezier(0.4, 0, 0.2, 1), top 0.6s cubic-bezier(0.4, 0, 0.2, 1)',
+      }}
+    >
+      <div className="relative animate-piece-move">
+        <TokenPiece
+          player={player}
+          token={{ id: tokenId, position: 0, isHome: false, isFinished: false }}
+          tokenIdx={tokenId}
+          gameState="playing"
+          currentPlayerIndex={player.id}
+          canMove={false}
+          hasRolled={false}
+          onClick={() => {}}
+        />
+      </div>
+    </div>
+  );
+}
+
+// Realistic Token Piece Component
+function TokenPiece({
+  player,
+  token,
+  tokenIdx,
+  gameState,
+  currentPlayerIndex,
+  canMove,
+  hasRolled,
+  onClick
+}: {
+  player: Player;
+  token: Token;
+  tokenIdx: number;
+  gameState: string;
+  currentPlayerIndex: number;
+  canMove: boolean;
+  hasRolled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div
+      className={`absolute w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-white flex items-center justify-center text-xs font-bold cursor-pointer transition-all duration-300 ${
+        gameState === "playing" &&
+        currentPlayerIndex === player.id &&
+        canMove &&
+        hasRolled
+          ? "ring-4 ring-yellow-400 animate-pulse scale-110 shadow-lg"
+          : ""
+      }`}
+      style={{
+        backgroundColor: player.color.main,
+        boxShadow: `
+          0 4px 8px rgba(0, 0, 0, 0.4),
+          0 0 20px ${player.color.main}40,
+          inset 0 2px 4px rgba(255, 255, 255, 0.3),
+          inset 0 -2px 4px rgba(0, 0, 0, 0.3)
+        `,
+        background: `radial-gradient(circle at 30% 30%, ${player.color.light}, ${player.color.main} 60%, ${player.color.dark})`,
+        left: `${(tokenIdx % 2) * 50}%`,
+        top: `${Math.floor(tokenIdx / 2) * 50}%`,
+        transform: 'translate(-50%, -50%)',
+        zIndex: 10,
+      }}
+      onClick={onClick}
+      title={`${player.name} Token ${tokenIdx + 1}${token.isFinished ? " (Finished)" : token.isHome ? " (Home)" : ""}`}
+    >
+      <div 
+        className="w-full h-full rounded-full flex items-center justify-center"
+        style={{
+          background: `radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.4), transparent 70%)`,
+          textShadow: "0 1px 2px rgba(0, 0, 0, 0.8)"
+        }}
+      >
+        {tokenIdx + 1}
+      </div>
+    </div>
+  );
+}

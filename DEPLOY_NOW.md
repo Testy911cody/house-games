@@ -180,14 +180,105 @@ git remote set-url origin https://github.com/YOUR_USERNAME/house-games.git
 5. Click "Deploy" (settings are auto-detected ✅)
 6. Wait 2 minutes → You get a URL!
 
-### 5. Add Your Domain
+### 5. Add Your Custom Domain (housegames.club)
 
-1. In Vercel: Project → Settings → Domains
-2. Add your domain: `yourdomain.com`
-3. Vercel shows DNS instructions
-4. Add DNS records at your domain registrar
-5. Wait 5-60 minutes for DNS
-6. ✅ LIVE!
+**Step-by-step instructions:**
+
+1. **Go to Vercel Dashboard:**
+   - Open your project in Vercel
+   - Click on the **"Settings"** tab
+   - Click **"Domains"** in the left sidebar
+
+2. **Add your domain:**
+   - In the "Domains" section, you'll see an input field
+   - Type: `housegames.club`
+   - Click **"Add"** or press Enter
+
+3. **Choose DNS Configuration Method:**
+
+   **Method A: Use Vercel Nameservers (Recommended - Easier!) ⭐**
+   
+   - Vercel will show you two nameservers:
+     - `ns1.vercel-dns.com`
+     - `ns2.vercel-dns.com`
+   
+   - **At your domain registrar** (where you bought housegames.club):
+     1. Log in to your domain registrar account
+     2. Go to **DNS Settings** or **Nameserver Settings**
+     3. Find the **Nameservers** section
+     4. Replace existing nameservers with Vercel's:
+        - `ns1.vercel-dns.com`
+        - `ns2.vercel-dns.com`
+     5. Save the changes
+   
+   - **Benefits:** Vercel manages all DNS records automatically - no manual DNS record setup needed!
+
+   **Method B: Add DNS Records Manually**
+   
+   - If you prefer to keep your current nameservers, Vercel will show DNS records to add:
+     ```
+     Type: A
+     Name: @
+     Value: 76.76.21.21
+     
+     Type: CNAME
+     Name: www
+     Value: cname.vercel-dns.com
+     ```
+   - Add these at your registrar's DNS Management section
+
+4. **Wait for DNS propagation:**
+   - Usually takes 5-60 minutes
+   - Can take up to 24 hours (rare, especially for nameserver changes)
+   - Vercel will show status: "Valid Configuration" when ready
+   - You'll see DNS records appear automatically in Vercel (if using Method A)
+
+5. **✅ Your site is LIVE at housegames.club!**
+
+**💡 Pro Tips:**
+- **Method A (Nameservers) is recommended** - it's simpler and Vercel manages everything
+- You can add both `housegames.club` and `www.housegames.club` - Vercel handles both automatically
+- Vercel automatically provides HTTPS (SSL) certificates - no extra setup needed
+- Check DNS status in Vercel dashboard - it will show when it's ready
+- If using nameservers, you'll see DNS records automatically created in Vercel (ALIAS, CAA, etc.)
+
+**🔧 Troubleshooting: Domain Added But Not Loading**
+
+If your domain is listed in Vercel but not loading in browser:
+
+1. **Check DNS propagation:**
+   - DNS can take 5-60 minutes (sometimes up to 24 hours)
+   - Try accessing: `https://housegames.club` (with https://)
+   - Try the Vercel URL first: `https://house-games-ten.vercel.app` (should work immediately)
+
+2. **Clear browser cache:**
+   - Press `Ctrl + Shift + Delete` (Windows) or `Cmd + Shift + Delete` (Mac)
+   - Clear cached images and files
+   - Or try **Incognito/Private mode**
+
+3. **Try different browsers/devices:**
+   - Sometimes one browser has cached old DNS
+   - Try on your phone or another computer
+
+4. **Check Vercel domain status:**
+   - In Vercel → Settings → Domains
+   - Look for `housegames.club` status
+   - Should show "Valid Configuration" when ready
+   - If it shows an error, click it to see what's wrong
+
+5. **Verify nameservers (if using Method A):**
+   - At your registrar, confirm nameservers are:
+     - `ns1.vercel-dns.com`
+     - `ns2.vercel-dns.com`
+   - Changes can take up to 24 hours to fully propagate
+
+6. **Test with command:**
+   ```bash
+   nslookup housegames.club
+   ```
+   - Should show Vercel IP addresses when DNS is working
+
+**✅ Quick Test:** Try `https://house-games-ten.vercel.app` - if this works, your site is live, just waiting for DNS!
 
 ---
 

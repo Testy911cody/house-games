@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Zap, Users, X } from "lucide-react";
+import { ArrowLeft, Zap, Users, X, MessageSquare, Send, Check } from "lucide-react";
 
 export default function GamesPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [currentGroup, setCurrentGroup] = useState<any>(null);
+  const [suggestion, setSuggestion] = useState("");
+  const [showSuccess, setShowSuccess] = useState(false);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -30,7 +32,36 @@ export default function GamesPage() {
     setCurrentGroup(null);
   };
 
+  const handleSuggestionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!suggestion.trim()) return;
+
+    const suggestions = JSON.parse(localStorage.getItem("game_suggestions") || "[]");
+    const newSuggestion = {
+      id: `suggestion_${Date.now()}`,
+      text: suggestion.trim(),
+      user: currentUser?.name || "Anonymous",
+      userId: currentUser?.id || null,
+      timestamp: new Date().toISOString(),
+    };
+
+    suggestions.push(newSuggestion);
+    localStorage.setItem("game_suggestions", JSON.stringify(suggestions));
+
+    setSuggestion("");
+    setShowSuccess(true);
+    setTimeout(() => setShowSuccess(false), 3000);
+  };
+
   const games = [
+    {
+      id: "codenames",
+      name: "CODENAMES",
+      description: "Give clues to help your team find all your words first!",
+      icon: "🔍",
+      color: "cyan",
+      players: "2 Teams",
+    },
     {
       id: "taboo",
       name: "TABOO",
@@ -48,20 +79,20 @@ export default function GamesPage() {
       players: "2+ Teams",
     },
     {
+      id: "drawguess",
+      name: "DRAW & GUESS",
+      description: "Take turns drawing words while others guess what you drew!",
+      icon: "🎨",
+      color: "purple",
+      players: "2+ Players",
+    },
+    {
       id: "monopoly",
       name: "MONOPOLY",
       description: "Buy properties, collect rent & bankrupt your friends!",
       icon: "🎩",
       color: "green",
       players: "2-6 Players",
-    },
-    {
-      id: "codenames",
-      name: "CODENAMES",
-      description: "Give clues to help your team find all your words first!",
-      icon: "🔍",
-      color: "cyan",
-      players: "2 Teams",
     },
     {
       id: "werewolf",
@@ -77,6 +108,22 @@ export default function GamesPage() {
       description: "Race your tokens around the board to victory!",
       icon: "🎲",
       color: "purple",
+      players: "2-4 Players",
+    },
+    {
+      id: "pacman",
+      name: "PACMAN",
+      description: "Collect dots, avoid ghosts, and get the highest score!",
+      icon: "👻",
+      color: "yellow",
+      players: "2-4 Players",
+    },
+    {
+      id: "flappy",
+      name: "NEON FLAP",
+      description: "Multiplayer flappy bird - last bird flying wins!",
+      icon: "🐦",
+      color: "cyan",
       players: "2-4 Players",
     },
   ];
@@ -206,6 +253,58 @@ export default function GamesPage() {
               </div>
             </div>
           ))}
+        </div>
+
+        {/* Suggestions Box */}
+        <div className="mt-12 mb-8 animate-fade-in-up delay-500">
+          <div className="neon-card neon-box-cyan p-4 sm:p-6 card-3d">
+            <div className="flex items-center gap-3 mb-4">
+              <MessageSquare className="w-5 h-5 sm:w-6 sm:h-6 text-cyan-400 animate-pulse" />
+              <h3 className="text-lg sm:text-xl font-bold text-cyan-400 neon-glow-cyan">
+                Have a Suggestion?
+              </h3>
+            </div>
+            <p className="text-sm sm:text-base text-cyan-300/70 mb-4">
+              Share your ideas for new games, features, or improvements!{" "}
+              <Link
+                href="/suggestions"
+                className="text-cyan-400 hover:text-cyan-300 underline font-semibold"
+              >
+                View all suggestions
+              </Link>
+            </p>
+            <form onSubmit={handleSuggestionSubmit} className="space-y-4">
+              <textarea
+                value={suggestion}
+                onChange={(e) => setSuggestion(e.target.value)}
+                placeholder="Type your suggestion here..."
+                className="w-full bg-black/40 border-2 border-cyan-500/50 rounded-lg p-3 sm:p-4 text-cyan-200 placeholder-cyan-500/50 focus:outline-none focus:border-cyan-400 focus:ring-2 focus:ring-cyan-400/50 min-h-[100px] sm:min-h-[120px] resize-y neon-glow-cyan/20"
+                maxLength={500}
+              />
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-cyan-400/60">
+                  {suggestion.length}/500 characters
+                </span>
+                <button
+                  type="submit"
+                  disabled={!suggestion.trim() || showSuccess}
+                  className="neon-btn neon-btn-green px-4 sm:px-6 py-2 sm:py-3 text-sm sm:text-base font-bold flex items-center gap-2 btn-3d hover:animate-pulse-glow disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                >
+                  {showSuccess ? (
+                    <>
+                      <Check className="w-4 h-4 sm:w-5 sm:h-5" />
+                      SENT!
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4 sm:w-5 sm:h-5" />
+                      SUBMIT
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       </div>
     </div>

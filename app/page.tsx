@@ -27,7 +27,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter relative">
       <div className="max-w-4xl w-full">
         {/* Header */}
         <div className="text-center mb-6 sm:mb-12 animate-fade-in-down">
@@ -138,6 +138,20 @@ export default function Home() {
             ▸ INSERT COIN TO CONTINUE ◂
           </p>
         </div>
+      </div>
+
+      {/* Signature */}
+      <div className="absolute bottom-4 left-4 sm:bottom-6 sm:left-6 animate-fade-in delay-800">
+        <p className="text-cyan-400/60 text-xs sm:text-sm pixel-font neon-glow-cyan">
+          Created with ❤️ by Africo
+        </p>
+      </div>
+
+      {/* Africo Branding - Bottom Right */}
+      <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 animate-fade-in delay-800 z-20">
+        <p className="text-cyan-400/60 text-xs sm:text-sm pixel-font neon-glow-cyan">
+          by Africo
+        </p>
       </div>
     </div>
   );

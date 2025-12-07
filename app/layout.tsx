@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import HomeButton from "./components/HomeButton";
 
 export const metadata: Metadata = {
   title: "House Games - Neon Arcade",
@@ -37,6 +38,7 @@ export default function RootLayout({
       <body className="neon-bg scanlines">
         <div className="grid-bg"></div>
         <div className="relative z-10">
+          <HomeButton />
           {children}
         </div>
       </body>
