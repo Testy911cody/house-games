@@ -24,6 +24,8 @@ export default function Home() {
     };
     localStorage.setItem("currentUser", JSON.stringify(anonymousUser));
     setCurrentUser(anonymousUser);
+    // Navigate to games page after setting user
+    router.push("/games");
   };
 
   return (
