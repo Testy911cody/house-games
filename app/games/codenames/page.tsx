@@ -1050,7 +1050,7 @@ export default function CodenamesPage() {
           {/* Current Turn Banner */}
           <div className={`${activeTeam.color.light} rounded-xl p-3 md:p-4 mb-4 border-2 ${activeTeam.color.border} ${activeTeam.color.glow} text-center`}>
             <div className="text-sm md:text-base font-bold text-gray-300">
-              {activeTeam.name.toUpperCase()} {role === "spymaster" ? "SPYMASTER" : "OPERATIVES"} {selectedTeam === currentTeam && guessesRemaining > 0 ? "ARE GUESSING" : "TURN"}
+              {activeTeam.name.toUpperCase()} OPERATIVES {selectedTeam === currentTeam && guessesRemaining > 0 ? "ARE GUESSING" : "TURN"}
             </div>
             {selectedTeam === currentTeam && guessesRemaining > 0 && (
               <div className="mt-2">
