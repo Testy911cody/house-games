@@ -829,7 +829,7 @@ export default function MonopolyPage() {
                         ))}
                       </div>
                       
-                      {/* Center - MONOPOLY Logo */}
+                      {/* Center - MONOPOLY Logo with Dice */}
                       <div className="col-span-9 relative bg-gradient-to-br from-amber-50 to-amber-100 rounded-lg border-2 border-amber-700 shadow-inner" style={{ backgroundColor: "#F5E6D3" }}>
                         <div className="absolute inset-0 flex items-center justify-center">
                           <div className="transform -rotate-45 origin-center">
@@ -842,6 +842,28 @@ export default function MonopolyPage() {
                             </div>
                           </div>
                         </div>
+                        
+                        {/* Dice in center */}
+                        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-20">
+                          <div className="flex flex-col items-center gap-2 sm:gap-3">
+                            <div className="flex gap-2 sm:gap-3 text-white">
+                              <div className="bg-black/70 p-2 sm:p-3 rounded-lg animate-bounce-in shadow-lg border-2 border-white/50">
+                                <DiceIcon value={dice[0]} isRolling={isRollingDice} />
+                              </div>
+                              <div className="bg-black/70 p-2 sm:p-3 rounded-lg animate-bounce-in delay-100 shadow-lg border-2 border-white/50">
+                                <DiceIcon value={dice[1]} isRolling={isRollingDice} />
+                              </div>
+                            </div>
+                            {dice[0] + dice[1] > 0 && !isRollingDice && (
+                              <div className="text-lg sm:text-2xl font-bold text-amber-800" style={{ 
+                                textShadow: "1px 1px 2px rgba(0,0,0,0.3)"
+                              }}>
+                                Total: {dice[0] + dice[1]}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        
                         {/* Current player info in center */}
                         <div className="absolute bottom-2 left-0 right-0 text-center">
                           <p className="text-lg sm:text-2xl mb-1">{currentPlayer?.token}</p>
@@ -893,45 +915,34 @@ export default function MonopolyPage() {
               </div>
             </div>
 
-            {/* Dice & Actions */}
+            {/* Actions */}
             <div className="neon-card neon-box-pink p-2 sm:p-4 card-3d">
-              <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-3 sm:gap-6">
-                <div className="flex gap-2 sm:gap-4 text-white">
-                  <div className="bg-black/50 p-1 sm:p-2 rounded-lg animate-bounce-in">
-                    <DiceIcon value={dice[0]} isRolling={isRollingDice} />
-                  </div>
-                  <div className="bg-black/50 p-1 sm:p-2 rounded-lg animate-bounce-in delay-100">
-                    <DiceIcon value={dice[1]} isRolling={isRollingDice} />
-                  </div>
-                </div>
+              <div className="flex flex-wrap gap-2 sm:gap-3 justify-center w-full">
+                <button
+                  onClick={rollDice}
+                  disabled={hasRolled || currentPlayer?.isBankrupt || isRollingDice || isMoving}
+                  className={`neon-btn min-h-[48px] text-xs sm:text-sm btn-3d ${!hasRolled && !isRollingDice && !isMoving ? "neon-btn-green hover:animate-button-press" : "opacity-50 cursor-not-allowed border-gray-500 text-gray-500"}`}
+                >
+                  {isRollingDice ? "🎲 ROLLING..." : "🎲 ROLL DICE"}
+                </button>
                 
-                <div className="flex flex-wrap gap-2 sm:gap-3 justify-center w-full sm:w-auto">
+                {canBuy && (
                   <button
-                    onClick={rollDice}
-                    disabled={hasRolled || currentPlayer?.isBankrupt || isRollingDice || isMoving}
-                    className={`neon-btn min-h-[48px] text-xs sm:text-sm btn-3d ${!hasRolled && !isRollingDice && !isMoving ? "neon-btn-green hover:animate-button-press" : "opacity-50 cursor-not-allowed border-gray-500 text-gray-500"}`}
+                    onClick={buyProperty}
+                    className="neon-btn neon-btn-yellow min-h-[48px] text-xs sm:text-sm btn-3d"
                   >
-                    {isRollingDice ? "🎲 ROLLING..." : "🎲 ROLL DICE"}
+                    <DollarSign className="w-3 h-3 sm:w-4 sm:h-4 inline" /> BUY ${currentSpace?.price}
                   </button>
-                  
-                  {canBuy && (
-                    <button
-                      onClick={buyProperty}
-                      className="neon-btn neon-btn-yellow min-h-[48px] text-xs sm:text-sm btn-3d"
-                    >
-                      <DollarSign className="w-3 h-3 sm:w-4 sm:h-4 inline" /> BUY ${currentSpace?.price}
-                    </button>
-                  )}
-                  
-                  {hasRolled && (
-                    <button
-                      onClick={endTurn}
-                      className="neon-btn neon-btn-cyan min-h-[48px] text-xs sm:text-sm btn-3d"
-                    >
-                      END TURN →
-                    </button>
-                  )}
-                </div>
+                )}
+                
+                {hasRolled && (
+                  <button
+                    onClick={endTurn}
+                    className="neon-btn neon-btn-cyan min-h-[48px] text-xs sm:text-sm btn-3d"
+                  >
+                    END TURN →
+                  </button>
+                )}
               </div>
             </div>
           </div>
