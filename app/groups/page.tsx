@@ -30,6 +30,7 @@ export default function GroupsPage() {
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [apiStatus, setApiStatus] = useState<"checking" | "connected" | "offline">("checking");
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -94,15 +95,19 @@ export default function GroupsPage() {
           const data = await response.json();
           if (data.success && Array.isArray(data.groups)) {
             apiGroups = data.groups;
+            setApiStatus("connected");
             console.log(`Loaded ${apiGroups.length} groups from API`);
           } else {
+            setApiStatus("offline");
             console.log("API response invalid:", data);
           }
         } else {
+          setApiStatus("offline");
           console.log("API response not OK:", response.status, response.statusText);
         }
       } catch (apiError) {
         // API failed, continue with localStorage
+        setApiStatus("offline");
         console.log("API unavailable, using localStorage only:", apiError);
       }
       
@@ -338,6 +343,12 @@ export default function GroupsPage() {
           <p className="text-sm sm:text-base text-cyan-300 animate-fade-in-up delay-300">
             Browse all available groups or create your own to play games together!
           </p>
+          {apiStatus === "connected" && (
+            <p className="text-xs text-green-400 mt-2">✓ Connected to server - groups sync across devices</p>
+          )}
+          {apiStatus === "offline" && (
+            <p className="text-xs text-yellow-400 mt-2">⚠ Using local storage - groups only visible on this device</p>
+          )}
         </div>
 
         {/* Create Group Button and Refresh */}
