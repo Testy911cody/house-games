@@ -81,49 +81,79 @@ export default function GroupsPage() {
     // Show ALL available groups, not just user's groups
     try {
       // Try to fetch from API first (for cross-device sharing)
+      let apiGroups: Group[] = [];
       try {
-        const response = await fetch('/api/groups');
+        const response = await fetch('/api/groups', {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache',
+          },
+        });
+        
         if (response.ok) {
           const data = await response.json();
-          if (data.success && data.groups) {
-            // Merge with localStorage (local takes precedence for offline support)
-            const localGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-            const apiGroups = data.groups || [];
-            
-            // Merge: combine both, prefer API groups but keep local if newer
-            const mergedGroups = [...apiGroups];
-            localGroups.forEach((localGroup: Group) => {
-              const existing = mergedGroups.find(g => g.id === localGroup.id);
-              if (!existing) {
-                mergedGroups.push(localGroup);
-              }
-            });
-            
-            // Sort by creation date (newest first)
-            const sortedGroups = mergedGroups.sort((a, b) => 
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-            setGroups(sortedGroups);
-            
-            // Sync to localStorage as backup
-            localStorage.setItem("groups", JSON.stringify(sortedGroups));
-            return;
+          if (data.success && Array.isArray(data.groups)) {
+            apiGroups = data.groups;
           }
         }
       } catch (apiError) {
-        // API failed, fall back to localStorage
-        console.log("API unavailable, using localStorage");
+        // API failed, continue with localStorage
+        console.log("API unavailable, using localStorage only");
       }
       
-      // Fallback to localStorage
-      const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-      const sortedGroups = [...allGroups].sort((a, b) => 
+      // Get local groups
+      const localGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+      
+      // Merge: combine API and local groups
+      // If a group exists in both, prefer the one with more members (more up-to-date)
+      const mergedGroups: Group[] = [];
+      const allGroupIds = new Set<string>();
+      
+      // Add API groups first
+      apiGroups.forEach((apiGroup: Group) => {
+        mergedGroups.push(apiGroup);
+        allGroupIds.add(apiGroup.id);
+      });
+      
+      // Add local groups that aren't in API
+      localGroups.forEach((localGroup: Group) => {
+        if (!allGroupIds.has(localGroup.id)) {
+          mergedGroups.push(localGroup);
+        } else {
+          // Update existing group if local has more members (more recent)
+          const existingIndex = mergedGroups.findIndex(g => g.id === localGroup.id);
+          if (existingIndex >= 0) {
+            const existing = mergedGroups[existingIndex];
+            const localMemberCount = (localGroup.members?.length || 0) + 1;
+            const apiMemberCount = (existing.members?.length || 0) + 1;
+            if (localMemberCount > apiMemberCount) {
+              mergedGroups[existingIndex] = localGroup;
+            }
+          }
+        }
+      });
+      
+      // Sort by creation date (newest first)
+      const sortedGroups = mergedGroups.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
+      
       setGroups(sortedGroups);
+      
+      // Sync merged groups back to localStorage
+      localStorage.setItem("groups", JSON.stringify(sortedGroups));
     } catch (error) {
       console.error("Error loading groups:", error);
-      setGroups([]);
+      // Fallback to localStorage only
+      try {
+        const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+        const sortedGroups = [...allGroups].sort((a, b) => 
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        setGroups(sortedGroups);
+      } catch (e) {
+        setGroups([]);
+      }
     }
   };
 
@@ -310,8 +340,8 @@ export default function GroupsPage() {
             CREATE NEW GROUP
           </Link>
           <button
-            onClick={() => {
-              loadGroups();
+            onClick={async () => {
+              await loadGroups();
               setSearchQuery("");
             }}
             className="neon-btn neon-btn-cyan py-3 px-6 text-lg font-bold hover:animate-pulse-glow flex items-center gap-2"

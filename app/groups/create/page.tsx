@@ -74,7 +74,10 @@ export default function CreateGroupPage() {
     try {
       const response = await fetch('/api/groups', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
         body: JSON.stringify({
           action: 'create',
           group: newGroup,
@@ -84,13 +87,17 @@ export default function CreateGroupPage() {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          // API sync successful
-          console.log("Group synced to server");
+          // API sync successful - the group is now on the server
+          console.log("Group synced to server successfully");
+        } else {
+          console.log("API returned error:", data.error);
         }
+      } else {
+        console.log("API request failed with status:", response.status);
       }
     } catch (error) {
       // API failed, but continue with local storage
-      console.log("API sync failed, using local storage only");
+      console.log("API sync failed, using local storage only:", error);
     }
 
     router.push(`/groups/${newGroup.id}`);
