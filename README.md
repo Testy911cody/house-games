@@ -6,62 +6,108 @@ A cozy treehouse-themed website where friends come to play social games together
 
 - **Anonymous Play**: Jump right in without creating an account
 - **Profile System**: Create profiles to save your progress and track stats
-- **Taboo Game**: The classic word-guessing game where you describe words without using forbidden terms
+- **10+ Games**: Jeopardy, Taboo, Codenames, DrawGuess, Flappy Bird, Ludo, Maze, Monopoly, Pacman, Werewolf, and more!
 - **Beautiful Treehouse Theme**: Immersive design that makes you feel like you're in a treehouse with friends
 
 ## Getting Started
 
-1. Install dependencies:
-```bash
-npm install
-```
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-2. Run the development server:
-```bash
-npm run dev
-```
+2. **Run the development server:**
+   ```bash
+   npm run dev
+   ```
+   Or use the launcher script:
+   ```bash
+   scripts\start-housegames.bat
+   ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser
+3. **Open [http://localhost:3000](http://localhost:3000)** in your browser
 
 ## Games
 
-### Taboo
-Get your team to guess words without using the forbidden words! Race against the clock to get as many correct guesses as possible.
+- **Jeopardy** - Trivia game with AI-powered topic generation
+- **Taboo** - Word-guessing game with forbidden words
+- **Codenames** - Word association game
+- **DrawGuess** - Drawing and guessing game
+- **Flappy Bird** - Classic arcade game
+- **Ludo** - Board game
+- **Maze** - Puzzle game
+- **Monopoly** - Board game
+- **Pacman** - Classic arcade game
+- **Werewolf** - Social deduction game
 
 ## Tech Stack
 
-- Next.js 14 (App Router)
-- React 18
-- TypeScript
-- Tailwind CSS
-- Local Storage for data persistence
+- **Framework**: Next.js 14 (App Router)
+- **UI Library**: React 18
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Storage**: Local Storage for data persistence
+
+## Project Structure
+
+```
+HouseGames/
+├── app/                    # Next.js app directory
+│   ├── api/               # API routes
+│   ├── components/        # React components
+│   ├── games/             # Game pages
+│   ├── groups/            # Group management
+│   ├── profile/           # User profiles
+│   └── suggestions/       # Suggestions page
+├── docs/                   # Documentation
+│   ├── deployment/       # Deployment guides
+│   ├── development/      # Development guides
+│   ├── archive/          # Old documentation
+│   └── personal/        # Personal files
+├── scripts/               # Utility scripts
+│   ├── setup-git.bat     # Git setup helper
+│   ├── deploy-nightly.bat # Nightly deployment
+│   └── start-housegames.bat # Development launcher
+├── public/                # Static assets
+└── [config files]        # Next.js, TypeScript, etc.
+```
+
+## Documentation
+
+All documentation is organized in the `docs/` folder:
+
+- **[Deployment Guide](docs/deployment/DEPLOYMENT.md)** - Complete deployment instructions
+- **[Security Guide](docs/development/SECURITY.md)** - Security best practices
+- **[API Keys Guide](docs/development/API_KEYS.md)** - Understanding API keys
+- **[Documentation Index](docs/README.md)** - Full documentation index
 
 ## Deployment
 
-See [DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md) for detailed instructions on how to publish your website.
-
-### Quick Deploy to Vercel (Recommended)
+**Quick Deploy:**
 
 1. **Set up Git** (if not done):
    ```bash
-   setup-git.bat
+   scripts\setup-git.bat
    ```
 
-2. **Create GitHub repository** and push your code
+2. **Push to GitHub** and deploy to [Vercel](https://vercel.com) or [Netlify](https://netlify.com)
 
-3. **Deploy to Vercel**:
-   - Go to https://vercel.com
-   - Sign up with GitHub
-   - Import your repository
-   - Deploy! 🚀
+3. **See [Deployment Guide](docs/deployment/DEPLOYMENT.md)** for detailed instructions
 
-### Nightly Updates
+## Scripts
 
-**Option 1: Manual** - Run `deploy-nightly.bat` daily
+- `scripts\setup-git.bat` - Initialize Git repository
+- `scripts\start-housegames.bat` - Start development server
+- `scripts\deploy-nightly.bat` - Trigger nightly deployment
 
-**Option 2: Automatic** - Use GitHub Actions (see `.github/workflows/nightly-build.yml`)
+## Development
 
-## Future Games
+- **Local Development**: `npm run dev`
+- **Build**: `npm run build`
+- **Start Production**: `npm start`
+- **Lint**: `npm run lint`
 
-More social games will be added soon!
+## License
+
+This project is private/personal use.
 

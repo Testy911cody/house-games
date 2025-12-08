@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star } from "lucide-react";
+import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star, Sparkles, Loader2 } from "lucide-react";
 import Link from "next/link";
 
 // TOPICS WITH SUB-CATEGORIES
@@ -437,6 +437,15 @@ interface CustomCategory {
   createdAt: string;
 }
 
+interface CustomTopic {
+  name: string;
+  icon: string;
+  color: string;
+  categories: Record<string, Question[]>;
+  createdAt: string;
+  isAIGenerated: boolean;
+}
+
 export default function JeopardyPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -466,6 +475,13 @@ export default function JeopardyPage() {
     { question: "", answer: "", points: 500 },
   ]);
 
+  // Custom topic states
+  const [customTopics, setCustomTopics] = useState<Record<string, CustomTopic>>({});
+  const [showAddTopic, setShowAddTopic] = useState(false);
+  const [newTopicName, setNewTopicName] = useState("");
+  const [isGeneratingTopic, setIsGeneratingTopic] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
@@ -478,6 +494,12 @@ export default function JeopardyPage() {
     const savedCustomCategories = localStorage.getItem("jeopardy_custom_categories");
     if (savedCustomCategories) {
       setCustomCategories(JSON.parse(savedCustomCategories));
+    }
+    
+    // Load custom topics from localStorage
+    const savedCustomTopics = localStorage.getItem("jeopardy_custom_topics");
+    if (savedCustomTopics) {
+      setCustomTopics(JSON.parse(savedCustomTopics));
     }
   }, [router]);
 
@@ -506,8 +528,14 @@ export default function JeopardyPage() {
     }
   }, [currentUser, teams.length]);
 
-  const topicNames = Object.keys(TOPICS);
-  const currentTopicData = selectedTopic ? TOPICS[selectedTopic] : null;
+  // Merge regular topics with custom topics
+  const getAllTopics = () => {
+    return { ...TOPICS, ...customTopics };
+  };
+  
+  const topicNames = Object.keys(getAllTopics());
+  const allTopics = getAllTopics();
+  const currentTopicData = selectedTopic ? allTopics[selectedTopic] : null;
   
   // Merge regular categories with custom categories for the selected topic
   const getAvailableCategories = () => {
@@ -791,6 +819,64 @@ export default function JeopardyPage() {
     ]);
   };
 
+  const generateTopic = async () => {
+    if (!newTopicName.trim()) {
+      setGenerationError("Please enter a topic name");
+      return;
+    }
+
+    setIsGeneratingTopic(true);
+    setGenerationError(null);
+
+    try {
+      const response = await fetch("/api/generate-jeopardy-topic", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
+          topic: newTopicName.trim(),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to generate topic");
+      }
+
+      // Create custom topic
+      const customTopic: CustomTopic = {
+        name: newTopicName.trim(),
+        icon: data.icon || "🎯",
+        color: data.color || "cyan",
+        categories: data.categories,
+        createdAt: new Date().toISOString(),
+        isAIGenerated: false,
+      };
+
+      // Save to state and localStorage
+      const updatedCustomTopics = {
+        ...customTopics,
+        [newTopicName.trim()]: customTopic,
+      };
+      setCustomTopics(updatedCustomTopics);
+      localStorage.setItem("jeopardy_custom_topics", JSON.stringify(updatedCustomTopics));
+
+      // Reset form and close
+      setNewTopicName("");
+      setShowAddTopic(false);
+      setIsGeneratingTopic(false);
+
+      // Auto-select the new topic
+      selectTopic(newTopicName.trim());
+    } catch (error: any) {
+      console.error("Error generating topic:", error);
+      setGenerationError(error.message || "Failed to generate topic. Please try again.");
+      setIsGeneratingTopic(false);
+    }
+  };
+
   if (!currentUser) return null;
 
   const currentTeam = teams[currentTeamIndex];
@@ -953,22 +1039,92 @@ export default function JeopardyPage() {
             </p>
           </div>
 
+          {/* Add Topic Button */}
+          <div className="mb-6 flex justify-center">
+            <button
+              onClick={() => setShowAddTopic(!showAddTopic)}
+              className="neon-btn neon-btn-purple px-6 py-3 flex items-center gap-2 btn-3d"
+            >
+              <Sparkles className="w-5 h-5" />
+              {showAddTopic ? "CANCEL" : "CREATE NEW TOPIC"}
+            </button>
+          </div>
+
+          {/* Add Topic Form */}
+          {showAddTopic && (
+            <div className="neon-card neon-box-purple p-6 mb-6 card-3d">
+              <h3 className="text-xl font-bold text-purple-400 mb-4 text-center flex items-center justify-center gap-2">
+                <Sparkles className="w-5 h-5" />
+                CREATE NEW TOPIC
+              </h3>
+              
+              <div className="mb-4">
+                <label className="block text-gray-300 mb-2 font-semibold">Topic Name:</label>
+                <input
+                  type="text"
+                  value={newTopicName}
+                  onChange={(e) => setNewTopicName(e.target.value)}
+                  placeholder="e.g., Harry Potter, World War II, Marvel Movies..."
+                  className="w-full px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white focus:outline-none focus:border-purple-400"
+                  maxLength={50}
+                  disabled={isGeneratingTopic}
+                />
+                <p className="text-gray-400 text-sm mt-2">
+                  Automatically generates 6 categories with 5 questions each (100-500 points)
+                </p>
+              </div>
+
+              {generationError && (
+                <div className="mb-4 p-3 bg-red-900/30 border-2 border-red-500 rounded-lg text-red-400 text-sm">
+                  {generationError}
+                </div>
+              )}
+
+              <button
+                onClick={generateTopic}
+                disabled={!newTopicName.trim() || isGeneratingTopic}
+                className={`w-full py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                  newTopicName.trim() && !isGeneratingTopic
+                    ? "neon-btn neon-btn-green btn-3d"
+                    : "bg-gray-800 text-gray-500 cursor-not-allowed border-2 border-gray-700"
+                }`}
+              >
+                {isGeneratingTopic ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    GENERATING...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-5 h-5" />
+                    GENERATE TOPIC
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
           {/* Topic Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {topicNames.map((topic, idx) => {
-              const topicData = TOPICS[topic];
+              const topicData = allTopics[topic];
+              if (!topicData) return null;
               const colorClass = COLOR_CLASSES[topicData.color];
               const regularCategoryCount = Object.keys(topicData.categories).length;
               const customCategoryCount = customCategories[topic]?.length || 0;
               const totalCategoryCount = regularCategoryCount + customCategoryCount;
+              const isCustomTopic = customTopics[topic] !== undefined;
               
               return (
                 <button
                   key={topic}
                   onClick={() => selectTopic(topic)}
-                  className={`${colorClass.bg} border-2 ${colorClass.border} ${colorClass.box} p-6 rounded-2xl transition-all hover:scale-105 text-center topic-card-3d card-enter hover:animate-pulse-glow`}
+                  className={`${colorClass.bg} border-2 ${colorClass.border} ${colorClass.box} p-6 rounded-2xl transition-all hover:scale-105 text-center topic-card-3d card-enter hover:animate-pulse-glow relative`}
                   style={{ animationDelay: `${idx * 0.1}s` }}
                 >
+                  {isCustomTopic && (
+                    <Sparkles className="w-4 h-4 absolute top-2 right-2 text-yellow-400 fill-yellow-400 animate-pulse" />
+                  )}
                   <div className="text-5xl mb-3 icon-3d animate-bounce-in">{topicData.icon}</div>
                   <div className={`font-bold text-lg ${colorClass.text} animate-fade-in-up`}>{topic}</div>
                   <div className="text-gray-400 text-sm mt-1 animate-fade-in-up delay-200">
@@ -977,6 +1133,9 @@ export default function JeopardyPage() {
                       <span className="text-yellow-400 ml-1">
                         ({customCategoryCount} custom)
                       </span>
+                    )}
+                    {isCustomTopic && (
+                      <span className="text-purple-400 ml-1 block">Custom Topic</span>
                     )}
                   </div>
                   <div className={`mt-3 ${colorClass.text} flex items-center justify-center gap-1 animate-fade-in-up delay-300`}>

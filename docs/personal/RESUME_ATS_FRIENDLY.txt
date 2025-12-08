@@ -1,0 +1,51 @@
+[YOUR NAME]
+[Your Email] | [Your Phone] | [Your Location] | [LinkedIn/GitHub]
+
+PROFESSIONAL SUMMARY
+Full Stack Web Developer specializing in Next.js and React applications. Experienced in building scalable, interactive web applications with TypeScript, modern React patterns, and responsive design. Proven track record of developing feature-rich applications with complex state management, API integration, and deployment automation.
+
+TECHNICAL SKILLS
+• Frontend: Next.js 14, React 18, TypeScript, JavaScript, HTML5, CSS3, Tailwind CSS
+• State Management: React Hooks (useState, useEffect, useRouter), Local Storage API
+• Backend: Next.js API Routes, RESTful API Design, Server Components
+• Tools: Git, GitHub, Webpack, Vercel, Netlify, ESLint
+• UI/UX: Responsive Design, Custom CSS Animations, SVG Graphics, PWA Development
+• Performance: Bundle Optimization, Image Optimization, Code Splitting
+
+PROFESSIONAL EXPERIENCE
+
+Full Stack Web Developer | House Games Project | [Dates]
+• Developed and deployed a multi-game web application using Next.js 14 App Router architecture with TypeScript
+• Implemented 10+ interactive games (Jeopardy, Taboo, Codenames, DrawGuess, Flappy Bird, Ludo, Maze, Monopoly, Pacman, Werewolf) with diverse game mechanics
+• Built complete user authentication and profile management system with local storage persistence
+• Created group management system enabling users to create, join, and manage gaming groups with unique codes
+• Developed dynamic API routes for game content generation with 100+ question templates
+• Designed responsive, neon-themed UI with custom CSS animations, SVG graphics, and pixel-perfect styling
+• Optimized application performance through webpack configuration, image optimization, and bundle size reduction
+• Deployed application to production using Vercel/Netlify with automated CI/CD pipelines
+• Implemented PWA capabilities with manifest.json for mobile app-like experience
+• Utilized React Hooks extensively (369+ implementations) for state management, side effects, and navigation
+• Ensured responsive layouts for seamless experience across desktop, tablet, and mobile devices
+
+TECHNOLOGIES: Next.js 14, React 18, TypeScript, Tailwind CSS, Local Storage API, Git, Vercel, Netlify
+
+PROJECTS
+
+House Games - Multi-Game Web Application
+• Developed full-stack web application with 10+ interactive games using Next.js 14 and React 18
+• Implemented user management system with profile creation, anonymous play mode, and statistics tracking
+• Built group system with real-time group creation, joining via codes, and member management
+• Created API-driven question generation for Jeopardy with 100+ topic templates
+• Designed custom neon arcade theme with animations, responsive design, and interactive components
+• Optimized performance with code splitting, image optimization, and bundle size reduction
+• Implemented client-side routing, local storage persistence, and PWA capabilities
+
+TECHNOLOGIES: Next.js 14, React 18, TypeScript, Tailwind CSS, Local Storage API
+
+EDUCATION
+[Degree] | [University] | [Year]
+[Relevant coursework or achievements]
+
+CERTIFICATIONS
+[Any relevant certifications]
+

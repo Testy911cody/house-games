@@ -58,15 +58,33 @@ export default function GroupsPage() {
     setGroups(userGroups);
   };
 
-  const handleJoinGroup = () => {
+  const handleJoinGroup = (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
     setJoinError("");
-    if (!joinCode.trim()) {
+    
+    if (!currentUser) {
+      setJoinError("Please log in first");
+      return;
+    }
+
+    const trimmedCode = joinCode.trim().toUpperCase();
+    if (!trimmedCode) {
       setJoinError("Please enter a group code");
       return;
     }
 
+    if (trimmedCode.length !== 6) {
+      setJoinError("Group code must be 6 characters");
+      return;
+    }
+
     const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const group = allGroups.find((g: Group) => g.code.toLowerCase() === joinCode.trim().toLowerCase());
+    const group = allGroups.find((g: Group) => {
+      const storedCode = (g.code || "").trim().toUpperCase();
+      return storedCode === trimmedCode;
+    });
 
     if (!group) {
       setJoinError("Group not found. Please check the code.");
@@ -141,26 +159,33 @@ export default function GroupsPage() {
         {/* Join Group Section */}
         <div className="neon-card neon-box-cyan p-6 mb-6 animate-slide-fade-in delay-500">
           <h2 className="text-xl font-bold text-cyan-400 mb-4 pixel-font text-sm animate-fade-in-left">JOIN GROUP</h2>
-          <div className="flex gap-2 flex-col sm:flex-row animate-fade-in-up delay-600">
+          <form onSubmit={handleJoinGroup} className="flex gap-2 flex-col sm:flex-row animate-fade-in-up delay-600">
             <input
               type="text"
               value={joinCode}
               onChange={(e) => {
-                setJoinCode(e.target.value.toUpperCase());
+                setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""));
                 setJoinError("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  handleJoinGroup(e);
+                }
               }}
               placeholder="Enter group code"
               className="flex-1 px-4 py-3 bg-gray-800 border border-cyan-500 rounded text-cyan-300 placeholder-cyan-500/50 input-3d focus:animate-pulse-glow"
               maxLength={6}
+              pattern="[A-Z0-9]{6}"
             />
             <button
-              onClick={handleJoinGroup}
+              type="submit"
               className="neon-btn neon-btn-green px-6 py-3 font-bold hover:animate-button-press"
             >
               <UserPlus className="w-5 h-5 inline mr-2" />
               JOIN
             </button>
-          </div>
+          </form>
           {joinError && (
             <div className="mt-2 text-red-400 text-sm animate-error">{joinError}</div>
           )}

@@ -127,6 +127,29 @@ export default function FlappyGame() {
     setCurrentUser(JSON.parse(user));
   }, [router]);
 
+  // Helper function to flap a bird
+  const flapBird = useCallback((birdIndex: number) => {
+    setBirds(currentBirds => {
+      return currentBirds.map((bird, index) => {
+        if (index === birdIndex && bird.alive) {
+          // Add particles
+          for (let i = 0; i < 5; i++) {
+            particlesRef.current.push({
+              x: bird.x,
+              y: bird.y + bird.height / 2,
+              vx: -Math.random() * 3 - 1,
+              vy: Math.random() * 2 - 1,
+              life: 1,
+              color: bird.wingColor
+            });
+          }
+          return { ...bird, velocity: FLAP_POWER };
+        }
+        return bird;
+      });
+    });
+  }, []);
+
   // Handle key events
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -141,7 +164,7 @@ export default function FlappyGame() {
         
         if (gameState === "playing") {
           setBirds(currentBirds => {
-            return currentBirds.map(bird => {
+            return currentBirds.map((bird, index) => {
               if (bird.alive && bird.flapKey.includes(e.key)) {
                 // Add particles
                 for (let i = 0; i < 5; i++) {
@@ -178,7 +201,57 @@ export default function FlappyGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, startGame]);
+  }, [gameState, startGame, flapBird]);
+
+  // Handle touch events for mobile
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      e.preventDefault();
+      
+      if (gameState === "waiting") {
+        startGame();
+        return;
+      }
+      
+      if (gameState === "playing" && canvas) {
+        const rect = canvas.getBoundingClientRect();
+        const touch = e.touches[0];
+        const x = touch.clientX - rect.left;
+        const y = touch.clientY - rect.top;
+        
+        // Get canvas scale (in case it's scaled for display)
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const canvasX = x * scaleX;
+        const canvasY = y * scaleY;
+        
+        // Divide screen into sections based on player count
+        // Each player gets a vertical section of the screen
+        const sectionWidth = CANVAS_WIDTH / playerCount;
+        const playerIndex = Math.floor(canvasX / sectionWidth);
+        
+        // Make sure we have a valid player index
+        if (playerIndex >= 0 && playerIndex < playerCount) {
+          flapBird(playerIndex);
+        }
+      }
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+    };
+
+    canvas.addEventListener("touchstart", handleTouchStart, { passive: false });
+    canvas.addEventListener("touchend", handleTouchEnd, { passive: false });
+
+    return () => {
+      canvas.removeEventListener("touchstart", handleTouchStart);
+      canvas.removeEventListener("touchend", handleTouchEnd);
+    };
+  }, [gameState, startGame, playerCount, flapBird]);
 
   // Game loop
   useEffect(() => {
@@ -348,6 +421,22 @@ export default function FlappyGame() {
         ctx.stroke();
       }
 
+      // Draw touch zone dividers for mobile (only if more than 1 player)
+      if (playerCount > 1) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        const sectionWidth = canvas.width / playerCount;
+        for (let i = 1; i < playerCount; i++) {
+          const x = i * sectionWidth;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, canvas.height);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+      }
+
       // Draw pipes
       pipes.forEach(pipe => {
         const topHeight = pipe.gapY;
@@ -489,7 +578,7 @@ export default function FlappyGame() {
     return () => {
       if (animationId) cancelAnimationFrame(animationId);
     };
-  }, [gameState, pipes, birds, stars]);
+  }, [gameState, pipes, birds, stars, playerCount]);
 
   if (!currentUser) return null;
 
@@ -542,17 +631,27 @@ export default function FlappyGame() {
                 <div key={index} className="bg-slate-700/50 p-4 rounded-xl border border-cyan-500/50">
                   <div className="text-3xl mb-2" style={{color: config.color}}>🐦</div>
                   <h3 className="text-cyan-400 font-bold text-xl mb-2">{config.name}</h3>
-                  <div className="flex justify-center">
+                  <div className="flex justify-center gap-2">
                     <span className="bg-cyan-600 px-6 py-2 rounded text-white font-mono text-xl">
                       {config.flapKey[0] === "ArrowUp" ? "↑" : config.flapKey[0].toUpperCase()}
                     </span>
+                    <span className="text-cyan-300 text-sm flex items-center">or</span>
+                    <span className="bg-pink-600 px-6 py-2 rounded text-white font-mono text-xl">
+                      📱
+                    </span>
                   </div>
-                  <p className="text-cyan-300 mt-2 text-sm">Press to flap</p>
+                  <p className="text-cyan-300 mt-2 text-sm">
+                    {index === 0 ? "Tap left side" : index === 1 ? "Tap right side" : `Tap section ${index + 1}`} on mobile
+                  </p>
                 </div>
               ))}
             </div>
 
-            <p className="text-yellow-400 mb-6">🏆 Last bird flying wins! Pass pipes for bonus points.</p>
+            <p className="text-yellow-400 mb-6">
+              🏆 Last bird flying wins! Pass pipes for bonus points.
+              <br />
+              <span className="text-cyan-300 text-sm">📱 On mobile: Tap your section of the screen to flap!</span>
+            </p>
 
             <button
               onClick={startGame}
@@ -570,7 +669,8 @@ export default function FlappyGame() {
                 ref={canvasRef}
                 width={CANVAS_WIDTH}
                 height={CANVAS_HEIGHT}
-                className="rounded-lg"
+                className="rounded-lg touch-none"
+                style={{ touchAction: 'none' }}
               />
             </div>
           </div>

@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0\.."
 title HouseGames Launcher
 
 echo ========================================
@@ -17,7 +17,8 @@ if %errorlevel% == 0 (
 )
 
 echo Starting HouseGames server...
-start "HouseGames Server" cmd /k "npm run dev"
+cd /d "%~dp0\.."
+start "HouseGames Server" cmd /k "cd /d %~dp0\.. && npm run dev"
 
 echo Waiting for server to start...
 timeout /t 5 /nobreak >nul
