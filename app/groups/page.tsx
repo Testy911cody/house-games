@@ -264,7 +264,7 @@ export default function GroupsPage() {
     return false;
   };
 
-  const handleJoinGroup = (e?: React.FormEvent) => {
+  const handleJoinGroup = async (e?: React.FormEvent) => {
     if (e) {
       e.preventDefault();
     }
@@ -281,15 +281,15 @@ export default function GroupsPage() {
       return;
     }
 
-    const success = joinGroupByCode(trimmedCode);
+    const success = await joinGroupByCode(trimmedCode);
     if (success) {
       setJoinCode("");
     }
   };
 
-  const handleQuickJoin = (groupCode: string) => {
+  const handleQuickJoin = async (groupCode: string) => {
     setJoinError("");
-    const success = joinGroupByCode(groupCode);
+    const success = await joinGroupByCode(groupCode);
     if (!success) {
       // Error is already set by joinGroupByCode
     }
