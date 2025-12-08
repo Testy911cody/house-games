@@ -12,6 +12,28 @@ const nextConfig = {
   experimental: {
     // optimizeCss: true, // Disabled - requires 'critters' package
   },
+  // Add headers for cache control (rapid multiplayer sync)
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          },
+          {
+            key: 'Pragma',
+            value: 'no-cache',
+          },
+          {
+            key: 'Expires',
+            value: '0',
+          },
+        ],
+      },
+    ];
+  },
   // Reduce bundle size
   webpack: (config, { isServer }) => {
     if (!isServer) {

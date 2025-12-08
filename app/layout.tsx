@@ -24,10 +24,6 @@ export const metadata: Metadata = {
   },
 };
 
-// Disable caching for all routes to ensure rapid multiplayer sync
-export const revalidate = 0;
-export const dynamic = 'force-dynamic';
-
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
