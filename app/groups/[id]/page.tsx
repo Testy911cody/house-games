@@ -62,18 +62,36 @@ export default function GroupDetailPage() {
       return;
     }
 
-    // Check if user is a member or admin
-    const isMember = foundGroup.members.some((m: GroupMember) => m.id === currentUser.id);
-    const isAdmin = foundGroup.adminId === currentUser.id;
-    
-    if (!isMember && !isAdmin) {
-      router.push("/groups");
-      return;
-    }
-
+    // Allow anyone to view groups, but restrict editing to members/admins
     setGroup(foundGroup);
     setEditName(foundGroup.name);
     setEditDescription(foundGroup.description || "");
+  };
+
+  const handleJoinGroup = () => {
+    if (!group || !currentUser) return;
+    
+    const isMember = group.members.some((m: GroupMember) => m.id === currentUser.id);
+    const isAdmin = group.adminId === currentUser.id;
+    
+    if (isMember || isAdmin) {
+      return; // Already a member
+    }
+
+    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+    const groupIndex = allGroups.findIndex((g: Group) => g.id === groupId);
+    
+    if (groupIndex === -1) return;
+
+    // Add user to group
+    allGroups[groupIndex].members.push({
+      id: currentUser.id,
+      name: currentUser.name,
+      joinedAt: new Date().toISOString(),
+    });
+
+    localStorage.setItem("groups", JSON.stringify(allGroups));
+    loadGroup(); // Reload to update UI
   };
 
   const saveGroup = () => {
@@ -138,6 +156,7 @@ export default function GroupDetailPage() {
   }
 
   const isAdmin = group.adminId === currentUser.id;
+  const isMember = group.members.some((m: GroupMember) => m.id === currentUser.id) || isAdmin;
   const memberCount = group.members.length + 1; // +1 for admin
 
   return (
@@ -169,11 +188,12 @@ export default function GroupDetailPage() {
                     <p className="text-cyan-300/70 mb-4">{group.description}</p>
                   )}
                 </div>
-                {isAdmin && (
+                {(isAdmin || isMember) && (
                   <button
                     onClick={() => setIsEditing(true)}
                     className="text-cyan-400 hover:text-cyan-300 transition-colors p-2"
                     title="Edit group"
+                    disabled={!isAdmin}
                   >
                     <Edit2 className="w-5 h-5" />
                   </button>
@@ -205,60 +225,72 @@ export default function GroupDetailPage() {
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
-              <div>
-                <label className="block text-cyan-300 mb-2 font-semibold">Group Name</label>
-                <input
-                  type="text"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  maxLength={30}
-                  className="w-full px-4 py-2 bg-gray-800 border border-purple-500 rounded text-cyan-300"
-                />
+            isAdmin && (
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-cyan-300 mb-2 font-semibold">Group Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    maxLength={30}
+                    className="w-full px-4 py-2 bg-gray-800 border border-purple-500 rounded text-cyan-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-cyan-300 mb-2 font-semibold">Description</label>
+                  <textarea
+                    value={editDescription}
+                    onChange={(e) => setEditDescription(e.target.value)}
+                    maxLength={200}
+                    rows={3}
+                    className="w-full px-4 py-2 bg-gray-800 border border-purple-500 rounded text-cyan-300 resize-none"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={saveGroup}
+                    className="neon-btn neon-btn-green px-4 py-2 flex items-center gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    SAVE
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditing(false);
+                      setEditName(group.name);
+                      setEditDescription(group.description || "");
+                    }}
+                    className="neon-btn neon-btn-red px-4 py-2 flex items-center gap-2"
+                  >
+                    <X className="w-4 h-4" />
+                    CANCEL
+                  </button>
+                </div>
               </div>
-              <div>
-                <label className="block text-cyan-300 mb-2 font-semibold">Description</label>
-                <textarea
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  maxLength={200}
-                  rows={3}
-                  className="w-full px-4 py-2 bg-gray-800 border border-purple-500 rounded text-cyan-300 resize-none"
-                />
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={saveGroup}
-                  className="neon-btn neon-btn-green px-4 py-2 flex items-center gap-2"
-                >
-                  <Save className="w-4 h-4" />
-                  SAVE
-                </button>
-                <button
-                  onClick={() => {
-                    setIsEditing(false);
-                    setEditName(group.name);
-                    setEditDescription(group.description || "");
-                  }}
-                  className="neon-btn neon-btn-red px-4 py-2 flex items-center gap-2"
-                >
-                  <X className="w-4 h-4" />
-                  CANCEL
-                </button>
-              </div>
-            </div>
+            )
           )}
         </div>
 
-        {/* Play Game Button */}
+        {/* Join/Play Game Button */}
         <div className="mb-6">
-          <button
-            onClick={startGame}
-            className="neon-btn neon-btn-green w-full py-4 text-lg font-bold flex items-center justify-center gap-2"
-          >
-            <Gamepad2 className="w-5 h-5" />
-            PLAY GAMES WITH GROUP
-          </button>
+          {!isMember ? (
+            <button
+              onClick={handleJoinGroup}
+              className="neon-btn neon-btn-green w-full py-4 text-lg font-bold flex items-center justify-center gap-2"
+            >
+              <UserPlus className="w-5 h-5" />
+              JOIN THIS GROUP
+            </button>
+          ) : (
+            <button
+              onClick={startGame}
+              className="neon-btn neon-btn-green w-full py-4 text-lg font-bold flex items-center justify-center gap-2"
+            >
+              <Gamepad2 className="w-5 h-5" />
+              PLAY GAMES WITH GROUP
+            </button>
+          )}
         </div>
 
         {/* Members List */}

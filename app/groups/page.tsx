@@ -44,18 +44,66 @@ export default function GroupsPage() {
   useEffect(() => {
     if (currentUser) {
       loadGroups();
+      // Auto-refresh groups every 5 seconds for multiplayer scenarios
+      const refreshInterval = setInterval(() => {
+        loadGroups();
+      }, 5000);
+      
+      return () => clearInterval(refreshInterval);
     }
   }, [currentUser]);
 
   const loadGroups = () => {
     if (!currentUser) return;
+    // Show ALL available groups, not just user's groups
     const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    // Filter groups where current user is a member
-    const userGroups = allGroups.filter((group: Group) =>
-      group.members.some((m: GroupMember) => m.id === currentUser.id) ||
-      group.adminId === currentUser.id
+    // Sort by creation date (newest first) for better visibility
+    const sortedGroups = [...allGroups].sort((a, b) => 
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-    setGroups(userGroups);
+    setGroups(sortedGroups);
+  };
+
+  const joinGroupByCode = (code: string) => {
+    if (!currentUser) {
+      setJoinError("Please log in first");
+      return false;
+    }
+
+    const trimmedCode = code.trim().toUpperCase();
+    if (!trimmedCode || trimmedCode.length !== 6) {
+      setJoinError("Invalid group code");
+      return false;
+    }
+
+    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+    const group = allGroups.find((g: Group) => {
+      const storedCode = (g.code || "").trim().toUpperCase();
+      return storedCode === trimmedCode;
+    });
+
+    if (!group) {
+      setJoinError("Group not found. Please check the code.");
+      return false;
+    }
+
+    // Check if user is already a member
+    if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
+      setJoinError("You are already a member of this group");
+      return false;
+    }
+
+    // Add user to group
+    group.members.push({
+      id: currentUser.id,
+      name: currentUser.name,
+      joinedAt: new Date().toISOString(),
+    });
+
+    localStorage.setItem("groups", JSON.stringify(allGroups));
+    loadGroups();
+    router.push(`/groups/${group.id}`);
+    return true;
   };
 
   const handleJoinGroup = (e?: React.FormEvent) => {
@@ -64,11 +112,6 @@ export default function GroupsPage() {
     }
     setJoinError("");
     
-    if (!currentUser) {
-      setJoinError("Please log in first");
-      return;
-    }
-
     const trimmedCode = joinCode.trim().toUpperCase();
     if (!trimmedCode) {
       setJoinError("Please enter a group code");
@@ -80,34 +123,18 @@ export default function GroupsPage() {
       return;
     }
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const group = allGroups.find((g: Group) => {
-      const storedCode = (g.code || "").trim().toUpperCase();
-      return storedCode === trimmedCode;
-    });
-
-    if (!group) {
-      setJoinError("Group not found. Please check the code.");
-      return;
+    const success = joinGroupByCode(trimmedCode);
+    if (success) {
+      setJoinCode("");
     }
+  };
 
-    // Check if user is already a member
-    if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
-      setJoinError("You are already a member of this group");
-      return;
+  const handleQuickJoin = (groupCode: string) => {
+    setJoinError("");
+    const success = joinGroupByCode(groupCode);
+    if (!success) {
+      // Error is already set by joinGroupByCode
     }
-
-    // Add user to group
-    group.members.push({
-      id: currentUser.id,
-      name: currentUser.name,
-      joinedAt: new Date().toISOString(),
-    });
-
-    localStorage.setItem("groups", JSON.stringify(allGroups));
-    setJoinCode("");
-    loadGroups();
-    router.push(`/groups/${group.id}`);
   };
 
   const copyToClipboard = (code: string) => {
@@ -141,7 +168,7 @@ export default function GroupsPage() {
             👥 GROUPS
           </h1>
           <p className="text-sm sm:text-base text-cyan-300 animate-fade-in-up delay-300">
-            Create or join groups to play games together!
+            Browse all available groups or create your own to play games together!
           </p>
         </div>
 
@@ -200,9 +227,12 @@ export default function GroupsPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search groups..."
+                placeholder="Search all available groups..."
                 className="w-full pl-10 pr-4 py-3 bg-gray-800 border border-cyan-500 rounded text-cyan-300 placeholder-cyan-500/50 input-3d focus:animate-pulse-glow"
               />
+            </div>
+            <div className="mt-2 text-sm text-cyan-300/70">
+              Showing {filteredGroups.length} of {groups.length} available group{groups.length !== 1 ? "s" : ""}
             </div>
           </div>
         )}
@@ -228,24 +258,42 @@ export default function GroupsPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {filteredGroups.map((group, index) => {
               const isAdmin = group.adminId === currentUser.id;
+              const isMember = group.members.some((m: GroupMember) => m.id === currentUser.id) || isAdmin;
               const memberCount = group.members.length + 1; // +1 for admin
               const delay = (index + 1) * 0.1;
 
+
               return (
-                <Link
+                <div
                   key={group.id}
-                  href={`/groups/${group.id}`}
-                  className="neon-card neon-box-purple p-6 active:scale-95 transition-all card-enter hover:animate-pulse-glow"
+                  className="neon-card neon-box-purple p-6 active:scale-95 transition-all card-enter hover:animate-pulse-glow relative"
                   style={{ animationDelay: `${delay}s` }}
                 >
-                  <div className="space-y-4">
+                  <Link
+                    href={`/groups/${group.id}`}
+                    className="block space-y-4"
+                  >
                     <div className="flex items-start justify-between animate-fade-in-left">
                       <h3 className="text-xl font-bold text-purple-400 pixel-font text-sm flex-1">
                         {group.name}
                       </h3>
-                      {isAdmin && (
-                        <Crown className="w-5 h-5 text-yellow-400 flex-shrink-0 ml-2 animate-bounce-in" />
-                      )}
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {isAdmin && (
+                          <div title="You are the admin">
+                            <Crown className="w-5 h-5 text-yellow-400 animate-bounce-in" />
+                          </div>
+                        )}
+                        {isMember && !isAdmin && (
+                          <div className="px-2 py-1 bg-green-500/20 border border-green-500 rounded text-xs text-green-400 font-bold">
+                            MEMBER
+                          </div>
+                        )}
+                        {!isMember && (
+                          <div className="px-2 py-1 bg-cyan-500/20 border border-cyan-500 rounded text-xs text-cyan-400 font-bold">
+                            JOIN
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     {group.description && (
@@ -262,6 +310,7 @@ export default function GroupsPage() {
                         <button
                           onClick={(e) => {
                             e.preventDefault();
+                            e.stopPropagation();
                             copyToClipboard(group.code);
                           }}
                           className="text-cyan-400 hover:text-cyan-300 transition-colors hover:animate-rotate-in"
@@ -279,8 +328,22 @@ export default function GroupsPage() {
                     <div className="text-xs text-cyan-300/50 animate-fade-in delay-400">
                       Admin: {group.adminName}
                     </div>
-                  </div>
-                </Link>
+                  </Link>
+                  
+                  {!isMember && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleQuickJoin(group.code);
+                      }}
+                      className="w-full mt-4 neon-btn neon-btn-green py-2 px-4 text-sm font-bold hover:animate-button-press"
+                    >
+                      <UserPlus className="w-4 h-4 inline mr-2" />
+                      QUICK JOIN
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
@@ -289,4 +352,5 @@ export default function GroupsPage() {
     </div>
   );
 }
+
 
