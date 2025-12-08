@@ -17,7 +17,16 @@ export const metadata: Metadata = {
   other: {
     "mobile-web-app-capable": "yes",
   },
+  // Prevent caching for rapid multiplayer sync
+  robots: {
+    noindex: false,
+    nofollow: false,
+  },
 };
+
+// Disable caching for all routes to ensure rapid multiplayer sync
+export const revalidate = 0;
+export const dynamic = 'force-dynamic';
 
 export const viewport: Viewport = {
   width: "device-width",

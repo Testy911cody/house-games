@@ -112,6 +112,15 @@ function transformTeamFromDB(dbTeam: any) {
   };
 }
 
+// Helper to add no-cache headers for rapid multiplayer sync
+function getNoCacheHeaders() {
+  return {
+    'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+    'Pragma': 'no-cache',
+    'Expires': '0',
+  };
+}
+
 export async function GET(request: NextRequest) {
   try {
     const dbTeams = await getTeamsFromDB();
@@ -126,12 +135,26 @@ export async function GET(request: NextRequest) {
       return transformTeamFromDB(dbTeam);
     });
     
-    return NextResponse.json({ success: true, teams });
+    return NextResponse.json(
+      { success: true, teams },
+      {
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0',
+        },
+      }
+    );
   } catch (error: any) {
     console.error('Error fetching teams:', error);
     return NextResponse.json(
       { success: false, error: error.message || 'Failed to fetch teams' },
-      { status: 500 }
+      { 
+        status: 500,
+        headers: {
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        },
+      }
     );
   }
 }
@@ -163,7 +186,10 @@ export async function POST(request: NextRequest) {
       }
       
       const savedTeam = await saveTeamToDB(team);
-      return NextResponse.json({ success: true, team: transformTeamFromDB(savedTeam) });
+      return NextResponse.json(
+        { success: true, team: transformTeamFromDB(savedTeam) },
+        { headers: getNoCacheHeaders() }
+      );
     }
 
     if (action === 'join') {
@@ -198,7 +224,10 @@ export async function POST(request: NextRequest) {
       ];
 
       const updatedTeam = await updateTeamInDB(teamId, { members: updatedMembers });
-      return NextResponse.json({ success: true, team: transformTeamFromDB(updatedTeam) });
+      return NextResponse.json(
+        { success: true, team: transformTeamFromDB(updatedTeam) },
+        { headers: getNoCacheHeaders() }
+      );
     }
 
     if (action === 'update') {
@@ -215,7 +244,10 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         );
       }
-      return NextResponse.json({ success: true, team: transformTeamFromDB(updatedTeam) });
+      return NextResponse.json(
+        { success: true, team: transformTeamFromDB(updatedTeam) },
+        { headers: getNoCacheHeaders() }
+      );
     }
 
     if (action === 'delete') {
@@ -227,7 +259,10 @@ export async function POST(request: NextRequest) {
           { status: 404 }
         );
       }
-      return NextResponse.json({ success: true });
+      return NextResponse.json(
+        { success: true },
+        { headers: getNoCacheHeaders() }
+      );
     }
 
     return NextResponse.json(

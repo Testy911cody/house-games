@@ -17,11 +17,37 @@ export default function Home() {
   }, []);
 
   const handleAnonymousLogin = () => {
+    // Generate unique anonymous user ID with random number
+    // Use timestamp + random to ensure uniqueness even if multiple users create at same millisecond
+    const uniqueId = `anon_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const uniqueNumber = Math.floor(Math.random() * 9999) + 1; // Random number 1-9999
+    
+    // Check if this number is already taken by checking existing users
+    const existingUsers = JSON.parse(localStorage.getItem("users") || "[]");
+    const existingAnonymous = existingUsers.filter((u: any) => u.isAnonymous);
+    const usedNumbers = new Set(existingAnonymous.map((u: any) => {
+      const match = u.name.match(/#(\d+)$/);
+      return match ? parseInt(match[1]) : null;
+    }).filter((n: any) => n !== null));
+    
+    // Find next available number
+    let finalNumber = uniqueNumber;
+    let attempts = 0;
+    while (usedNumbers.has(finalNumber) && attempts < 100) {
+      finalNumber = Math.floor(Math.random() * 9999) + 1;
+      attempts++;
+    }
+    
     const anonymousUser = {
-      id: `anon_${Date.now()}`,
-      name: "Anonymous Guest",
+      id: uniqueId,
+      name: `Anonymous Guest #${finalNumber}`,
       isAnonymous: true,
     };
+    
+    // Store in users list for tracking
+    existingUsers.push(anonymousUser);
+    localStorage.setItem("users", JSON.stringify(existingUsers));
+    
     localStorage.setItem("currentUser", JSON.stringify(anonymousUser));
     setCurrentUser(anonymousUser);
     // Navigate to games page after setting user
@@ -29,7 +55,7 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter relative">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter relative" key={Date.now()}>
       <div className="max-w-4xl w-full">
         {/* Header */}
         <div className="text-center mb-6 sm:mb-12 animate-fade-in-down">

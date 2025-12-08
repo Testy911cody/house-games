@@ -50,10 +50,10 @@ export default function TeamsPage() {
   useEffect(() => {
     if (currentUser) {
       loadTeams();
-      // Auto-refresh teams every 5 seconds for multiplayer scenarios
+      // Auto-refresh teams every 2 seconds for rapid multiplayer sync
       const refreshInterval = setInterval(() => {
         loadTeams();
-      }, 5000);
+      }, 2000);
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
@@ -250,11 +250,14 @@ export default function TeamsPage() {
           joinedAt: new Date().toISOString(),
         });
 
-        // Try to sync to API
+        // Try to sync to API immediately
         try {
-          await fetch('/api/teams', {
+          const response = await fetch('/api/teams', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-cache',
+            },
             body: JSON.stringify({
               action: 'join',
               teamId: team.id,
@@ -262,12 +265,30 @@ export default function TeamsPage() {
               userName: currentUser.name,
             }),
           });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success && data.team) {
+              // Update with API response
+              const updatedTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+              const index = updatedTeams.findIndex((t: Team) => t.id === team.id);
+              if (index >= 0) {
+                updatedTeams[index] = data.team;
+              } else {
+                updatedTeams.push(data.team);
+              }
+              localStorage.setItem("teams", JSON.stringify(updatedTeams));
+              loadTeams(); // Immediate reload
+              router.push(`/teams/${team.id}`);
+              return true;
+            }
+          }
         } catch (e) {
           // API failed, continue with local
         }
 
         localStorage.setItem("teams", JSON.stringify(allTeams));
-        loadTeams();
+        loadTeams(); // Immediate reload
         router.push(`/teams/${team.id}`);
         return true;
       }

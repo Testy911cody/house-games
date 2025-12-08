@@ -49,11 +49,64 @@ export default function TeamDetailPage() {
   useEffect(() => {
     if (currentUser) {
       loadTeam();
+      // Auto-refresh team every 2 seconds for rapid multiplayer sync
+      const refreshInterval = setInterval(() => {
+        loadTeam();
+      }, 2000);
+      
+      // Refresh when page becomes visible
+      const handleVisibilityChange = () => {
+        if (!document.hidden) {
+          loadTeam();
+        }
+      };
+      
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      
+      return () => {
+        clearInterval(refreshInterval);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      };
     }
   }, [teamId, currentUser]);
 
-  const loadTeam = () => {
+  const loadTeam = async () => {
     if (!currentUser) return;
+    
+    // Try API first for latest data
+    try {
+      const response = await fetch('/api/teams', {
+        cache: 'no-store',
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && Array.isArray(data.teams)) {
+          const apiTeam = data.teams.find((t: Team) => t.id === teamId);
+          if (apiTeam) {
+            // Update localStorage with latest API data
+            const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+            const index = allTeams.findIndex((t: Team) => t.id === teamId);
+            if (index >= 0) {
+              allTeams[index] = apiTeam;
+            } else {
+              allTeams.push(apiTeam);
+            }
+            localStorage.setItem("teams", JSON.stringify(allTeams));
+            
+            setTeam(apiTeam);
+            setEditName(apiTeam.name);
+            setEditDescription(apiTeam.description || "");
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      // API failed, continue with localStorage
+    }
+    
+    // Fallback to localStorage
     const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
     const foundTeam = allTeams.find((t: Team) => t.id === teamId);
     
@@ -62,13 +115,12 @@ export default function TeamDetailPage() {
       return;
     }
 
-    // Allow anyone to view teams, but restrict editing to members/admins
     setTeam(foundTeam);
     setEditName(foundTeam.name);
     setEditDescription(foundTeam.description || "");
   };
 
-  const handleJoinTeam = () => {
+  const handleJoinTeam = async () => {
     if (!team || !currentUser) return;
     
     const isMember = team.members.some((m: TeamMember) => m.id === currentUser.id);
@@ -78,12 +130,48 @@ export default function TeamDetailPage() {
       return; // Already a member
     }
 
+    // Sync to API immediately - anyone online can join
+    try {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          action: 'join',
+          teamId: teamId,
+          userId: currentUser.id,
+          userName: currentUser.name,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.team) {
+          // Update localStorage with API response
+          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
+          if (teamIndex >= 0) {
+            allTeams[teamIndex] = data.team;
+          } else {
+            allTeams.push(data.team);
+          }
+          localStorage.setItem("teams", JSON.stringify(allTeams));
+          setTeam(data.team);
+          return;
+        }
+      }
+    } catch (e) {
+      // API failed, continue with local
+    }
+
+    // Fallback to local storage
     const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
     const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
     
     if (teamIndex === -1) return;
 
-    // Add user to team - anyone online can join
     allTeams[teamIndex].members.push({
       id: currentUser.id,
       name: currentUser.name,
@@ -94,9 +182,47 @@ export default function TeamDetailPage() {
     loadTeam(); // Reload to update UI
   };
 
-  const saveTeam = () => {
+  const saveTeam = async () => {
     if (!team) return;
 
+    // Sync to API immediately
+    try {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          action: 'update',
+          teamId: teamId,
+          team: {
+            name: editName.trim(),
+            description: editDescription.trim() || undefined,
+          },
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.team) {
+          // Update localStorage with API response
+          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
+          if (teamIndex >= 0) {
+            allTeams[teamIndex] = data.team;
+          }
+          localStorage.setItem("teams", JSON.stringify(allTeams));
+          setTeam(data.team);
+          setIsEditing(false);
+          return;
+        }
+      }
+    } catch (e) {
+      // API failed, continue with local
+    }
+
+    // Fallback to local storage
     const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
     const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
     
@@ -110,26 +236,93 @@ export default function TeamDetailPage() {
     setIsEditing(false);
   };
 
-  const deleteTeam = () => {
+  const deleteTeam = async () => {
     if (!team) return;
 
+    // Sync to API immediately
+    try {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          action: 'delete',
+          teamId: teamId,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Remove from localStorage
+          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
+          localStorage.setItem("teams", JSON.stringify(filteredTeams));
+          router.push("/teams");
+          return;
+        }
+      }
+    } catch (e) {
+      // API failed, continue with local
+    }
+
+    // Fallback to local storage
     const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
     const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
     localStorage.setItem("teams", JSON.stringify(filteredTeams));
     router.push("/teams");
   };
 
-  const removeMember = (memberId: string) => {
+  const removeMember = async (memberId: string) => {
     if (!team) return;
 
+    const updatedMembers = team.members.filter((m: TeamMember) => m.id !== memberId);
+
+    // Sync to API immediately
+    try {
+      const response = await fetch('/api/teams', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          action: 'update',
+          teamId: teamId,
+          team: {
+            members: updatedMembers,
+          },
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.team) {
+          // Update localStorage with API response
+          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
+          if (teamIndex >= 0) {
+            allTeams[teamIndex] = data.team;
+          }
+          localStorage.setItem("teams", JSON.stringify(allTeams));
+          setTeam(data.team);
+          setRemoveMemberId(null);
+          return;
+        }
+      }
+    } catch (e) {
+      // API failed, continue with local
+    }
+
+    // Fallback to local storage
     const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
     const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
     
     if (teamIndex === -1) return;
 
-    allTeams[teamIndex].members = allTeams[teamIndex].members.filter(
-      (m: TeamMember) => m.id !== memberId
-    );
+    allTeams[teamIndex].members = updatedMembers;
 
     localStorage.setItem("teams", JSON.stringify(allTeams));
     setTeam(allTeams[teamIndex]);
