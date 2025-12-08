@@ -62,7 +62,7 @@ export default function WerewolfPage() {
     }
     setCurrentUser(JSON.parse(user));
 
-    // Check if there's a current group and auto-populate players
+    // Check if there's a current team and auto-populate players
     const currentTeam = localStorage.getItem("currentTeam");
     if (currentTeam) {
       try {
@@ -73,23 +73,23 @@ export default function WerewolfPage() {
         const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
         const admin = allUsers.find((u: any) => u.id === team.adminId);
         if (admin) {
-          groupMemberNames.push(admin.name);
+          teamMemberNames.push(admin.name);
         }
         
         // Add members
-        group.members.forEach((member: any) => {
-          groupMemberNames.push(member.name);
+        team.members.forEach((member: any) => {
+          teamMemberNames.push(member.name);
         });
         
         // Update player names and count
-        if (groupMemberNames.length > 0) {
-          const newNames = [...groupMemberNames];
+        if (teamMemberNames.length > 0) {
+          const newNames = [...teamMemberNames];
           // Fill remaining slots with default names
           while (newNames.length < 8) {
             newNames.push(`Player ${newNames.length + 1}`);
           }
           setPlayerNames(newNames);
-          setPlayerCount(Math.min(Math.max(groupMemberNames.length, 5), 8));
+          setPlayerCount(Math.min(Math.max(teamMemberNames.length, 5), 8));
         }
       } catch (e) {
         console.error("Error loading group:", e);

@@ -107,36 +107,36 @@ export default function PacmanPage() {
     }
     setCurrentUser(JSON.parse(user));
 
-    // Check if there's a current group and auto-populate players
+    // Check if there's a current team and auto-populate players
     const currentTeam = localStorage.getItem("currentTeam");
     if (currentTeam) {
       try {
         const team = JSON.parse(currentTeam);
-        const groupMemberNames: string[] = [];
+        const teamMemberNames: string[] = [];
         
         // Add admin
         const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
-        const admin = allUsers.find((u: any) => u.id === group.adminId);
+        const admin = allUsers.find((u: any) => u.id === team.adminId);
         if (admin) {
-          groupMemberNames.push(admin.name);
+          teamMemberNames.push(admin.name);
         }
         
         // Add members
-        group.members.forEach((member: any) => {
-          groupMemberNames.push(member.name);
+        team.members.forEach((member: any) => {
+          teamMemberNames.push(member.name);
         });
         
         // Update player names and count
-        if (groupMemberNames.length > 0) {
-          const newNames = [...groupMemberNames];
+        if (teamMemberNames.length > 0) {
+          const newNames = [...teamMemberNames];
           while (newNames.length < 4) {
             newNames.push(`Player ${newNames.length + 1}`);
           }
           setPlayerNames(newNames);
-          setPlayerCount(Math.min(groupMemberNames.length, 4));
+          setPlayerCount(Math.min(teamMemberNames.length, 4));
         }
       } catch (e) {
-        console.error("Error loading group:", e);
+        console.error("Error loading team:", e);
       }
     }
   }, [router]);
