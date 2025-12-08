@@ -115,11 +115,22 @@ function transformGroupFromDB(dbGroup: any) {
 export async function GET(request: NextRequest) {
   try {
     const dbGroups = await getGroupsFromDB();
-    const groups = dbGroups.map(transformGroupFromDB);
+    
+    // Transform groups from database format to app format
+    const groups = dbGroups.map((dbGroup: any) => {
+      // If already in app format (from fallback storage), return as-is
+      if (dbGroup.adminId) {
+        return dbGroup;
+      }
+      // Otherwise transform from database format
+      return transformGroupFromDB(dbGroup);
+    });
+    
     return NextResponse.json({ success: true, groups });
-  } catch (error) {
+  } catch (error: any) {
+    console.error('Error fetching groups:', error);
     return NextResponse.json(
-      { success: false, error: 'Failed to fetch groups' },
+      { success: false, error: error.message || 'Failed to fetch groups' },
       { status: 500 }
     );
   }

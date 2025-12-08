@@ -94,11 +94,16 @@ export default function GroupsPage() {
           const data = await response.json();
           if (data.success && Array.isArray(data.groups)) {
             apiGroups = data.groups;
+            console.log(`Loaded ${apiGroups.length} groups from API`);
+          } else {
+            console.log("API response invalid:", data);
           }
+        } else {
+          console.log("API response not OK:", response.status, response.statusText);
         }
       } catch (apiError) {
         // API failed, continue with localStorage
-        console.log("API unavailable, using localStorage only");
+        console.log("API unavailable, using localStorage only:", apiError);
       }
       
       // Get local groups
@@ -109,24 +114,29 @@ export default function GroupsPage() {
       const mergedGroups: Group[] = [];
       const allGroupIds = new Set<string>();
       
-      // Add API groups first
+      // Add API groups first (these are the source of truth for cross-device)
       apiGroups.forEach((apiGroup: Group) => {
-        mergedGroups.push(apiGroup);
-        allGroupIds.add(apiGroup.id);
+        if (apiGroup && apiGroup.id) {
+          mergedGroups.push(apiGroup);
+          allGroupIds.add(apiGroup.id);
+        }
       });
       
-      // Add local groups that aren't in API
+      // Add local groups that aren't in API (for offline support)
       localGroups.forEach((localGroup: Group) => {
-        if (!allGroupIds.has(localGroup.id)) {
+        if (localGroup && localGroup.id && !allGroupIds.has(localGroup.id)) {
           mergedGroups.push(localGroup);
-        } else {
-          // Update existing group if local has more members (more recent)
+        } else if (localGroup && localGroup.id) {
+          // Group exists in both - prefer API version (it's the source of truth)
+          // Only update if API version is missing data
           const existingIndex = mergedGroups.findIndex(g => g.id === localGroup.id);
           if (existingIndex >= 0) {
             const existing = mergedGroups[existingIndex];
+            // Prefer API version, but merge members if local has more
             const localMemberCount = (localGroup.members?.length || 0) + 1;
             const apiMemberCount = (existing.members?.length || 0) + 1;
-            if (localMemberCount > apiMemberCount) {
+            if (localMemberCount > apiMemberCount && apiMemberCount === 1) {
+              // Only if API version seems incomplete
               mergedGroups[existingIndex] = localGroup;
             }
           }
