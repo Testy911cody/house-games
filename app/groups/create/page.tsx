@@ -49,17 +49,17 @@ export default function CreateGroupPage() {
       return;
     }
 
-    // Generate unique code
-    let code = generateGroupCode();
-    while (allGroups.some((g: any) => g.code === code)) {
-      code = generateGroupCode();
+    // Generate unique code (always uppercase)
+    let code = generateGroupCode().toUpperCase();
+    while (allGroups.some((g: any) => (g.code || "").toUpperCase() === code)) {
+      code = generateGroupCode().toUpperCase();
     }
 
     const newGroup = {
       id: `group_${Date.now()}`,
       name: name.trim(),
       description: description.trim() || undefined,
-      code: code,
+      code: code, // Always store in uppercase
       adminId: currentUser.id,
       adminName: currentUser.name,
       members: [],
