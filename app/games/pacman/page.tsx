@@ -460,52 +460,127 @@ export default function PacmanPage() {
     return () => clearInterval(interval);
   }, [gameState, currentPlayerIndex, movePlayer, moveGhost, gameSpeed]);
 
+  // Handle direction input (keyboard, touch, or button)
+  const handleDirectionInput = useCallback((direction: Direction) => {
+    if (!direction || gameState !== "playing") return;
+    
+    setPlayers(prevPlayers => {
+      const currentPlayer = prevPlayers[currentPlayerIndex];
+      if (!currentPlayer) return prevPlayers;
+      
+      const newPlayers = [...prevPlayers];
+      newPlayers[currentPlayerIndex].nextDirection = direction;
+      return newPlayers;
+    });
+  }, [gameState, currentPlayerIndex]);
+
   // Keyboard controls
   useEffect(() => {
     if (gameState !== "playing") return;
     
     const handleKeyPress = (e: KeyboardEvent) => {
-      setPlayers(prevPlayers => {
-        const currentPlayer = prevPlayers[currentPlayerIndex];
-        if (!currentPlayer) return prevPlayers;
-        
-        let direction: Direction = null;
-        
-        switch (e.key) {
-          case "ArrowUp":
-          case "w":
-          case "W":
-            direction = "up";
-            break;
-          case "ArrowDown":
-          case "s":
-          case "S":
-            direction = "down";
-            break;
-          case "ArrowLeft":
-          case "a":
-          case "A":
-            direction = "left";
-            break;
-          case "ArrowRight":
-          case "d":
-          case "D":
-            direction = "right";
-            break;
-        }
-        
-        if (direction) {
-          const newPlayers = [...prevPlayers];
-          newPlayers[currentPlayerIndex].nextDirection = direction;
-          return newPlayers;
-        }
-        return prevPlayers;
-      });
+      let direction: Direction = null;
+      
+      switch (e.key) {
+        case "ArrowUp":
+        case "w":
+        case "W":
+          direction = "up";
+          break;
+        case "ArrowDown":
+        case "s":
+        case "S":
+          direction = "down";
+          break;
+        case "ArrowLeft":
+        case "a":
+        case "A":
+          direction = "left";
+          break;
+        case "ArrowRight":
+        case "d":
+        case "D":
+          direction = "right";
+          break;
+      }
+      
+      if (direction) {
+        e.preventDefault();
+        handleDirectionInput(direction);
+      }
     };
     
     window.addEventListener("keydown", handleKeyPress);
     return () => window.removeEventListener("keydown", handleKeyPress);
-  }, [gameState, currentPlayerIndex]);
+  }, [gameState, handleDirectionInput]);
+
+  // Touch/Swipe controls for mobile
+  useEffect(() => {
+    if (gameState !== "playing") return;
+    
+    let touchStartX = 0;
+    let touchStartY = 0;
+    const minSwipeDistance = 30; // Minimum distance for a swipe
+    
+    const handleTouchStart = (e: Event) => {
+      const touchEvent = e as TouchEvent;
+      const touch = touchEvent.touches[0];
+      if (touch) {
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+      }
+    };
+    
+    const handleTouchEnd = (e: Event) => {
+      const touchEvent = e as TouchEvent;
+      if (!touchEvent.changedTouches[0]) return;
+      
+      const touch = touchEvent.changedTouches[0];
+      const touchEndX = touch.clientX;
+      const touchEndY = touch.clientY;
+      
+      const deltaX = touchEndX - touchStartX;
+      const deltaY = touchEndY - touchStartY;
+      
+      const absDeltaX = Math.abs(deltaX);
+      const absDeltaY = Math.abs(deltaY);
+      
+      // Only register swipe if movement is significant
+      if (absDeltaX < minSwipeDistance && absDeltaY < minSwipeDistance) {
+        return; // Too small, ignore
+      }
+      
+      let direction: Direction = null;
+      
+      // Determine swipe direction (prioritize the larger movement)
+      if (absDeltaX > absDeltaY) {
+        // Horizontal swipe
+        direction = deltaX > 0 ? "right" : "left";
+      } else {
+        // Vertical swipe
+        direction = deltaY > 0 ? "down" : "up";
+      }
+      
+      if (direction) {
+        e.preventDefault();
+        handleDirectionInput(direction);
+      }
+    };
+    
+    // Add touch listeners to the game board container
+    const gameBoard = document.querySelector('[data-game-board]');
+    if (gameBoard) {
+      gameBoard.addEventListener("touchstart", handleTouchStart, { passive: true });
+      gameBoard.addEventListener("touchend", handleTouchEnd, { passive: false });
+    }
+    
+    return () => {
+      if (gameBoard) {
+        gameBoard.removeEventListener("touchstart", handleTouchStart);
+        gameBoard.removeEventListener("touchend", handleTouchEnd);
+      }
+    };
+  }, [gameState, handleDirectionInput]);
 
   const nextTurn = useCallback(() => {
     setPlayers(prevPlayers => {
@@ -701,7 +776,11 @@ export default function PacmanPage() {
 
             {/* Game Board */}
             <div className="neon-card neon-box-purple p-4 card-3d">
-              <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: `${MAZE_WIDTH}/${MAZE_HEIGHT}` }}>
+              <div 
+                className="relative bg-black rounded-lg overflow-hidden touch-none" 
+                style={{ aspectRatio: `${MAZE_WIDTH}/${MAZE_HEIGHT}` }}
+                data-game-board
+              >
                 <div className="grid gap-0 h-full" style={{ gridTemplateColumns: `repeat(${MAZE_WIDTH}, 1fr)`, gridTemplateRows: `repeat(${MAZE_HEIGHT}, 1fr)` }}>
                   {Array.from({ length: MAZE_HEIGHT * MAZE_WIDTH }).map((_, i) => {
                     const y = Math.floor(i / MAZE_WIDTH);
@@ -814,11 +893,57 @@ export default function PacmanPage() {
               ))}
             </div>
 
+            {/* Mobile Directional Pad */}
+            <div className="neon-card neon-box-cyan p-4 card-3d md:hidden">
+              <div className="text-sm text-cyan-300 mb-4 text-center font-bold">Touch Controls</div>
+              <div className="flex flex-col items-center gap-2">
+                {/* Up Button */}
+                <button
+                  onClick={() => handleDirectionInput("up")}
+                  className="w-16 h-16 bg-cyan-500/20 border-2 border-cyan-500 rounded-lg flex items-center justify-center text-2xl hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors touch-manipulation"
+                  aria-label="Move Up"
+                >
+                  ↑
+                </button>
+                {/* Middle Row */}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleDirectionInput("left")}
+                    className="w-16 h-16 bg-cyan-500/20 border-2 border-cyan-500 rounded-lg flex items-center justify-center text-2xl hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors touch-manipulation"
+                    aria-label="Move Left"
+                  >
+                    ←
+                  </button>
+                  <div className="w-16 h-16"></div>
+                  <button
+                    onClick={() => handleDirectionInput("right")}
+                    className="w-16 h-16 bg-cyan-500/20 border-2 border-cyan-500 rounded-lg flex items-center justify-center text-2xl hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors touch-manipulation"
+                    aria-label="Move Right"
+                  >
+                    →
+                  </button>
+                </div>
+                {/* Down Button */}
+                <button
+                  onClick={() => handleDirectionInput("down")}
+                  className="w-16 h-16 bg-cyan-500/20 border-2 border-cyan-500 rounded-lg flex items-center justify-center text-2xl hover:bg-cyan-500/40 active:bg-cyan-500/60 transition-colors touch-manipulation"
+                  aria-label="Move Down"
+                >
+                  ↓
+                </button>
+              </div>
+            </div>
+
             {/* Instructions */}
             <div className="neon-card neon-box-cyan p-4 card-3d">
               <div className="text-sm text-cyan-300 space-y-2">
                 <div className="font-bold mb-2">Controls:</div>
-                <div>• Use Arrow Keys or WASD to move</div>
+                <div className="hidden md:block">
+                  <div>• Use Arrow Keys or WASD to move</div>
+                </div>
+                <div className="md:hidden">
+                  <div>• Swipe on the game board or use the buttons below to move</div>
+                </div>
                 <div>• Collect dots (10 points) and power pellets (50 points)</div>
                 <div>• Eat scared ghosts for 200 points each</div>
                 <div>• Avoid ghosts when not powered up!</div>
