@@ -57,24 +57,8 @@ export default function GroupsPage() {
     if (!currentUser) return;
     // Show ALL available groups, not just user's groups
     const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    
-    // Normalize all group codes to uppercase (fix any legacy lowercase codes)
-    let needsUpdate = false;
-    const normalizedGroups = allGroups.map((g: Group) => {
-      const normalizedCode = (g.code || "").trim().toUpperCase();
-      if (normalizedCode !== g.code) {
-        needsUpdate = true;
-        return { ...g, code: normalizedCode };
-      }
-      return g;
-    });
-    
-    if (needsUpdate) {
-      localStorage.setItem("groups", JSON.stringify(normalizedGroups));
-    }
-    
     // Sort by creation date (newest first) for better visibility
-    const sortedGroups = [...(needsUpdate ? normalizedGroups : allGroups)].sort((a, b) => 
+    const sortedGroups = [...allGroups].sort((a, b) => 
       new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
     setGroups(sortedGroups);
@@ -92,46 +76,34 @@ export default function GroupsPage() {
       return false;
     }
 
-    try {
-      const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-      
-      // Debug: Log for troubleshooting (only if no groups found)
-      if (allGroups.length === 0) {
-        console.log("No groups found in localStorage");
-      }
-      
-      const group = allGroups.find((g: Group) => {
-        const storedCode = (g.code || "").trim().toUpperCase();
-        return storedCode === trimmedCode;
-      });
+    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+    const group = allGroups.find((g: Group) => {
+      const storedCode = (g.code || "").trim().toUpperCase();
+      return storedCode === trimmedCode;
+    });
 
-      if (!group) {
-        setJoinError(`Group not found. Please check the code. Available groups: ${allGroups.length}`);
-        return false;
-      }
-
-      // Check if user is already a member
-      if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
-        setJoinError("You are already a member of this group");
-        return false;
-      }
-
-      // Add user to group
-      group.members.push({
-        id: currentUser.id,
-        name: currentUser.name,
-        joinedAt: new Date().toISOString(),
-      });
-
-      localStorage.setItem("groups", JSON.stringify(allGroups));
-      loadGroups();
-      router.push(`/groups/${group.id}`);
-      return true;
-    } catch (error) {
-      console.error("Error joining group:", error);
-      setJoinError("An error occurred while joining the group. Please try again.");
+    if (!group) {
+      setJoinError("Group not found. Please check the code.");
       return false;
     }
+
+    // Check if user is already a member
+    if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
+      setJoinError("You are already a member of this group");
+      return false;
+    }
+
+    // Add user to group
+    group.members.push({
+      id: currentUser.id,
+      name: currentUser.name,
+      joinedAt: new Date().toISOString(),
+    });
+
+    localStorage.setItem("groups", JSON.stringify(allGroups));
+    loadGroups();
+    router.push(`/groups/${group.id}`);
+    return true;
   };
 
   const handleJoinGroup = (e?: React.FormEvent) => {
@@ -380,5 +352,4 @@ export default function GroupsPage() {
     </div>
   );
 }
-
 
