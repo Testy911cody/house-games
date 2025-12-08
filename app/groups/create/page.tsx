@@ -20,7 +20,7 @@ export default function CreateGroupPage() {
     return code;
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
@@ -66,8 +66,33 @@ export default function CreateGroupPage() {
       createdAt: new Date().toISOString(),
     };
 
+    // Save to localStorage first
     allGroups.push(newGroup);
     localStorage.setItem("groups", JSON.stringify(allGroups));
+
+    // Try to sync to API for cross-device sharing
+    try {
+      const response = await fetch('/api/groups', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          group: newGroup,
+        }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // API sync successful
+          console.log("Group synced to server");
+        }
+      }
+    } catch (error) {
+      // API failed, but continue with local storage
+      console.log("API sync failed, using local storage only");
+    }
+
     router.push(`/groups/${newGroup.id}`);
   };
 

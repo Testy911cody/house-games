@@ -77,11 +77,46 @@ export default function GroupsPage() {
     }
   }, [currentUser]);
 
-  const loadGroups = () => {
+  const loadGroups = async () => {
     // Show ALL available groups, not just user's groups
     try {
+      // Try to fetch from API first (for cross-device sharing)
+      try {
+        const response = await fetch('/api/groups');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.groups) {
+            // Merge with localStorage (local takes precedence for offline support)
+            const localGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+            const apiGroups = data.groups || [];
+            
+            // Merge: combine both, prefer API groups but keep local if newer
+            const mergedGroups = [...apiGroups];
+            localGroups.forEach((localGroup: Group) => {
+              const existing = mergedGroups.find(g => g.id === localGroup.id);
+              if (!existing) {
+                mergedGroups.push(localGroup);
+              }
+            });
+            
+            // Sort by creation date (newest first)
+            const sortedGroups = mergedGroups.sort((a, b) => 
+              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+            setGroups(sortedGroups);
+            
+            // Sync to localStorage as backup
+            localStorage.setItem("groups", JSON.stringify(sortedGroups));
+            return;
+          }
+        }
+      } catch (apiError) {
+        // API failed, fall back to localStorage
+        console.log("API unavailable, using localStorage");
+      }
+      
+      // Fallback to localStorage
       const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-      // Sort by creation date (newest first) for better visibility
       const sortedGroups = [...allGroups].sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -92,7 +127,7 @@ export default function GroupsPage() {
     }
   };
 
-  const joinGroupByCode = (code: string) => {
+  const joinGroupByCode = async (code: string) => {
     if (!currentUser) {
       setJoinError("Please log in first");
       return false;
@@ -104,34 +139,99 @@ export default function GroupsPage() {
       return false;
     }
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const group = allGroups.find((g: Group) => {
-      const storedCode = (g.code || "").trim().toUpperCase();
-      return storedCode === trimmedCode;
-    });
+    // Try API first
+    try {
+      const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+      const group = allGroups.find((g: Group) => {
+        const storedCode = (g.code || "").trim().toUpperCase();
+        return storedCode === trimmedCode;
+      });
 
-    if (!group) {
-      setJoinError("Group not found. Please check the code.");
-      return false;
+      if (!group) {
+        // Try fetching from API
+        const response = await fetch('/api/groups');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success && data.groups) {
+            const apiGroup = data.groups.find((g: Group) => {
+              const storedCode = (g.code || "").trim().toUpperCase();
+              return storedCode === trimmedCode;
+            });
+            
+            if (apiGroup) {
+              // Join via API
+              const joinResponse = await fetch('/api/groups', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  action: 'join',
+                  groupId: apiGroup.id,
+                  userId: currentUser.id,
+                  userName: currentUser.name,
+                }),
+              });
+              
+              if (joinResponse.ok) {
+                const joinData = await joinResponse.json();
+                if (joinData.success) {
+                  // Update localStorage
+                  const updatedGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+                  const index = updatedGroups.findIndex((g: Group) => g.id === apiGroup.id);
+                  if (index >= 0) {
+                    updatedGroups[index] = joinData.group;
+                  } else {
+                    updatedGroups.push(joinData.group);
+                  }
+                  localStorage.setItem("groups", JSON.stringify(updatedGroups));
+                  loadGroups();
+                  router.push(`/groups/${apiGroup.id}`);
+                  return true;
+                }
+              }
+            }
+          }
+        }
+      } else {
+        // Found in localStorage, join locally and sync to API
+        if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
+          setJoinError("You are already a member of this group");
+          return false;
+        }
+
+        // Add user to group
+        group.members.push({
+          id: currentUser.id,
+          name: currentUser.name,
+          joinedAt: new Date().toISOString(),
+        });
+
+        // Try to sync to API
+        try {
+          await fetch('/api/groups', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'join',
+              groupId: group.id,
+              userId: currentUser.id,
+              userName: currentUser.name,
+            }),
+          });
+        } catch (e) {
+          // API failed, continue with local
+        }
+
+        localStorage.setItem("groups", JSON.stringify(allGroups));
+        loadGroups();
+        router.push(`/groups/${group.id}`);
+        return true;
+      }
+    } catch (error) {
+      console.error("Error joining group:", error);
     }
 
-    // Check if user is already a member
-    if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
-      setJoinError("You are already a member of this group");
-      return false;
-    }
-
-    // Add user to group
-    group.members.push({
-      id: currentUser.id,
-      name: currentUser.name,
-      joinedAt: new Date().toISOString(),
-    });
-
-    localStorage.setItem("groups", JSON.stringify(allGroups));
-    loadGroups();
-    router.push(`/groups/${group.id}`);
-    return true;
+    setJoinError("Group not found. Please check the code.");
+    return false;
   };
 
   const handleJoinGroup = (e?: React.FormEvent) => {
