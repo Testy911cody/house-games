@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Users, Plus, Search, Crown, UserPlus, Copy, Check } from "lucide-react";
+import { ArrowLeft, Users, Plus, Search, Crown, UserPlus, Copy, Check, RefreshCw } from "lucide-react";
 
 interface GroupMember {
   id: string;
@@ -39,6 +39,11 @@ export default function GroupsPage() {
     }
     const userData = JSON.parse(user);
     setCurrentUser(userData);
+    
+    // Load groups immediately when user is set
+    if (userData) {
+      loadGroups();
+    }
   }, [router]);
 
   useEffect(() => {
@@ -49,19 +54,42 @@ export default function GroupsPage() {
         loadGroups();
       }, 5000);
       
-      return () => clearInterval(refreshInterval);
+      // Refresh when page becomes visible (user switches back to tab)
+      const handleVisibilityChange = () => {
+        if (!document.hidden) {
+          loadGroups();
+        }
+      };
+      
+      // Refresh when window gains focus
+      const handleFocus = () => {
+        loadGroups();
+      };
+      
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+      window.addEventListener("focus", handleFocus);
+      
+      return () => {
+        clearInterval(refreshInterval);
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+        window.removeEventListener("focus", handleFocus);
+      };
     }
   }, [currentUser]);
 
   const loadGroups = () => {
-    if (!currentUser) return;
     // Show ALL available groups, not just user's groups
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    // Sort by creation date (newest first) for better visibility
-    const sortedGroups = [...allGroups].sort((a, b) => 
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-    setGroups(sortedGroups);
+    try {
+      const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+      // Sort by creation date (newest first) for better visibility
+      const sortedGroups = [...allGroups].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setGroups(sortedGroups);
+    } catch (error) {
+      console.error("Error loading groups:", error);
+      setGroups([]);
+    }
   };
 
   const joinGroupByCode = (code: string) => {
@@ -172,15 +200,26 @@ export default function GroupsPage() {
           </p>
         </div>
 
-        {/* Create Group Button */}
-        <div className="mb-6 animate-scale-in delay-400">
+        {/* Create Group Button and Refresh */}
+        <div className="mb-6 animate-scale-in delay-400 flex gap-3 flex-wrap">
           <Link
             href="/groups/create"
-            className="block neon-btn neon-btn-purple w-full sm:w-auto sm:inline-block py-3 px-6 text-center text-lg font-bold hover:animate-pulse-glow"
+            className="block neon-btn neon-btn-purple flex-1 sm:flex-none sm:inline-block py-3 px-6 text-center text-lg font-bold hover:animate-pulse-glow"
           >
             <Plus className="w-5 h-5 inline mr-2 animate-rotate-in" />
             CREATE NEW GROUP
           </Link>
+          <button
+            onClick={() => {
+              loadGroups();
+              setSearchQuery("");
+            }}
+            className="neon-btn neon-btn-cyan py-3 px-6 text-lg font-bold hover:animate-pulse-glow flex items-center gap-2"
+            title="Refresh groups list"
+          >
+            <RefreshCw className="w-5 h-5" />
+            <span className="hidden sm:inline">REFRESH</span>
+          </button>
         </div>
 
         {/* Join Group Section */}
