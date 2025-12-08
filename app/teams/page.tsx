@@ -5,27 +5,27 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Users, Plus, Search, Crown, UserPlus, Copy, Check, RefreshCw } from "lucide-react";
 
-interface GroupMember {
+interface TeamMember {
   id: string;
   name: string;
   joinedAt: string;
 }
 
-interface Group {
+interface Team {
   id: string;
   name: string;
   code: string;
   adminId: string;
   adminName: string;
-  members: GroupMember[];
+  members: TeamMember[];
   createdAt: string;
   description?: string;
 }
 
-export default function GroupsPage() {
+export default function TeamsPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
@@ -41,30 +41,30 @@ export default function GroupsPage() {
     const userData = JSON.parse(user);
     setCurrentUser(userData);
     
-    // Load groups immediately when user is set
+    // Load teams immediately when user is set
     if (userData) {
-      loadGroups();
+      loadTeams();
     }
   }, [router]);
 
   useEffect(() => {
     if (currentUser) {
-      loadGroups();
-      // Auto-refresh groups every 5 seconds for multiplayer scenarios
+      loadTeams();
+      // Auto-refresh teams every 5 seconds for multiplayer scenarios
       const refreshInterval = setInterval(() => {
-        loadGroups();
+        loadTeams();
       }, 5000);
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
         if (!document.hidden) {
-          loadGroups();
+          loadTeams();
         }
       };
       
       // Refresh when window gains focus
       const handleFocus = () => {
-        loadGroups();
+        loadTeams();
       };
       
       document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -78,13 +78,13 @@ export default function GroupsPage() {
     }
   }, [currentUser]);
 
-  const loadGroups = async () => {
-    // Show ALL available groups, not just user's groups
+  const loadTeams = async () => {
+    // Show ALL available teams - anyone online can join
     try {
       // Try to fetch from API first (for cross-device sharing)
-      let apiGroups: Group[] = [];
+      let apiTeams: Team[] = [];
       try {
-        const response = await fetch('/api/groups', {
+        const response = await fetch('/api/teams', {
           cache: 'no-store',
           headers: {
             'Cache-Control': 'no-cache',
@@ -93,10 +93,10 @@ export default function GroupsPage() {
         
         if (response.ok) {
           const data = await response.json();
-          if (data.success && Array.isArray(data.groups)) {
-            apiGroups = data.groups;
+          if (data.success && Array.isArray(data.teams)) {
+            apiTeams = data.teams;
             setApiStatus("connected");
-            console.log(`Loaded ${apiGroups.length} groups from API`);
+            console.log(`Loaded ${apiTeams.length} teams from API`);
           } else {
             setApiStatus("offline");
             console.log("API response invalid:", data);
@@ -111,68 +111,68 @@ export default function GroupsPage() {
         console.log("API unavailable, using localStorage only:", apiError);
       }
       
-      // Get local groups
-      const localGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+      // Get local teams
+      const localTeams = JSON.parse(localStorage.getItem("teams") || "[]");
       
-      // Merge: combine API and local groups
-      // If a group exists in both, prefer the one with more members (more up-to-date)
-      const mergedGroups: Group[] = [];
-      const allGroupIds = new Set<string>();
+      // Merge: combine API and local teams
+      // If a team exists in both, prefer the one with more members (more up-to-date)
+      const mergedTeams: Team[] = [];
+      const allTeamIds = new Set<string>();
       
-      // Add API groups first (these are the source of truth for cross-device)
-      apiGroups.forEach((apiGroup: Group) => {
-        if (apiGroup && apiGroup.id) {
-          mergedGroups.push(apiGroup);
-          allGroupIds.add(apiGroup.id);
+      // Add API teams first (these are the source of truth for cross-device)
+      apiTeams.forEach((apiTeam: Team) => {
+        if (apiTeam && apiTeam.id) {
+          mergedTeams.push(apiTeam);
+          allTeamIds.add(apiTeam.id);
         }
       });
       
-      // Add local groups that aren't in API (for offline support)
-      localGroups.forEach((localGroup: Group) => {
-        if (localGroup && localGroup.id && !allGroupIds.has(localGroup.id)) {
-          mergedGroups.push(localGroup);
-        } else if (localGroup && localGroup.id) {
-          // Group exists in both - prefer API version (it's the source of truth)
+      // Add local teams that aren't in API (for offline support)
+      localTeams.forEach((localTeam: Team) => {
+        if (localTeam && localTeam.id && !allTeamIds.has(localTeam.id)) {
+          mergedTeams.push(localTeam);
+        } else if (localTeam && localTeam.id) {
+          // Team exists in both - prefer API version (it's the source of truth)
           // Only update if API version is missing data
-          const existingIndex = mergedGroups.findIndex(g => g.id === localGroup.id);
+          const existingIndex = mergedTeams.findIndex(t => t.id === localTeam.id);
           if (existingIndex >= 0) {
-            const existing = mergedGroups[existingIndex];
+            const existing = mergedTeams[existingIndex];
             // Prefer API version, but merge members if local has more
-            const localMemberCount = (localGroup.members?.length || 0) + 1;
+            const localMemberCount = (localTeam.members?.length || 0) + 1;
             const apiMemberCount = (existing.members?.length || 0) + 1;
             if (localMemberCount > apiMemberCount && apiMemberCount === 1) {
               // Only if API version seems incomplete
-              mergedGroups[existingIndex] = localGroup;
+              mergedTeams[existingIndex] = localTeam;
             }
           }
         }
       });
       
       // Sort by creation date (newest first)
-      const sortedGroups = mergedGroups.sort((a, b) => 
+      const sortedTeams = mergedTeams.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
-      setGroups(sortedGroups);
+      setTeams(sortedTeams);
       
-      // Sync merged groups back to localStorage
-      localStorage.setItem("groups", JSON.stringify(sortedGroups));
+      // Sync merged teams back to localStorage
+      localStorage.setItem("teams", JSON.stringify(sortedTeams));
     } catch (error) {
-      console.error("Error loading groups:", error);
+      console.error("Error loading teams:", error);
       // Fallback to localStorage only
       try {
-        const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-        const sortedGroups = [...allGroups].sort((a, b) => 
+        const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+        const sortedTeams = [...allTeams].sort((a, b) => 
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
-        setGroups(sortedGroups);
+        setTeams(sortedTeams);
       } catch (e) {
-        setGroups([]);
+        setTeams([]);
       }
     }
   };
 
-  const joinGroupByCode = async (code: string) => {
+  const joinTeamByCode = async (code: string) => {
     if (!currentUser) {
       setJoinError("Please log in first");
       return false;
@@ -180,37 +180,37 @@ export default function GroupsPage() {
 
     const trimmedCode = code.trim().toUpperCase();
     if (!trimmedCode || trimmedCode.length !== 6) {
-      setJoinError("Invalid group code");
+      setJoinError("Invalid team code");
       return false;
     }
 
     // Try API first
     try {
-      const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-      const group = allGroups.find((g: Group) => {
-        const storedCode = (g.code || "").trim().toUpperCase();
+      const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+      const team = allTeams.find((t: Team) => {
+        const storedCode = (t.code || "").trim().toUpperCase();
         return storedCode === trimmedCode;
       });
 
-      if (!group) {
+      if (!team) {
         // Try fetching from API
-        const response = await fetch('/api/groups');
+        const response = await fetch('/api/teams');
         if (response.ok) {
           const data = await response.json();
-          if (data.success && data.groups) {
-            const apiGroup = data.groups.find((g: Group) => {
-              const storedCode = (g.code || "").trim().toUpperCase();
+          if (data.success && data.teams) {
+            const apiTeam = data.teams.find((t: Team) => {
+              const storedCode = (t.code || "").trim().toUpperCase();
               return storedCode === trimmedCode;
             });
             
-            if (apiGroup) {
-              // Join via API
-              const joinResponse = await fetch('/api/groups', {
+            if (apiTeam) {
+              // Join via API - anyone online can join
+              const joinResponse = await fetch('/api/teams', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   action: 'join',
-                  groupId: apiGroup.id,
+                  teamId: apiTeam.id,
                   userId: currentUser.id,
                   userName: currentUser.name,
                 }),
@@ -220,16 +220,16 @@ export default function GroupsPage() {
                 const joinData = await joinResponse.json();
                 if (joinData.success) {
                   // Update localStorage
-                  const updatedGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-                  const index = updatedGroups.findIndex((g: Group) => g.id === apiGroup.id);
+                  const updatedTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+                  const index = updatedTeams.findIndex((t: Team) => t.id === apiTeam.id);
                   if (index >= 0) {
-                    updatedGroups[index] = joinData.group;
+                    updatedTeams[index] = joinData.team;
                   } else {
-                    updatedGroups.push(joinData.group);
+                    updatedTeams.push(joinData.team);
                   }
-                  localStorage.setItem("groups", JSON.stringify(updatedGroups));
-                  loadGroups();
-                  router.push(`/groups/${apiGroup.id}`);
+                  localStorage.setItem("teams", JSON.stringify(updatedTeams));
+                  loadTeams();
+                  router.push(`/teams/${apiTeam.id}`);
                   return true;
                 }
               }
@@ -238,13 +238,13 @@ export default function GroupsPage() {
         }
       } else {
         // Found in localStorage, join locally and sync to API
-        if (group.members.some((m: GroupMember) => m.id === currentUser.id) || group.adminId === currentUser.id) {
-          setJoinError("You are already a member of this group");
+        if (team.members.some((m: TeamMember) => m.id === currentUser.id) || team.adminId === currentUser.id) {
+          setJoinError("You are already a member of this team");
           return false;
         }
 
-        // Add user to group
-        group.members.push({
+        // Add user to team - anyone can join
+        team.members.push({
           id: currentUser.id,
           name: currentUser.name,
           joinedAt: new Date().toISOString(),
@@ -252,12 +252,12 @@ export default function GroupsPage() {
 
         // Try to sync to API
         try {
-          await fetch('/api/groups', {
+          await fetch('/api/teams', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               action: 'join',
-              groupId: group.id,
+              teamId: team.id,
               userId: currentUser.id,
               userName: currentUser.name,
             }),
@@ -266,20 +266,20 @@ export default function GroupsPage() {
           // API failed, continue with local
         }
 
-        localStorage.setItem("groups", JSON.stringify(allGroups));
-        loadGroups();
-        router.push(`/groups/${group.id}`);
+        localStorage.setItem("teams", JSON.stringify(allTeams));
+        loadTeams();
+        router.push(`/teams/${team.id}`);
         return true;
       }
     } catch (error) {
-      console.error("Error joining group:", error);
+      console.error("Error joining team:", error);
     }
 
-    setJoinError("Group not found. Please check the code.");
+    setJoinError("Team not found. Please check the code.");
     return false;
   };
 
-  const handleJoinGroup = async (e?: React.FormEvent) => {
+  const handleJoinTeam = async (e?: React.FormEvent) => {
     if (e) {
       e.preventDefault();
     }
@@ -287,26 +287,26 @@ export default function GroupsPage() {
     
     const trimmedCode = joinCode.trim().toUpperCase();
     if (!trimmedCode) {
-      setJoinError("Please enter a group code");
+      setJoinError("Please enter a team code");
       return;
     }
 
     if (trimmedCode.length !== 6) {
-      setJoinError("Group code must be 6 characters");
+      setJoinError("Team code must be 6 characters");
       return;
     }
 
-    const success = await joinGroupByCode(trimmedCode);
+    const success = await joinTeamByCode(trimmedCode);
     if (success) {
       setJoinCode("");
     }
   };
 
-  const handleQuickJoin = async (groupCode: string) => {
+  const handleQuickJoin = async (teamCode: string) => {
     setJoinError("");
-    const success = await joinGroupByCode(groupCode);
+    const success = await joinTeamByCode(teamCode);
     if (!success) {
-      // Error is already set by joinGroupByCode
+      // Error is already set by joinTeamByCode
     }
   };
 
@@ -316,9 +316,9 @@ export default function GroupsPage() {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const filteredGroups = groups.filter((group) =>
-    group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    group.code.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredTeams = teams.filter((team) =>
+    team.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    team.code.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   if (!currentUser) {
@@ -338,45 +338,45 @@ export default function GroupsPage() {
 
         <div className="text-center mb-6 sm:mb-12 animate-fade-in-down delay-200">
           <h1 className="pixel-font text-2xl sm:text-3xl md:text-5xl font-bold text-purple-400 neon-glow-purple mb-2 sm:mb-4 animate-glow-pulse">
-            👥 GROUPS
+            👥 TEAMS
           </h1>
           <p className="text-sm sm:text-base text-cyan-300 animate-fade-in-up delay-300">
-            Browse all available groups or create your own to play games together!
+            Browse all available teams or create your own to play games together! Anyone online can join a team.
           </p>
           {apiStatus === "connected" && (
-            <p className="text-xs text-green-400 mt-2">✓ Connected to server - groups sync across devices</p>
+            <p className="text-xs text-green-400 mt-2">✓ Connected to server - teams sync across devices</p>
           )}
           {apiStatus === "offline" && (
-            <p className="text-xs text-yellow-400 mt-2">⚠ Using local storage - groups only visible on this device</p>
+            <p className="text-xs text-yellow-400 mt-2">⚠ Using local storage - teams only visible on this device</p>
           )}
         </div>
 
-        {/* Create Group Button and Refresh */}
+        {/* Create Team Button and Refresh */}
         <div className="mb-6 animate-scale-in delay-400 flex gap-3 flex-wrap">
           <Link
-            href="/groups/create"
+            href="/teams/create"
             className="block neon-btn neon-btn-purple flex-1 sm:flex-none sm:inline-block py-3 px-6 text-center text-lg font-bold hover:animate-pulse-glow"
           >
             <Plus className="w-5 h-5 inline mr-2 animate-rotate-in" />
-            CREATE NEW GROUP
+            CREATE NEW TEAM
           </Link>
           <button
             onClick={async () => {
-              await loadGroups();
+              await loadTeams();
               setSearchQuery("");
             }}
             className="neon-btn neon-btn-cyan py-3 px-6 text-lg font-bold hover:animate-pulse-glow flex items-center gap-2"
-            title="Refresh groups list"
+            title="Refresh teams list"
           >
             <RefreshCw className="w-5 h-5" />
             <span className="hidden sm:inline">REFRESH</span>
           </button>
         </div>
 
-        {/* Join Group Section */}
+        {/* Join Team Section */}
         <div className="neon-card neon-box-cyan p-6 mb-6 animate-slide-fade-in delay-500">
-          <h2 className="text-xl font-bold text-cyan-400 mb-4 pixel-font text-sm animate-fade-in-left">JOIN GROUP</h2>
-          <form onSubmit={handleJoinGroup} className="flex gap-2 flex-col sm:flex-row animate-fade-in-up delay-600">
+          <h2 className="text-xl font-bold text-cyan-400 mb-4 pixel-font text-sm animate-fade-in-left">JOIN TEAM</h2>
+          <form onSubmit={handleJoinTeam} className="flex gap-2 flex-col sm:flex-row animate-fade-in-up delay-600">
             <input
               type="text"
               value={joinCode}
@@ -387,10 +387,10 @@ export default function GroupsPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
-                  handleJoinGroup(e);
+                  handleJoinTeam(e);
                 }
               }}
-              placeholder="Enter group code"
+              placeholder="Enter team code"
               className="flex-1 px-4 py-3 bg-gray-800 border border-cyan-500 rounded text-cyan-300 placeholder-cyan-500/50 input-3d focus:animate-pulse-glow"
               maxLength={6}
               pattern="[A-Z0-9]{6}"
@@ -409,7 +409,7 @@ export default function GroupsPage() {
         </div>
 
         {/* Search */}
-        {groups.length > 0 && (
+        {teams.length > 0 && (
           <div className="mb-6 animate-fade-in delay-600">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-cyan-400 w-5 h-5 animate-pulse" />
@@ -417,55 +417,55 @@ export default function GroupsPage() {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search all available groups..."
+                placeholder="Search all available teams..."
                 className="w-full pl-10 pr-4 py-3 bg-gray-800 border border-cyan-500 rounded text-cyan-300 placeholder-cyan-500/50 input-3d focus:animate-pulse-glow"
               />
             </div>
             <div className="mt-2 text-sm text-cyan-300/70">
-              Showing {filteredGroups.length} of {groups.length} available group{groups.length !== 1 ? "s" : ""}
+              Showing {filteredTeams.length} of {teams.length} available team{teams.length !== 1 ? "s" : ""}
             </div>
           </div>
         )}
 
-        {/* Groups List */}
-        {filteredGroups.length === 0 ? (
+        {/* Teams List */}
+        {filteredTeams.length === 0 ? (
           <div className="neon-card neon-box-yellow p-8 text-center animate-bounce-in delay-700">
             <Users className="w-16 h-16 mx-auto mb-4 text-yellow-400 animate-rotate-in" />
-            <h3 className="text-xl font-bold text-yellow-400 mb-2 animate-fade-in-up">No Groups Yet</h3>
+            <h3 className="text-xl font-bold text-yellow-400 mb-2 animate-fade-in-up">No Teams Yet</h3>
             <p className="text-cyan-300/70 mb-4 animate-fade-in-up delay-200">
-              {groups.length === 0
-                ? "Create your first group or join one with a code!"
-                : "No groups match your search."}
+              {teams.length === 0
+                ? "Create your first team or join one with a code!"
+                : "No teams match your search."}
             </p>
             <Link
-              href="/groups/create"
+              href="/teams/create"
               className="inline-block neon-btn neon-btn-purple px-6 py-3 hover:animate-button-press"
             >
-              CREATE GROUP
+              CREATE TEAM
             </Link>
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
-            {filteredGroups.map((group, index) => {
-              const isAdmin = group.adminId === currentUser.id;
-              const isMember = group.members.some((m: GroupMember) => m.id === currentUser.id) || isAdmin;
-              const memberCount = group.members.length + 1; // +1 for admin
+            {filteredTeams.map((team, index) => {
+              const isAdmin = team.adminId === currentUser.id;
+              const isMember = team.members.some((m: TeamMember) => m.id === currentUser.id) || isAdmin;
+              const memberCount = team.members.length + 1; // +1 for admin
               const delay = (index + 1) * 0.1;
 
 
               return (
                 <div
-                  key={group.id}
+                  key={team.id}
                   className="neon-card neon-box-purple p-6 active:scale-95 transition-all card-enter hover:animate-pulse-glow relative"
                   style={{ animationDelay: `${delay}s` }}
                 >
                   <Link
-                    href={`/groups/${group.id}`}
+                    href={`/teams/${team.id}`}
                     className="block space-y-4"
                   >
                     <div className="flex items-start justify-between animate-fade-in-left">
                       <h3 className="text-xl font-bold text-purple-400 pixel-font text-sm flex-1">
-                        {group.name}
+                        {team.name}
                       </h3>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         {isAdmin && (
@@ -486,8 +486,8 @@ export default function GroupsPage() {
                       </div>
                     </div>
 
-                    {group.description && (
-                      <p className="text-cyan-300/70 text-sm animate-fade-in-up delay-200">{group.description}</p>
+                    {team.description && (
+                      <p className="text-cyan-300/70 text-sm animate-fade-in-up delay-200">{team.description}</p>
                     )}
 
                     <div className="flex items-center justify-between pt-2 border-t border-purple-500/30 animate-fade-in-up delay-300">
@@ -496,17 +496,17 @@ export default function GroupsPage() {
                         <span>{memberCount} member{memberCount !== 1 ? "s" : ""}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <span className="text-purple-300 text-sm font-mono">{group.code}</span>
+                        <span className="text-purple-300 text-sm font-mono">{team.code}</span>
                         <button
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
-                            copyToClipboard(group.code);
+                            copyToClipboard(team.code);
                           }}
                           className="text-cyan-400 hover:text-cyan-300 transition-colors hover:animate-rotate-in"
                           title="Copy code"
                         >
-                          {copiedCode === group.code ? (
+                          {copiedCode === team.code ? (
                             <Check className="w-4 h-4 animate-success" />
                           ) : (
                             <Copy className="w-4 h-4" />
@@ -516,7 +516,7 @@ export default function GroupsPage() {
                     </div>
 
                     <div className="text-xs text-cyan-300/50 animate-fade-in delay-400">
-                      Admin: {group.adminName}
+                      Admin: {team.adminName}
                     </div>
                   </Link>
                   
@@ -525,7 +525,7 @@ export default function GroupsPage() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        handleQuickJoin(group.code);
+                        handleQuickJoin(team.code);
                       }}
                       className="w-full mt-4 neon-btn neon-btn-green py-2 px-4 text-sm font-bold hover:animate-button-press"
                     >

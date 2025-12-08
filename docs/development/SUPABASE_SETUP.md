@@ -1,6 +1,6 @@
 # 🗄️ Supabase Setup Guide
 
-This guide will help you set up Supabase for persistent group storage across devices.
+This guide will help you set up Supabase for persistent team storage across devices.
 
 ---
 
@@ -53,8 +53,8 @@ Copy both of these - you'll need them!
 3. Paste this SQL:
 
 ```sql
--- Create groups table
-CREATE TABLE IF NOT EXISTS groups (
+-- Create teams table
+CREATE TABLE IF NOT EXISTS teams (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   code TEXT NOT NULL UNIQUE,
@@ -66,14 +66,14 @@ CREATE TABLE IF NOT EXISTS groups (
 );
 
 -- Create index on code for faster lookups
-CREATE INDEX IF NOT EXISTS idx_groups_code ON groups(code);
+CREATE INDEX IF NOT EXISTS idx_teams_code ON teams(code);
 
 -- Enable Row Level Security (optional, for future security)
-ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
 
 -- Create policy to allow all operations (for now)
 -- You can restrict this later for better security
-CREATE POLICY "Allow all operations" ON groups
+CREATE POLICY "Allow all operations" ON teams
   FOR ALL
   USING (true)
   WITH CHECK (true);
@@ -118,20 +118,20 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ## Step 6: Verify It Works
 
 1. Deploy your site (or restart dev server)
-2. Create a group on one device
-3. Open the groups page on another device
+2. Create a team on one device
+3. Open the teams page on another device
 4. Click **"REFRESH"**
-5. The group should appear! 🎉
+5. The team should appear! 🎉
 
 ---
 
 ## Troubleshooting
 
-### Groups not showing?
+### Teams not showing?
 
 1. **Check environment variables** are set correctly
-2. **Check Supabase dashboard** → Table Editor → `groups` table
-   - You should see groups appearing there
+2. **Check Supabase dashboard** → Table Editor → `teams` table
+   - You should see teams appearing there
 3. **Check browser console** for errors
 4. **Verify API keys** are correct (no extra spaces)
 
@@ -145,7 +145,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 - Check that `NEXT_PUBLIC_` prefix is on both variables
 - Make sure you redeployed after adding environment variables
-- Try creating a new group to test
+- Try creating a new team to test
 
 ---
 
@@ -153,7 +153,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ⚠️ **Current setup allows all operations** - This is fine for now, but for production you may want to:
 - Add authentication
-- Restrict who can create/delete groups
+- Restrict who can create/delete teams
 - Add rate limiting
 
 The `anon` key is safe to use in client-side code, but you can add more security later.
@@ -163,10 +163,10 @@ The `anon` key is safe to use in client-side code, but you can add more security
 ## What's Next?
 
 Once Supabase is set up:
-- ✅ Groups persist across server restarts
-- ✅ Groups visible across all devices
+- ✅ Teams persist across server restarts
+- ✅ Teams visible across all devices
 - ✅ Real-time updates possible (can add later)
-- ✅ Scalable to thousands of groups
+- ✅ Scalable to thousands of teams
 
 ---
 
@@ -178,5 +178,5 @@ Once Supabase is set up:
 
 ---
 
-**You're all set!** Groups will now persist across devices! 🎉
+**You're all set!** Teams will now persist across devices! 🎉
 

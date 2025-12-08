@@ -8,7 +8,7 @@ import { ArrowLeft, Zap, Users, X, MessageSquare, Send, Check } from "lucide-rea
 export default function GamesPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [currentGroup, setCurrentGroup] = useState<any>(null);
+  const [currentTeam, setCurrentTeam] = useState<any>(null);
   const [suggestion, setSuggestion] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
 
@@ -20,16 +20,16 @@ export default function GamesPage() {
     }
     setCurrentUser(JSON.parse(user));
     
-    // Check if there's a current group
-    const group = localStorage.getItem("currentGroup");
-    if (group) {
-      setCurrentGroup(JSON.parse(group));
+    // Check if there's a current team
+    const team = localStorage.getItem("currentTeam");
+    if (team) {
+      setCurrentTeam(JSON.parse(team));
     }
   }, [router]);
 
-  const clearGroup = () => {
-    localStorage.removeItem("currentGroup");
-    setCurrentGroup(null);
+  const clearTeam = () => {
+    localStorage.removeItem("currentTeam");
+    setCurrentTeam(null);
   };
 
   const handleSuggestionSubmit = (e: React.FormEvent) => {
@@ -152,47 +152,47 @@ export default function GamesPage() {
           </p>
         </div>
 
-        {/* Current Group Display */}
-        {currentGroup && (
+        {/* Current Team Display */}
+        {currentTeam && (
           <div className="neon-card neon-box-purple p-4 mb-6 card-3d animate-slide-fade-in delay-400">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-3 animate-fade-in-left">
                 <Users className="w-5 h-5 text-purple-400 animate-pulse" />
                 <div>
-                  <div className="text-purple-400 font-bold">Playing with Group: {currentGroup.name}</div>
+                  <div className="text-purple-400 font-bold">Playing as Team: {currentTeam.name}</div>
                   <div className="text-cyan-300/70 text-sm">
-                    {currentGroup.members.length + 1} member{currentGroup.members.length !== 0 ? "s" : ""}
+                    {currentTeam.members.length + 1} member{currentTeam.members.length !== 0 ? "s" : ""}
                   </div>
                 </div>
               </div>
               <button
-                onClick={clearGroup}
+                onClick={clearTeam}
                 className="neon-btn neon-btn-red px-4 py-2 text-sm font-bold flex items-center gap-2 btn-3d hover:animate-shake"
               >
                 <X className="w-4 h-4" />
-                LEAVE GROUP
+                LEAVE TEAM
               </button>
             </div>
           </div>
         )}
 
-        {/* Group Selection Prompt */}
-        {!currentGroup && (
+        {/* Team Selection Prompt */}
+        {!currentTeam && (
           <div className="neon-card neon-box-cyan p-4 mb-6 card-3d animate-slide-fade-in delay-400">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-3 animate-fade-in-left">
                 <Users className="w-5 h-5 text-cyan-400 animate-pulse" />
                 <div>
-                  <div className="text-cyan-400 font-bold">Want to play with a group?</div>
-                  <div className="text-cyan-300/70 text-sm">Create or join a group to play together!</div>
+                  <div className="text-cyan-400 font-bold">Want to play as a team?</div>
+                  <div className="text-cyan-300/70 text-sm">Create or join a team to play together!</div>
                 </div>
               </div>
               <Link
-                href="/groups"
+                href="/teams"
                 className="neon-btn neon-btn-purple px-4 py-2 text-sm font-bold flex items-center gap-2 btn-3d hover:animate-pulse-glow"
               >
                 <Users className="w-4 h-4" />
-                GO TO GROUPS
+                GO TO TEAMS
               </Link>
             </div>
           </div>

@@ -63,20 +63,20 @@ export default function DrawGuessPage() {
     if (!currentUser) return;
     
     // Initialize players from group if available
-    const currentGroup = localStorage.getItem("currentGroup");
-    if (currentGroup && players.length === 0) {
+    const currentTeam = localStorage.getItem("currentTeam");
+    if (currentTeam && players.length === 0) {
       try {
-        const group = JSON.parse(currentGroup);
-        const groupPlayers: Player[] = [
+        const team = JSON.parse(currentTeam);
+        const teamPlayers: Player[] = [
           { id: currentUser.id, name: currentUser.name, score: 0, hasDrawn: false },
-          ...group.members.map((m: any) => ({ 
+          ...team.members.map((m: any) => ({ 
             id: m.id, 
             name: m.name, 
             score: 0, 
             hasDrawn: false 
           }))
         ];
-        setPlayers(groupPlayers);
+        setPlayers(teamPlayers);
       } catch (e) {
         console.error("Error loading group:", e);
       }
@@ -414,11 +414,11 @@ export default function DrawGuessPage() {
 
   // SETUP PHASE
   if (phase === "setup") {
-    const currentGroup = localStorage.getItem("currentGroup");
-    let groupInfo = null;
-    if (currentGroup) {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo = null;
+    if (currentTeamData) {
       try {
-        groupInfo = JSON.parse(currentGroup);
+        teamInfo = JSON.parse(currentTeamData);
       } catch (e) {
         // Ignore parse errors
       }
@@ -444,15 +444,15 @@ export default function DrawGuessPage() {
             </p>
           </div>
 
-          {groupInfo && (
+          {teamInfo && (
             <div className="neon-card neon-box-purple p-4 mb-6 card-3d animate-slide-fade-in delay-300">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div className="flex items-center gap-3">
                   <Users className="w-5 h-5 text-purple-400" />
                   <div>
-                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
                     <div className="text-cyan-300/70 text-sm">
-                      {groupInfo.members.length + 1} player{groupInfo.members.length !== 0 ? "s" : ""}
+                      {teamInfo.members.length + 1} player{teamInfo.members.length !== 0 ? "s" : ""}
                     </div>
                   </div>
                 </div>

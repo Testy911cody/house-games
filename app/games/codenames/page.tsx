@@ -264,13 +264,13 @@ export default function CodenamesPage() {
     setCurrentUser(JSON.parse(user));
 
     // Check if there's a current group and set team name
-    const currentGroup = localStorage.getItem("currentGroup");
-    if (currentGroup) {
+    const currentTeam = localStorage.getItem("currentTeam");
+    if (currentTeam) {
       try {
-        const group = JSON.parse(currentGroup);
-        setRedTeamName(group.name);
+        const team = JSON.parse(currentTeam);
+        setRedTeamName(team.name);
       } catch (e) {
-        console.error("Error loading group:", e);
+        console.error("Error loading team:", e);
       }
     }
   }, [router]);
@@ -318,18 +318,18 @@ export default function CodenamesPage() {
     setClue({ word: "", number: 0 });
     setGuessesRemaining(0);
     setGameLog([]);
-    // Initialize players if group exists
-    const currentGroup = localStorage.getItem("currentGroup");
-    if (currentGroup) {
+    // Initialize players if team exists
+    const currentTeam = localStorage.getItem("currentTeam");
+    if (currentTeam) {
       try {
-        const group = JSON.parse(currentGroup);
-        const groupPlayers: Player[] = [
+        const team = JSON.parse(currentTeam);
+        const teamPlayers: Player[] = [
           { name: currentUser.name, role: "operative", team: "red" },
-          ...group.members.map((m: any) => ({ name: m.name, role: "operative", team: "red" as const }))
+          ...team.members.map((m: any) => ({ name: m.name, role: "operative", team: "red" as const }))
         ];
-        setPlayers(groupPlayers);
+        setPlayers(teamPlayers);
       } catch (e) {
-        console.error("Error loading group:", e);
+        console.error("Error loading team:", e);
       }
     }
   };
@@ -422,11 +422,11 @@ export default function CodenamesPage() {
 
   // SETUP PHASE
   if (phase === "setup") {
-    const currentGroup = localStorage.getItem("currentGroup");
-    let groupInfo = null;
-    if (currentGroup) {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo = null;
+    if (currentTeamData) {
       try {
-        groupInfo = JSON.parse(currentGroup);
+        teamInfo = JSON.parse(currentTeamData);
       } catch (e) {
         // Ignore parse errors
       }
@@ -453,15 +453,15 @@ export default function CodenamesPage() {
           </div>
 
           {/* Group Info Banner */}
-          {groupInfo && (
+          {teamInfo && (
             <div className="neon-card neon-box-purple p-4 mb-6 card-3d">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <div className="flex items-center gap-3">
                   <Users className="w-5 h-5 text-purple-400" />
                   <div>
-                    <div className="text-purple-400 font-bold">Playing with Group: {groupInfo.name}</div>
+                    <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
                     <div className="text-cyan-300/70 text-sm">
-                      {groupInfo.members.length + 1} member{groupInfo.members.length !== 0 ? "s" : ""} as RED TEAM
+                      {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as RED TEAM
                     </div>
                   </div>
                 </div>

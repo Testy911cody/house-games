@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Save, Users } from "lucide-react";
 
-export default function CreateGroupPage() {
+export default function CreateTeamPage() {
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
 
-  const generateGroupCode = (): string => {
+  const generateTeamCode = (): string => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
     let code = "";
     for (let i = 0; i < 6; i++) {
@@ -25,12 +25,12 @@ export default function CreateGroupPage() {
     setError("");
 
     if (!name.trim()) {
-      setError("Please enter a group name");
+      setError("Please enter a team name");
       return;
     }
 
     if (name.length > 30) {
-      setError("Group name must be 30 characters or less");
+      setError("Team name must be 30 characters or less");
       return;
     }
 
@@ -41,22 +41,22 @@ export default function CreateGroupPage() {
       return;
     }
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
+    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
 
     // Check for duplicate names (case-insensitive)
-    if (allGroups.some((g: any) => g.name.toLowerCase() === name.trim().toLowerCase())) {
-      setError("A group with this name already exists");
+    if (allTeams.some((t: any) => t.name.toLowerCase() === name.trim().toLowerCase())) {
+      setError("A team with this name already exists");
       return;
     }
 
     // Generate unique code (always uppercase)
-    let code = generateGroupCode().toUpperCase();
-    while (allGroups.some((g: any) => (g.code || "").toUpperCase() === code)) {
-      code = generateGroupCode().toUpperCase();
+    let code = generateTeamCode().toUpperCase();
+    while (allTeams.some((t: any) => (t.code || "").toUpperCase() === code)) {
+      code = generateTeamCode().toUpperCase();
     }
 
-    const newGroup = {
-      id: `group_${Date.now()}`,
+    const newTeam = {
+      id: `team_${Date.now()}`,
       name: name.trim(),
       description: description.trim() || undefined,
       code: code, // Always store in uppercase
@@ -67,12 +67,12 @@ export default function CreateGroupPage() {
     };
 
     // Save to localStorage first
-    allGroups.push(newGroup);
-    localStorage.setItem("groups", JSON.stringify(allGroups));
+    allTeams.push(newTeam);
+    localStorage.setItem("teams", JSON.stringify(allTeams));
 
     // Try to sync to API for cross-device sharing
     try {
-      const response = await fetch('/api/groups', {
+      const response = await fetch('/api/teams', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -80,15 +80,15 @@ export default function CreateGroupPage() {
         },
         body: JSON.stringify({
           action: 'create',
-          group: newGroup,
+          team: newTeam,
         }),
       });
       
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
-          // API sync successful - the group is now on the server
-          console.log("Group synced to server successfully");
+          // API sync successful - the team is now on the server
+          console.log("Team synced to server successfully");
         } else {
           console.log("API returned error:", data.error);
         }
@@ -100,26 +100,26 @@ export default function CreateGroupPage() {
       console.log("API sync failed, using local storage only:", error);
     }
 
-    router.push(`/groups/${newGroup.id}`);
+    router.push(`/teams/${newTeam.id}`);
   };
 
   return (
     <div className="min-h-screen p-4 sm:p-8">
       <div className="max-w-2xl mx-auto">
         <Link
-          href="/groups"
+          href="/teams"
           className="inline-flex items-center gap-2 text-cyan-400 active:opacity-80 mb-4 sm:mb-8 font-semibold neon-glow-cyan min-h-[44px]"
         >
           <ArrowLeft className="w-5 h-5" />
-          <span className="text-sm sm:text-base">BACK TO GROUPS</span>
+          <span className="text-sm sm:text-base">BACK TO TEAMS</span>
         </Link>
 
         <div className="text-center mb-6">
           <h1 className="pixel-font text-2xl sm:text-3xl md:text-5xl font-bold text-purple-400 neon-glow-purple mb-2">
-            CREATE GROUP
+            CREATE TEAM
           </h1>
           <p className="text-sm sm:text-base text-cyan-300">
-            Start a new group to play games together!
+            Start a new team to play games together!
           </p>
         </div>
 
@@ -127,7 +127,7 @@ export default function CreateGroupPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
               <label className="block text-cyan-300 mb-2 font-semibold">
-                Group Name <span className="text-red-400">*</span>
+                Team Name <span className="text-red-400">*</span>
               </label>
               <input
                 type="text"
@@ -136,7 +136,7 @@ export default function CreateGroupPage() {
                   setName(e.target.value);
                   setError("");
                 }}
-                placeholder="Enter group name"
+                placeholder="Enter team name"
                 maxLength={30}
                 className="w-full px-4 py-3 bg-gray-800 border border-purple-500 rounded text-cyan-300 placeholder-cyan-500/50 focus:border-purple-400 focus:outline-none"
                 required
@@ -153,7 +153,7 @@ export default function CreateGroupPage() {
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                placeholder="Describe your group..."
+                placeholder="Describe your team..."
                 maxLength={200}
                 rows={4}
                 className="w-full px-4 py-3 bg-gray-800 border border-purple-500 rounded text-cyan-300 placeholder-cyan-500/50 focus:border-purple-400 focus:outline-none resize-none"
@@ -175,10 +175,10 @@ export default function CreateGroupPage() {
                 className="neon-btn neon-btn-purple flex-1 py-3 text-lg font-bold flex items-center justify-center gap-2"
               >
                 <Save className="w-5 h-5" />
-                CREATE GROUP
+                CREATE TEAM
               </button>
               <Link
-                href="/groups"
+                href="/teams"
                 className="neon-btn neon-btn-red px-6 py-3 text-lg font-bold"
               >
                 CANCEL
@@ -191,12 +191,13 @@ export default function CreateGroupPage() {
           <div className="flex items-start gap-3">
             <Users className="w-6 h-6 text-cyan-400 flex-shrink-0 mt-1" />
             <div>
-              <h3 className="text-cyan-400 font-bold mb-2">About Groups</h3>
+              <h3 className="text-cyan-400 font-bold mb-2">About Teams</h3>
               <ul className="text-cyan-300/70 text-sm space-y-1">
-                <li>• You'll be the admin of your group</li>
-                <li>• Share the group code to invite members</li>
-                <li>• Play games together as a group</li>
-                <li>• Manage members and group settings</li>
+                <li>• You'll be the admin of your team</li>
+                <li>• Share the team code to invite members</li>
+                <li>• Anyone online can join your team</li>
+                <li>• Play games together as a team</li>
+                <li>• Manage members and team settings</li>
               </ul>
             </div>
           </div>

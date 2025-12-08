@@ -230,13 +230,13 @@ export default function Home() {
                   </div>
                 </Link>
                 <Link
-                  href="/groups"
+                  href="/teams"
                   className="group relative bg-gradient-to-br from-purple-900/50 to-purple-950/50 border-2 border-purple-500 p-6 sm:p-8 rounded-2xl transition-all active:scale-95 neon-box-purple min-h-[140px] sm:min-h-[180px] card-enter animate-stagger-2 hover:animate-pulse-glow"
                 >
                   <div className="flex flex-col items-center gap-3 sm:gap-4">
                     <UserCircle className="w-12 h-12 sm:w-16 sm:h-16 text-purple-400 animate-rotate-in delay-200" />
-                    <span className="text-lg sm:text-2xl font-bold text-purple-400 pixel-font text-xs sm:text-sm">GROUPS</span>
-                    <span className="text-purple-300/70 text-xs sm:text-sm">Play with friends</span>
+                    <span className="text-lg sm:text-2xl font-bold text-purple-400 pixel-font text-xs sm:text-sm">TEAMS</span>
+                    <span className="text-purple-300/70 text-xs sm:text-sm">Play as teams</span>
                   </div>
                 </Link>
                 {!currentUser.isAnonymous && (

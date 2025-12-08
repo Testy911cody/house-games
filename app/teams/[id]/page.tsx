@@ -5,30 +5,30 @@ import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Crown, UserPlus, Trash2, Edit2, Save, X, Copy, Check, Users, Gamepad2 } from "lucide-react";
 
-interface GroupMember {
+interface TeamMember {
   id: string;
   name: string;
   joinedAt: string;
 }
 
-interface Group {
+interface Team {
   id: string;
   name: string;
   code: string;
   adminId: string;
   adminName: string;
-  members: GroupMember[];
+  members: TeamMember[];
   createdAt: string;
   description?: string;
 }
 
-export default function GroupDetailPage() {
+export default function TeamDetailPage() {
   const router = useRouter();
   const params = useParams();
-  const groupId = params.id as string;
+  const teamId = params.id as string;
   
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [group, setGroup] = useState<Group | null>(null);
+  const [team, setTeam] = useState<Team | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -48,129 +48,129 @@ export default function GroupDetailPage() {
 
   useEffect(() => {
     if (currentUser) {
-      loadGroup();
+      loadTeam();
     }
-  }, [groupId, currentUser]);
+  }, [teamId, currentUser]);
 
-  const loadGroup = () => {
+  const loadTeam = () => {
     if (!currentUser) return;
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const foundGroup = allGroups.find((g: Group) => g.id === groupId);
+    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+    const foundTeam = allTeams.find((t: Team) => t.id === teamId);
     
-    if (!foundGroup) {
-      router.push("/groups");
+    if (!foundTeam) {
+      router.push("/teams");
       return;
     }
 
-    // Allow anyone to view groups, but restrict editing to members/admins
-    setGroup(foundGroup);
-    setEditName(foundGroup.name);
-    setEditDescription(foundGroup.description || "");
+    // Allow anyone to view teams, but restrict editing to members/admins
+    setTeam(foundTeam);
+    setEditName(foundTeam.name);
+    setEditDescription(foundTeam.description || "");
   };
 
-  const handleJoinGroup = () => {
-    if (!group || !currentUser) return;
+  const handleJoinTeam = () => {
+    if (!team || !currentUser) return;
     
-    const isMember = group.members.some((m: GroupMember) => m.id === currentUser.id);
-    const isAdmin = group.adminId === currentUser.id;
+    const isMember = team.members.some((m: TeamMember) => m.id === currentUser.id);
+    const isAdmin = team.adminId === currentUser.id;
     
     if (isMember || isAdmin) {
       return; // Already a member
     }
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const groupIndex = allGroups.findIndex((g: Group) => g.id === groupId);
+    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+    const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
     
-    if (groupIndex === -1) return;
+    if (teamIndex === -1) return;
 
-    // Add user to group
-    allGroups[groupIndex].members.push({
+    // Add user to team - anyone online can join
+    allTeams[teamIndex].members.push({
       id: currentUser.id,
       name: currentUser.name,
       joinedAt: new Date().toISOString(),
     });
 
-    localStorage.setItem("groups", JSON.stringify(allGroups));
-    loadGroup(); // Reload to update UI
+    localStorage.setItem("teams", JSON.stringify(allTeams));
+    loadTeam(); // Reload to update UI
   };
 
-  const saveGroup = () => {
-    if (!group) return;
+  const saveTeam = () => {
+    if (!team) return;
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const groupIndex = allGroups.findIndex((g: Group) => g.id === groupId);
+    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+    const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
     
-    if (groupIndex === -1) return;
+    if (teamIndex === -1) return;
 
-    allGroups[groupIndex].name = editName.trim();
-    allGroups[groupIndex].description = editDescription.trim() || undefined;
+    allTeams[teamIndex].name = editName.trim();
+    allTeams[teamIndex].description = editDescription.trim() || undefined;
 
-    localStorage.setItem("groups", JSON.stringify(allGroups));
-    setGroup(allGroups[groupIndex]);
+    localStorage.setItem("teams", JSON.stringify(allTeams));
+    setTeam(allTeams[teamIndex]);
     setIsEditing(false);
   };
 
-  const deleteGroup = () => {
-    if (!group) return;
+  const deleteTeam = () => {
+    if (!team) return;
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const filteredGroups = allGroups.filter((g: Group) => g.id !== groupId);
-    localStorage.setItem("groups", JSON.stringify(filteredGroups));
-    router.push("/groups");
+    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+    const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
+    localStorage.setItem("teams", JSON.stringify(filteredTeams));
+    router.push("/teams");
   };
 
   const removeMember = (memberId: string) => {
-    if (!group) return;
+    if (!team) return;
 
-    const allGroups = JSON.parse(localStorage.getItem("groups") || "[]");
-    const groupIndex = allGroups.findIndex((g: Group) => g.id === groupId);
+    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+    const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
     
-    if (groupIndex === -1) return;
+    if (teamIndex === -1) return;
 
-    allGroups[groupIndex].members = allGroups[groupIndex].members.filter(
-      (m: GroupMember) => m.id !== memberId
+    allTeams[teamIndex].members = allTeams[teamIndex].members.filter(
+      (m: TeamMember) => m.id !== memberId
     );
 
-    localStorage.setItem("groups", JSON.stringify(allGroups));
-    setGroup(allGroups[groupIndex]);
+    localStorage.setItem("teams", JSON.stringify(allTeams));
+    setTeam(allTeams[teamIndex]);
     setRemoveMemberId(null);
   };
 
   const copyCode = () => {
-    if (group) {
-      navigator.clipboard.writeText(group.code);
+    if (team) {
+      navigator.clipboard.writeText(team.code);
       setCopiedCode(true);
       setTimeout(() => setCopiedCode(false), 2000);
     }
   };
 
   const startGame = () => {
-    if (!group) return;
-    // Store current group in localStorage for games to access
-    localStorage.setItem("currentGroup", JSON.stringify(group));
+    if (!team) return;
+    // Store current team in localStorage for games to access
+    localStorage.setItem("currentTeam", JSON.stringify(team));
     router.push("/games");
   };
 
-  if (!currentUser || !group) {
+  if (!currentUser || !team) {
     return null;
   }
 
-  const isAdmin = group.adminId === currentUser.id;
-  const isMember = group.members.some((m: GroupMember) => m.id === currentUser.id) || isAdmin;
-  const memberCount = group.members.length + 1; // +1 for admin
+  const isAdmin = team.adminId === currentUser.id;
+  const isMember = team.members.some((m: TeamMember) => m.id === currentUser.id) || isAdmin;
+  const memberCount = team.members.length + 1; // +1 for admin
 
   return (
     <div className="min-h-screen p-4 sm:p-8">
       <div className="max-w-4xl mx-auto">
         <Link
-          href="/groups"
+          href="/teams"
           className="inline-flex items-center gap-2 text-cyan-400 active:opacity-80 mb-4 sm:mb-8 font-semibold neon-glow-cyan min-h-[44px]"
         >
           <ArrowLeft className="w-5 h-5" />
-          <span className="text-sm sm:text-base">BACK TO GROUPS</span>
+          <span className="text-sm sm:text-base">BACK TO TEAMS</span>
         </Link>
 
-        {/* Group Header */}
+        {/* Team Header */}
         <div className="neon-card neon-box-purple p-6 sm:p-8 mb-6">
           {!isEditing ? (
             <div>
@@ -178,21 +178,21 @@ export default function GroupDetailPage() {
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <h1 className="pixel-font text-2xl sm:text-3xl font-bold text-purple-400 neon-glow-purple">
-                      {group.name}
+                      {team.name}
                     </h1>
                     {isAdmin && (
                       <Crown className="w-6 h-6 text-yellow-400" />
                     )}
                   </div>
-                  {group.description && (
-                    <p className="text-cyan-300/70 mb-4">{group.description}</p>
+                  {team.description && (
+                    <p className="text-cyan-300/70 mb-4">{team.description}</p>
                   )}
                 </div>
                 {(isAdmin || isMember) && (
                   <button
                     onClick={() => setIsEditing(true)}
                     className="text-cyan-400 hover:text-cyan-300 transition-colors p-2"
-                    title="Edit group"
+                    title="Edit team"
                     disabled={!isAdmin}
                   >
                     <Edit2 className="w-5 h-5" />
@@ -206,7 +206,7 @@ export default function GroupDetailPage() {
                   <span>{memberCount} member{memberCount !== 1 ? "s" : ""}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-purple-300 font-mono font-bold">{group.code}</span>
+                  <span className="text-purple-300 font-mono font-bold">{team.code}</span>
                   <button
                     onClick={copyCode}
                     className="text-cyan-400 hover:text-cyan-300 transition-colors"
@@ -220,7 +220,7 @@ export default function GroupDetailPage() {
                   </button>
                 </div>
                 <div className="text-cyan-300/50 text-xs">
-                  Created {new Date(group.createdAt).toLocaleDateString()}
+                  Created {new Date(team.createdAt).toLocaleDateString()}
                 </div>
               </div>
             </div>
@@ -228,7 +228,7 @@ export default function GroupDetailPage() {
             isAdmin && (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-cyan-300 mb-2 font-semibold">Group Name</label>
+                  <label className="block text-cyan-300 mb-2 font-semibold">Team Name</label>
                   <input
                     type="text"
                     value={editName}
@@ -249,7 +249,7 @@ export default function GroupDetailPage() {
                 </div>
                 <div className="flex gap-2">
                   <button
-                    onClick={saveGroup}
+                    onClick={saveTeam}
                     className="neon-btn neon-btn-green px-4 py-2 flex items-center gap-2"
                   >
                     <Save className="w-4 h-4" />
@@ -258,8 +258,8 @@ export default function GroupDetailPage() {
                   <button
                     onClick={() => {
                       setIsEditing(false);
-                      setEditName(group.name);
-                      setEditDescription(group.description || "");
+                      setEditName(team.name);
+                      setEditDescription(team.description || "");
                     }}
                     className="neon-btn neon-btn-red px-4 py-2 flex items-center gap-2"
                   >
@@ -276,11 +276,11 @@ export default function GroupDetailPage() {
         <div className="mb-6">
           {!isMember ? (
             <button
-              onClick={handleJoinGroup}
+              onClick={handleJoinTeam}
               className="neon-btn neon-btn-green w-full py-4 text-lg font-bold flex items-center justify-center gap-2"
             >
               <UserPlus className="w-5 h-5" />
-              JOIN THIS GROUP
+              JOIN THIS TEAM
             </button>
           ) : (
             <button
@@ -288,7 +288,7 @@ export default function GroupDetailPage() {
               className="neon-btn neon-btn-green w-full py-4 text-lg font-bold flex items-center justify-center gap-2"
             >
               <Gamepad2 className="w-5 h-5" />
-              PLAY GAMES WITH GROUP
+              PLAY GAMES AS TEAM
             </button>
           )}
         </div>
@@ -306,14 +306,14 @@ export default function GroupDetailPage() {
               <div className="flex items-center gap-3">
                 <Crown className="w-5 h-5 text-yellow-400" />
                 <div>
-                  <div className="font-bold text-yellow-400">{group.adminName}</div>
+                  <div className="font-bold text-yellow-400">{team.adminName}</div>
                   <div className="text-xs text-cyan-300/50">Admin</div>
                 </div>
               </div>
             </div>
 
             {/* Members */}
-            {group.members.map((member) => (
+            {team.members.map((member) => (
               <div
                 key={member.id}
                 className="flex items-center justify-between p-3 bg-gray-800/50 border border-cyan-500/30 rounded"
@@ -369,14 +369,14 @@ export default function GroupDetailPage() {
                 className="neon-btn neon-btn-red px-6 py-3 font-bold flex items-center gap-2"
               >
                 <Trash2 className="w-5 h-5" />
-                DELETE GROUP
+                DELETE TEAM
               </button>
             ) : (
               <div className="space-y-3">
                 <p className="text-red-300">Are you sure? This cannot be undone.</p>
                 <div className="flex gap-2">
                   <button
-                    onClick={deleteGroup}
+                    onClick={deleteTeam}
                     className="neon-btn neon-btn-red px-6 py-3 font-bold"
                   >
                     YES, DELETE
