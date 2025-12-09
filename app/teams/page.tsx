@@ -236,22 +236,19 @@ export default function TeamsPage() {
           const { teamsAPI } = await import('@/lib/api-utils');
           const updateResult = await teamsAPI.updateTeam(team.id, { members: team.members });
           
-          if (updateResult.success) {
-            const data = await response.json();
-            if (data.success && data.team) {
-              // Update with API response
-              const updatedTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-              const index = updatedTeams.findIndex((t: Team) => t.id === team.id);
-              if (index >= 0) {
-                updatedTeams[index] = data.team;
-              } else {
-                updatedTeams.push(data.team);
-              }
-              localStorage.setItem("teams", JSON.stringify(updatedTeams));
-              loadTeams(); // Immediate reload
-              router.push(`/teams/${team.id}`);
-              return true;
+          if (updateResult.success && updateResult.team) {
+            // Update with API response
+            const updatedTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+            const index = updatedTeams.findIndex((t: Team) => t.id === team.id);
+            if (index >= 0) {
+              updatedTeams[index] = updateResult.team;
+            } else {
+              updatedTeams.push(updateResult.team);
             }
+            localStorage.setItem("teams", JSON.stringify(updatedTeams));
+            loadTeams(); // Immediate reload
+            router.push(`/teams/${team.id}`);
+            return true;
           }
         } catch (e) {
           // API failed, continue with local
