@@ -4,8 +4,8 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   optimizeFonts: true,
-  // GitHub Pages configuration - only use basePath and static export in production builds
-  basePath: process.env.NODE_ENV === 'production' ? '/house-games' : '',
+  // GitHub Pages configuration - no basePath needed for custom domain (housegames.club)
+  // Custom domains serve from root, so basePath should be empty
   ...(process.env.NODE_ENV === 'production' && { output: 'export' }),
   trailingSlash: true,
   images: {
