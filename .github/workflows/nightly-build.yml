@@ -2,7 +2,7 @@ name: Nightly Build Trigger
 
 # This workflow triggers a deployment every night
 # It works by creating an empty commit and pushing it
-# which triggers Vercel/Netlify automatic deployments
+# which triggers GitHub Pages automatic deployment via deploy-pages workflow
 
 on:
   schedule:
@@ -33,7 +33,7 @@ jobs:
       - name: Build status
         run: |
           echo "✅ Nightly build triggered at $(date)"
-          echo "This will trigger an automatic deployment on Vercel/Netlify"
+          echo "This will trigger an automatic deployment on GitHub Pages"
 
 
 
