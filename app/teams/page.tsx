@@ -49,22 +49,50 @@ export default function TeamsPage() {
 
   useEffect(() => {
     if (currentUser) {
+      // Update user activity immediately
+      const updateActivity = async () => {
+        try {
+          const { teamsAPI } = await import('@/lib/api-utils');
+          teamsAPI.updateUserActivity(currentUser.id);
+        } catch (e) {
+          // Silently fail
+        }
+      };
+      updateActivity();
+
       loadTeams();
+      
       // Auto-refresh teams every 2 seconds for rapid multiplayer sync
       const refreshInterval = setInterval(() => {
         loadTeams();
+        // Update user activity on each refresh
+        updateActivity();
       }, 2000);
+      
+      // Cleanup inactive teams every 30 seconds
+      const cleanupInterval = setInterval(async () => {
+        try {
+          const { teamsAPI } = await import('@/lib/api-utils');
+          await teamsAPI.cleanupInactiveTeams();
+          // Reload teams after cleanup
+          loadTeams();
+        } catch (e) {
+          // Silently fail
+        }
+      }, 30000); // Every 30 seconds
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
         if (!document.hidden) {
           loadTeams();
+          updateActivity();
         }
       };
       
       // Refresh when window gains focus
       const handleFocus = () => {
         loadTeams();
+        updateActivity();
       };
       
       document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -72,6 +100,7 @@ export default function TeamsPage() {
       
       return () => {
         clearInterval(refreshInterval);
+        clearInterval(cleanupInterval);
         document.removeEventListener("visibilitychange", handleVisibilityChange);
         window.removeEventListener("focus", handleFocus);
       };

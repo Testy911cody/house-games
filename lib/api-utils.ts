@@ -448,6 +448,73 @@ async function deleteTeamFromDB(teamId: string): Promise<boolean> {
   return true;
 }
 
+// Track user activity for auto-delete feature
+const USER_ACTIVITY_TIMEOUT = 5 * 60 * 1000; // 5 minutes of inactivity = offline
+
+function updateUserActivity(userId: string): void {
+  if (typeof window === 'undefined') return;
+  const activityKey = `user_activity_${userId}`;
+  localStorage.setItem(activityKey, Date.now().toString());
+}
+
+function isUserOnline(userId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  const activityKey = `user_activity_${userId}`;
+  const lastActivity = localStorage.getItem(activityKey);
+  if (!lastActivity) return false;
+  
+  const lastActivityTime = parseInt(lastActivity, 10);
+  const now = Date.now();
+  return (now - lastActivityTime) < USER_ACTIVITY_TIMEOUT;
+}
+
+async function cleanupInactiveTeams(): Promise<void> {
+  try {
+    // Get teams directly without circular import
+    const teams = await getTeamsFromDB();
+    
+    if (!Array.isArray(teams)) {
+      return;
+    }
+
+    const teamsToDelete: string[] = [];
+
+    for (const team of teams) {
+      // Check if admin is online
+      const adminOnline = isUserOnline(team.adminId);
+      
+      // Check if any members are online
+      const membersOnline = team.members.some((member: any) => 
+        isUserOnline(member.id)
+      );
+
+      // Delete team if admin is offline AND no members are online
+      if (!adminOnline && !membersOnline) {
+        teamsToDelete.push(team.id);
+      }
+    }
+
+    // Delete inactive teams
+    for (const teamId of teamsToDelete) {
+      try {
+        await deleteTeamFromDB(teamId);
+        console.log(`Auto-deleted inactive team: ${teamId}`);
+        
+        // Also remove from localStorage
+        if (typeof window !== 'undefined') {
+          const localTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const filteredTeams = localTeams.filter((t: Team) => t.id !== teamId);
+          localStorage.setItem("teams", JSON.stringify(filteredTeams));
+        }
+      } catch (error) {
+        console.error(`Error deleting team ${teamId}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error cleaning up inactive teams:', error);
+  }
+}
+
 export const teamsAPI = {
   async getTeams(): Promise<{ success: boolean; teams: Team[] }> {
     try {
@@ -462,6 +529,8 @@ export const teamsAPI = {
   async createTeam(team: Team): Promise<{ success: boolean; team?: Team; error?: string }> {
     try {
       const savedTeam = await saveTeamToDB(team);
+      // Mark admin as active when creating team
+      updateUserActivity(team.adminId);
       return { success: true, team: savedTeam };
     } catch (error: any) {
       console.error('Error creating team:', error);
@@ -475,6 +544,15 @@ export const teamsAPI = {
       if (!updatedTeam) {
         return { success: false, error: 'Team not found' };
       }
+      
+      // Mark admin and members as active when team is updated
+      updateUserActivity(updatedTeam.adminId);
+      if (updatedTeam.members) {
+        updatedTeam.members.forEach((member: any) => {
+          updateUserActivity(member.id);
+        });
+      }
+      
       return { success: true, team: updatedTeam };
     } catch (error: any) {
       console.error('Error updating team:', error);
@@ -491,5 +569,14 @@ export const teamsAPI = {
       return { success: false, error: error.message || 'Failed to delete team' };
     }
   },
+
+  // Update user activity (call this periodically to keep user "online")
+  updateUserActivity,
+
+  // Check if user is online
+  isUserOnline,
+
+  // Clean up inactive teams
+  cleanupInactiveTeams,
 };
 

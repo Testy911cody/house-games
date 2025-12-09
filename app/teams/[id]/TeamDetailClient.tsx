@@ -51,16 +51,31 @@ export default function TeamDetailClient() {
 
   useEffect(() => {
     if (currentUser) {
+      // Update user activity immediately
+      const updateActivity = async () => {
+        try {
+          const { teamsAPI } = await import('@/lib/api-utils');
+          teamsAPI.updateUserActivity(currentUser.id);
+        } catch (e) {
+          // Silently fail
+        }
+      };
+      updateActivity();
+
       loadTeam();
+      
       // Auto-refresh team every 2 seconds for rapid multiplayer sync
       const refreshInterval = setInterval(() => {
         loadTeam();
+        // Update user activity on each refresh
+        updateActivity();
       }, 2000);
       
       // Refresh when page becomes visible
       const handleVisibilityChange = () => {
         if (!document.hidden) {
           loadTeam();
+          updateActivity();
         }
       };
       
