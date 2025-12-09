@@ -150,23 +150,42 @@ export default function TeamDetailClient() {
         return;
       }
     } catch (e) {
-      // API failed, continue with local
+      // API failed, continue with local - silently handle the error
+      console.log("API sync failed, using local storage:", e);
     }
 
-    // Fallback to local storage
-    const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-    const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
-    
-    if (teamIndex === -1) return;
+    // Fallback to local storage - always works even if API fails
+    try {
+      const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+      const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
+      
+      if (teamIndex === -1) {
+        // Team not found in localStorage, try to reload from API/localStorage
+        await loadTeam();
+        return;
+      }
 
-    allTeams[teamIndex].members.push({
-      id: currentUser.id,
-      name: currentUser.name,
-      joinedAt: new Date().toISOString(),
-    });
+      // Check if already a member
+      const existingMember = allTeams[teamIndex].members.find((m: TeamMember) => m.id === currentUser.id);
+      if (existingMember) {
+        // Already a member, just reload
+        loadTeam();
+        return;
+      }
 
-    localStorage.setItem("teams", JSON.stringify(allTeams));
-    loadTeam(); // Reload to update UI
+      allTeams[teamIndex].members.push({
+        id: currentUser.id,
+        name: currentUser.name,
+        joinedAt: new Date().toISOString(),
+      });
+
+      localStorage.setItem("teams", JSON.stringify(allTeams));
+      loadTeam(); // Reload to update UI
+    } catch (error) {
+      console.error("Error joining team:", error);
+      // Even if there's an error, try to reload the team
+      loadTeam();
+    }
   };
 
   const saveTeam = async () => {
