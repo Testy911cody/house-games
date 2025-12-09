@@ -73,17 +73,23 @@ export default function CreateTeamPage() {
     // Try to sync to API for cross-device sharing
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
-      const result = await teamsAPI.createTeam(newTeam);
+      const { isSupabaseConfigured } = await import('@/lib/supabase');
       
-      if (result.success) {
-        // API sync successful - the team is now on the server
-        console.log("Team synced to server successfully");
+      if (!isSupabaseConfigured()) {
+        console.warn("⚠️ Supabase not configured - team created locally only. It won't appear in other browsers. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
       } else {
-        console.log("API returned error:", result.error);
+        const result = await teamsAPI.createTeam(newTeam);
+        
+        if (result.success) {
+          // API sync successful - the team is now on the server
+          console.log("✅ Team synced to Supabase successfully - visible across all browsers!");
+        } else {
+          console.error("❌ API returned error:", result.error);
+        }
       }
     } catch (error) {
       // API failed, but continue with local storage
-      console.log("API sync failed, using local storage only:", error);
+      console.error("❌ API sync failed, using local storage only:", error);
     }
 
     router.push(`/teams/${newTeam.id}`);

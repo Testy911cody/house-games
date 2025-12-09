@@ -114,20 +114,28 @@ export default function TeamsPage() {
       let apiTeams: Team[] = [];
       try {
         const { teamsAPI } = await import('@/lib/api-utils');
-        const data = await teamsAPI.getTeams();
+        const { isSupabaseConfigured } = await import('@/lib/supabase');
         
-        if (data.success && Array.isArray(data.teams)) {
-          apiTeams = data.teams;
-          setApiStatus("connected");
-          console.log(`Loaded ${apiTeams.length} teams from API`);
-        } else {
+        // Check if Supabase is configured
+        if (!isSupabaseConfigured()) {
+          console.warn("⚠️ Supabase not configured - teams will only sync locally. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
           setApiStatus("offline");
-          console.log("API response invalid:", data);
+        } else {
+          const data = await teamsAPI.getTeams();
+          
+          if (data.success && Array.isArray(data.teams)) {
+            apiTeams = data.teams;
+            setApiStatus("connected");
+            console.log(`✅ Loaded ${apiTeams.length} teams from Supabase`);
+          } else {
+            setApiStatus("offline");
+            console.log("API response invalid:", data);
+          }
         }
       } catch (apiError) {
         // API failed, continue with localStorage
         setApiStatus("offline");
-        console.log("API unavailable, using localStorage only:", apiError);
+        console.error("❌ API unavailable, using localStorage only:", apiError);
       }
       
       // Get local teams
@@ -361,10 +369,19 @@ export default function TeamsPage() {
             Browse all available teams or create your own to play games together! Anyone online can join a team.
           </p>
           {apiStatus === "connected" && (
-            <p className="text-xs text-green-400 mt-2">✓ Connected to server - teams sync across devices</p>
+            <p className="text-xs text-green-400 mt-2 flex items-center gap-1">
+              <span>✓</span> Connected to Supabase - teams sync across all browsers
+            </p>
           )}
           {apiStatus === "offline" && (
-            <p className="text-xs text-yellow-400 mt-2">⚠ Using local storage - teams only visible on this device</p>
+            <div className="text-xs text-yellow-400 mt-2 space-y-1">
+              <p className="flex items-center gap-1">
+                <span>⚠</span> Local storage only - teams won't sync across browsers
+              </p>
+              <p className="text-yellow-500/70 text-[10px]">
+                Set up Supabase for cross-browser sync (see console for details)
+              </p>
+            </div>
           )}
         </div>
 
