@@ -1,26 +1,41 @@
 "use client";
 
-import { useEffect } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
+
+// Dynamically import TeamDetailClient to handle team routes in 404
+const TeamDetailClient = dynamic(() => import("./teams/[id]/TeamDetailClient"), {
+  ssr: false,
+  loading: () => (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-cyan-400">Loading team...</div>
+    </div>
+  ),
+});
 
 export default function NotFound() {
   const pathname = usePathname();
-  const router = useRouter();
+  const [isTeamRoute, setIsTeamRoute] = useState(false);
 
   useEffect(() => {
     // Check if this is a team route that should be handled client-side
-    // For GitHub Pages static export, we need to handle dynamic routes here
     if (pathname?.startsWith("/teams/")) {
-      const teamId = pathname.split("/teams/")[1]?.split("/")[0];
-      if (teamId && teamId !== "create" && teamId !== "placeholder") {
-        // Redirect to the team page using Next.js router
-        // This will trigger client-side routing which will work
-        router.replace(`/teams/${teamId}`);
+      const id = pathname.split("/teams/")[1]?.split("/")[0];
+      if (id && id !== "create" && id !== "placeholder") {
+        setIsTeamRoute(true);
         return;
       }
     }
-  }, [pathname, router]);
+    setIsTeamRoute(false);
+  }, [pathname]);
+
+  // If it's a team route, render the team detail component
+  // TeamDetailClient will extract teamId from URL pathname as fallback
+  if (isTeamRoute) {
+    return <TeamDetailClient />;
+  }
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4">

@@ -25,7 +25,10 @@ interface Team {
 export default function TeamDetailClient() {
   const router = useRouter();
   const params = useParams();
-  const teamId = params.id as string;
+  // Extract teamId from params or fallback to URL pathname (for 404.html redirects)
+  const teamId = (params?.id as string) || (typeof window !== 'undefined' 
+    ? window.location.pathname.split('/teams/')[1]?.split('/')[0] 
+    : '');
   
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [team, setTeam] = useState<Team | null>(null);
