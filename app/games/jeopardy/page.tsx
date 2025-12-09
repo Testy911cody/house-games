@@ -829,21 +829,9 @@ export default function JeopardyPage() {
     setGenerationError(null);
 
     try {
-      const response = await fetch("/api/generate-jeopardy-topic", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ 
-          topic: newTopicName.trim(),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to generate topic");
-      }
+      // Use client-side utility instead of API route
+      const { generateJeopardyTopic } = await import('@/lib/api-utils');
+      const data = generateJeopardyTopic(newTopicName.trim());
 
       // Create custom topic
       const customTopic: CustomTopic = {

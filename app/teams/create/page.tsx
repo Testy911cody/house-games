@@ -72,28 +72,14 @@ export default function CreateTeamPage() {
 
     // Try to sync to API for cross-device sharing
     try {
-      const response = await fetch('/api/teams', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Cache-Control': 'no-cache',
-        },
-        body: JSON.stringify({
-          action: 'create',
-          team: newTeam,
-        }),
-      });
+      const { teamsAPI } = await import('@/lib/api-utils');
+      const result = await teamsAPI.createTeam(newTeam);
       
-      if (response.ok) {
-        const data = await response.json();
-        if (data.success) {
-          // API sync successful - the team is now on the server
-          console.log("Team synced to server successfully");
-        } else {
-          console.log("API returned error:", data.error);
-        }
+      if (result.success) {
+        // API sync successful - the team is now on the server
+        console.log("Team synced to server successfully");
       } else {
-        console.log("API request failed with status:", response.status);
+        console.log("API returned error:", result.error);
       }
     } catch (error) {
       // API failed, but continue with local storage

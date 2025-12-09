@@ -81,29 +81,19 @@ export default function TeamsPage() {
   const loadTeams = async () => {
     // Show ALL available teams - anyone online can join
     try {
-      // Try to fetch from API first (for cross-device sharing)
+      // Try to fetch from client-side API utility first (for cross-device sharing)
       let apiTeams: Team[] = [];
       try {
-        const response = await fetch('/api/teams', {
-          cache: 'no-store',
-          headers: {
-            'Cache-Control': 'no-cache',
-          },
-        });
+        const { teamsAPI } = await import('@/lib/api-utils');
+        const data = await teamsAPI.getTeams();
         
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && Array.isArray(data.teams)) {
-            apiTeams = data.teams;
-            setApiStatus("connected");
-            console.log(`Loaded ${apiTeams.length} teams from API`);
-          } else {
-            setApiStatus("offline");
-            console.log("API response invalid:", data);
-          }
+        if (data.success && Array.isArray(data.teams)) {
+          apiTeams = data.teams;
+          setApiStatus("connected");
+          console.log(`Loaded ${apiTeams.length} teams from API`);
         } else {
           setApiStatus("offline");
-          console.log("API response not OK:", response.status, response.statusText);
+          console.log("API response invalid:", data);
         }
       } catch (apiError) {
         // API failed, continue with localStorage
@@ -194,45 +184,36 @@ export default function TeamsPage() {
 
       if (!team) {
         // Try fetching from API
-        const response = await fetch('/api/teams');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.teams) {
-            const apiTeam = data.teams.find((t: Team) => {
-              const storedCode = (t.code || "").trim().toUpperCase();
-              return storedCode === trimmedCode;
-            });
+        const { teamsAPI } = await import('@/lib/api-utils');
+        const data = await teamsAPI.getTeams();
+        if (data.success && data.teams) {
+          const apiTeam = data.teams.find((t: Team) => {
+            const storedCode = (t.code || "").trim().toUpperCase();
+            return storedCode === trimmedCode;
+          });
+          
+          if (apiTeam) {
+            // Join via API - anyone online can join
+            const updatedMembers = [...(apiTeam.members || []), {
+              id: currentUser.id,
+              name: currentUser.name,
+              joinedAt: new Date().toISOString(),
+            }];
             
-            if (apiTeam) {
-              // Join via API - anyone online can join
-              const joinResponse = await fetch('/api/teams', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  action: 'join',
-                  teamId: apiTeam.id,
-                  userId: currentUser.id,
-                  userName: currentUser.name,
-                }),
-              });
-              
-              if (joinResponse.ok) {
-                const joinData = await joinResponse.json();
-                if (joinData.success) {
-                  // Update localStorage
-                  const updatedTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-                  const index = updatedTeams.findIndex((t: Team) => t.id === apiTeam.id);
-                  if (index >= 0) {
-                    updatedTeams[index] = joinData.team;
-                  } else {
-                    updatedTeams.push(joinData.team);
-                  }
-                  localStorage.setItem("teams", JSON.stringify(updatedTeams));
-                  loadTeams();
-                  router.push(`/teams/${apiTeam.id}`);
-                  return true;
-                }
+            const joinData = await teamsAPI.updateTeam(apiTeam.id, { members: updatedMembers });
+            if (joinData.success && joinData.team) {
+              // Update localStorage
+              const updatedTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+              const index = updatedTeams.findIndex((t: Team) => t.id === apiTeam.id);
+              if (index >= 0) {
+                updatedTeams[index] = joinData.team;
+              } else {
+                updatedTeams.push(joinData.team);
               }
+              localStorage.setItem("teams", JSON.stringify(updatedTeams));
+              loadTeams();
+              router.push(`/teams/${apiTeam.id}`);
+              return true;
             }
           }
         }
@@ -252,21 +233,10 @@ export default function TeamsPage() {
 
         // Try to sync to API immediately
         try {
-          const response = await fetch('/api/teams', {
-            method: 'POST',
-            headers: { 
-              'Content-Type': 'application/json',
-              'Cache-Control': 'no-cache',
-            },
-            body: JSON.stringify({
-              action: 'join',
-              teamId: team.id,
-              userId: currentUser.id,
-              userName: currentUser.name,
-            }),
-          });
+          const { teamsAPI } = await import('@/lib/api-utils');
+          const updateResult = await teamsAPI.updateTeam(team.id, { members: team.members });
           
-          if (response.ok) {
+          if (updateResult.success) {
             const data = await response.json();
             if (data.success && data.team) {
               // Update with API response

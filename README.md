@@ -83,16 +83,23 @@ All documentation is organized in the `docs/` folder:
 
 ## Deployment
 
-**Quick Deploy:**
+**Quick Deploy to GitHub Pages:**
 
 1. **Set up Git** (if not done):
    ```bash
    scripts\setup-git.bat
    ```
 
-2. **Push to GitHub** and deploy to [Vercel](https://vercel.com) or [Netlify](https://netlify.com)
+2. **Push to GitHub** and enable GitHub Pages:
+   - Go to repository → Settings → Pages
+   - Select branch: `gh-pages` (or `main`)
+   - Save
 
-3. **See [Deployment Guide](docs/deployment/DEPLOYMENT.md)** for detailed instructions
+3. **Your site is live!** 🎉
+   - URL: `https://YOUR_USERNAME.github.io/house-games/`
+   - Unlimited deploys, free forever!
+
+4. **See [GitHub Pages Guide](docs/deployment/GITHUB_PAGES.md)** for detailed instructions
 
 ## Scripts
 
