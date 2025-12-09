@@ -5,6 +5,7 @@ const nextConfig = {
   poweredByHeader: false,
   optimizeFonts: true,
   // GitHub Pages configuration
+  basePath: '/house-games', // Required for GitHub Pages project sites
   output: 'export',
   trailingSlash: true,
   images: {
