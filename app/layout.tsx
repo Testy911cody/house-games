@@ -17,11 +17,7 @@ export const metadata: Metadata = {
   other: {
     "mobile-web-app-capable": "yes",
   },
-  // Prevent caching for rapid multiplayer sync
-  robots: {
-    noindex: false,
-    nofollow: false,
-  },
+  // Allow indexing (default behavior - no robots restrictions)
 };
 
 export const viewport: Viewport = {
