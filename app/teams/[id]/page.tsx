@@ -137,20 +137,17 @@ export default function TeamDetailPage() {
       const updateResult = await teamsAPI.updateTeam(teamId, { members: updatedMembers });
       
       if (updateResult.success && updateResult.team) {
-        const data = await response.json();
-        if (data.success && data.team) {
-          // Update localStorage with API response
-          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-          const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
-          if (teamIndex >= 0) {
-            allTeams[teamIndex] = data.team;
-          } else {
-            allTeams.push(data.team);
-          }
-          localStorage.setItem("teams", JSON.stringify(allTeams));
-          setTeam(data.team);
-          return;
+        // Update localStorage with API response
+        const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+        const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
+        if (teamIndex >= 0) {
+          allTeams[teamIndex] = updateResult.team;
+        } else {
+          allTeams.push(updateResult.team);
         }
+        localStorage.setItem("teams", JSON.stringify(allTeams));
+        setTeam(updateResult.team);
+        return;
       }
     } catch (e) {
       // API failed, continue with local
@@ -195,7 +192,6 @@ export default function TeamDetailPage() {
         setIsEditing(false);
         return;
       }
-    }
     } catch (e) {
       // API failed, continue with local
     }
@@ -223,13 +219,12 @@ export default function TeamDetailPage() {
       const deleteResult = await teamsAPI.deleteTeam(teamId);
       
       if (deleteResult.success) {
-          // Remove from localStorage
-          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-          const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
-          localStorage.setItem("teams", JSON.stringify(filteredTeams));
-          router.push("/teams");
-          return;
-        }
+        // Remove from localStorage
+        const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+        const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
+        localStorage.setItem("teams", JSON.stringify(filteredTeams));
+        router.push("/teams");
+        return;
       }
     } catch (e) {
       // API failed, continue with local
@@ -263,9 +258,8 @@ export default function TeamDetailPage() {
         }
         localStorage.setItem("teams", JSON.stringify(allTeams));
         setTeam(updateResult.team);
-          setRemoveMemberId(null);
-          return;
-        }
+        setRemoveMemberId(null);
+        return;
       }
     } catch (e) {
       // API failed, continue with local
