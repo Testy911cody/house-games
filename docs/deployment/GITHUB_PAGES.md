@@ -49,10 +49,13 @@ Replace `YOUR_USERNAME` with your GitHub username.
 2. Click **Settings** (top menu)
 3. Scroll down to **Pages** (left sidebar)
 4. Under **Build and deployment**:
-   - **Source**: Deploy from a branch
-   - **Branch**: `gh-pages` (or `main` if you prefer)
-   - **Folder**: `/ (root)`
+   - **Source**: **GitHub Actions** (IMPORTANT: Not "Deploy from a branch")
+   - This allows GitHub Actions to deploy your site
 5. Click **Save**
+
+**Note:** If you don't see "GitHub Actions" as an option, make sure:
+- You've pushed the `.github/workflows/deploy-pages.yml` file
+- GitHub Actions permissions are enabled (see Step 4)
 
 ### Step 4: Enable GitHub Actions
 
@@ -261,11 +264,30 @@ The project is configured for static export:
 2. Ensure `package.json` has all dependencies
 3. Verify Node.js version (should be 18+)
 
-### Site Not Updating
+### Site Not Updating / 404 Error
 
-1. Check GitHub Actions tab - is the workflow running?
-2. Wait 2-3 minutes after push
-3. Clear browser cache (Ctrl+Shift+R)
+**If you see "404 - There isn't a GitHub Pages site here":**
+
+1. **Check GitHub Pages Source:**
+   - Go to **Settings** → **Pages**
+   - **Source** must be set to **"GitHub Actions"** (NOT "Deploy from a branch")
+   - If it's set to "Deploy from a branch", change it to "GitHub Actions" and save
+
+2. **Check GitHub Actions:**
+   - Go to **Actions** tab
+   - Look for "Deploy to GitHub Pages" workflow
+   - If it shows "Waiting for approval", click "Approve and deploy"
+   - Wait for the workflow to complete (green checkmark)
+
+3. **First-time deployment:**
+   - The first deployment may need manual approval
+   - Go to **Actions** → **Deploy to GitHub Pages** → Click "Run workflow" if needed
+
+4. **Wait 2-3 minutes** after workflow completes
+5. **Clear browser cache** (Ctrl+Shift+R)
+6. **Check the correct URL:**
+   - Should be: `https://YOUR_USERNAME.github.io/house-games/`
+   - Note the `/house-games/` at the end (repository name)
 
 ### 404 Errors on Routes
 
