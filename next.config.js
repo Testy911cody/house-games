@@ -4,8 +4,8 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   optimizeFonts: true,
-  // GitHub Pages configuration
-  basePath: '/house-games', // Required for GitHub Pages project sites
+  // GitHub Pages configuration - only use basePath in production builds
+  basePath: process.env.NODE_ENV === 'production' ? '/house-games' : '',
   output: 'export',
   trailingSlash: true,
   images: {
