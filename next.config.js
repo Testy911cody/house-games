@@ -4,9 +4,9 @@ const nextConfig = {
   compress: true,
   poweredByHeader: false,
   optimizeFonts: true,
-  // GitHub Pages configuration - only use basePath in production builds
+  // GitHub Pages configuration - only use basePath and static export in production builds
   basePath: process.env.NODE_ENV === 'production' ? '/house-games' : '',
-  output: 'export',
+  ...(process.env.NODE_ENV === 'production' && { output: 'export' }),
   trailingSlash: true,
   images: {
     unoptimized: true, // Required for static export
