@@ -10,11 +10,19 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<any>(null);
 
   useEffect(() => {
+    // Handle redirect from 404.html (GitHub Pages static routing)
+    const redirect = sessionStorage.getItem('redirect');
+    if (redirect && redirect !== '/') {
+      sessionStorage.removeItem('redirect');
+      router.replace(redirect);
+      return;
+    }
+
     const user = localStorage.getItem("currentUser");
     if (user) {
       setCurrentUser(JSON.parse(user));
     }
-  }, []);
+  }, [router]);
 
   const handleAnonymousLogin = () => {
     // Generate unique anonymous user ID with random number
