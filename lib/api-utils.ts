@@ -496,6 +496,10 @@ async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<T
 }
 
 async function deleteTeamFromDB(teamId: string): Promise<boolean> {
+  // Log all team deletions to track what's deleting teams
+  console.log(`🗑️ deleteTeamFromDB called for team: ${teamId}`);
+  console.trace('Stack trace for team deletion:'); // This will show where the deletion was called from
+  
   if (isSupabaseConfigured() && supabase) {
     try {
       const { error } = await supabase
@@ -503,14 +507,19 @@ async function deleteTeamFromDB(teamId: string): Promise<boolean> {
         .delete()
         .eq('id', teamId);
       
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase delete error:', error);
+        throw error;
+      }
+      console.log(`✅ Team ${teamId} deleted from Supabase`);
       return true;
     } catch (error) {
-      console.error('Supabase error:', error);
+      console.error('❌ Supabase error deleting team:', error);
       return false;
     }
   }
   teamsStorage = teamsStorage.filter(t => t.id !== teamId);
+  console.log(`✅ Team ${teamId} deleted from local storage`);
   return true;
 }
 
@@ -535,6 +544,18 @@ function isUserOnline(userId: string): boolean {
 }
 
 async function cleanupInactiveTeams(): Promise<void> {
+  // DISABLED: This function uses localStorage to check if users are online,
+  // but localStorage is device-specific. When checking from another device,
+  // it can't see the activity from the original device, causing teams to be
+  // incorrectly deleted. This breaks cross-device multiplayer functionality.
+  // 
+  // TODO: Implement proper cross-device activity tracking using Supabase
+  // before re-enabling this feature.
+  
+  console.log('⚠️ cleanupInactiveTeams is disabled to prevent incorrect team deletion');
+  return;
+  
+  /* DISABLED CODE - DO NOT USE
   try {
     // Get teams directly without circular import
     const teams = await getTeamsFromDB();
@@ -579,6 +600,7 @@ async function cleanupInactiveTeams(): Promise<void> {
   } catch (error) {
     console.error('Error cleaning up inactive teams:', error);
   }
+  */
 }
 
 export const teamsAPI = {
