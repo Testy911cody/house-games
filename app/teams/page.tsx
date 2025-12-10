@@ -60,16 +60,18 @@ export default function TeamsPage() {
       };
       updateActivity();
 
-      // Run cleanup immediately on load to remove inactive teams
-      const runCleanup = async () => {
-        try {
-          const { teamsAPI } = await import('@/lib/api-utils');
-          await teamsAPI.cleanupInactiveTeams();
-        } catch (e) {
-          // Silently fail
-        }
-      };
-      runCleanup();
+      // DISABLED: Auto-cleanup was deleting teams incorrectly because it uses localStorage
+      // which is device-specific. When phone checks, it doesn't see browser's activity.
+      // TODO: Implement proper cross-device activity tracking in Supabase
+      // const runCleanup = async () => {
+      //   try {
+      //     const { teamsAPI } = await import('@/lib/api-utils');
+      //     await teamsAPI.cleanupInactiveTeams();
+      //   } catch (e) {
+      //     // Silently fail
+      //   }
+      // };
+      // runCleanup();
 
       loadTeams();
       
@@ -80,17 +82,18 @@ export default function TeamsPage() {
         updateActivity();
       }, 2000);
       
-      // Cleanup inactive teams every 10 seconds (more frequent)
-      const cleanupInterval = setInterval(async () => {
-        try {
-          const { teamsAPI } = await import('@/lib/api-utils');
-          await teamsAPI.cleanupInactiveTeams();
-          // Reload teams after cleanup
-          loadTeams();
-        } catch (e) {
-          // Silently fail
-        }
-      }, 10000); // Every 10 seconds (was 30)
+      // DISABLED: Auto-cleanup was deleting teams incorrectly
+      // TODO: Implement proper cross-device activity tracking in Supabase
+      // const cleanupInterval = setInterval(async () => {
+      //   try {
+      //     const { teamsAPI } = await import('@/lib/api-utils');
+      //     await teamsAPI.cleanupInactiveTeams();
+      //     // Reload teams after cleanup
+      //     loadTeams();
+      //   } catch (e) {
+      //     // Silently fail
+      //   }
+      // }, 10000);
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
@@ -111,7 +114,7 @@ export default function TeamsPage() {
       
       return () => {
         clearInterval(refreshInterval);
-        clearInterval(cleanupInterval);
+        // clearInterval(cleanupInterval); // Disabled
         document.removeEventListener("visibilitychange", handleVisibilityChange);
         window.removeEventListener("focus", handleFocus);
       };
