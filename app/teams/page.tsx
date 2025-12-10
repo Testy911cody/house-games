@@ -175,14 +175,29 @@ export default function TeamsPage() {
         }
       });
       
+      // Filter out inactive teams (admin and all members offline)
+      const { teamsAPI } = await import('@/lib/api-utils');
+      const activeTeams = mergedTeams.filter((team: Team) => {
+        // Check if admin is online
+        const adminOnline = teamsAPI.isUserOnline(team.adminId);
+        
+        // Check if any members are online
+        const membersOnline = team.members.some((member: any) => 
+          teamsAPI.isUserOnline(member.id)
+        );
+
+        // Keep team if admin OR any member is online
+        return adminOnline || membersOnline;
+      });
+      
       // Sort by creation date (newest first)
-      const sortedTeams = mergedTeams.sort((a, b) => 
+      const sortedTeams = activeTeams.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
       setTeams(sortedTeams);
       
-      // Sync merged teams back to localStorage
+      // Sync only active teams back to localStorage (remove inactive ones)
       localStorage.setItem("teams", JSON.stringify(sortedTeams));
     } catch (error) {
       console.error("Error loading teams:", error);
