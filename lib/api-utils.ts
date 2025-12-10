@@ -369,9 +369,24 @@ async function getTeamsFromDB(): Promise<Team[]> {
 }
 
 async function saveTeamToDB(team: Team): Promise<Team> {
+  console.log('🔍 saveTeamToDB called with team:', team.id, team.name);
+  console.log('   isSupabaseConfigured():', isSupabaseConfigured());
+  console.log('   supabase client exists:', !!supabase);
+  
   if (isSupabaseConfigured() && supabase) {
     try {
       console.log('💾 Saving team to Supabase:', team.id, team.name);
+      console.log('   Team data to save:', {
+        id: team.id,
+        name: team.name,
+        code: team.code,
+        admin_id: team.adminId,
+        admin_name: team.adminName,
+        members: team.members,
+        description: team.description,
+        created_at: team.createdAt,
+      });
+      
       // Use upsert instead of insert to handle duplicates gracefully
       const { data, error } = await supabase
         .from('teams')
@@ -390,11 +405,15 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         .select()
         .single();
       
+      console.log('   Supabase response - data:', data);
+      console.log('   Supabase response - error:', error);
+      
       if (error) {
         console.error('❌ Supabase insert error:', error);
         console.error('   Error code:', error.code);
         console.error('   Error message:', error.message);
         console.error('   Error details:', error.details);
+        console.error('   Error hint:', error.hint);
         if (error.code === '23505') {
           console.warn('   ⚠️  Duplicate key - team might already exist');
         }
@@ -403,6 +422,11 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           console.error('   Make sure the "Allow all operations" policy exists in Supabase.');
         }
         throw error;
+      }
+      
+      if (!data) {
+        console.error('❌ Supabase returned no data after upsert');
+        throw new Error('No data returned from Supabase after upsert');
       }
       
       console.log('✅ Team saved to Supabase successfully:', data.id);
@@ -416,13 +440,20 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         createdAt: data.created_at,
         description: data.description,
       };
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Supabase error saving team:', error);
+      console.error('   Error type:', typeof error);
+      console.error('   Error constructor:', error?.constructor?.name);
+      if (error?.message) {
+        console.error('   Error message:', error.message);
+      }
       throw error;
     }
+  } else {
+    console.warn('⚠️ Supabase not configured or client not available - saving to local storage only');
+    teamsStorage.push(team);
+    return team;
   }
-  teamsStorage.push(team);
-  return team;
 }
 
 async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<Team | null> {

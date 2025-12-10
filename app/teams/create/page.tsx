@@ -72,6 +72,7 @@ export default function CreateTeamPage() {
 
     // Try to sync to API for cross-device sharing BEFORE redirecting
     let syncSuccess = false;
+    let syncError: string | null = null;
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
       const { isSupabaseConfigured } = await import('@/lib/supabase');
@@ -81,7 +82,8 @@ export default function CreateTeamPage() {
       console.log("   Supabase configured:", isSupabaseConfigured());
       
       if (!isSupabaseConfigured()) {
-        console.warn("⚠️ Supabase not configured - team created locally only. It won't appear in other browsers. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
+        syncError = "Supabase not configured. Team created locally only - it won't appear on other devices.";
+        console.warn("⚠️", syncError);
       } else {
         console.log("   Calling teamsAPI.createTeam...");
         const result = await teamsAPI.createTeam(newTeam);
@@ -97,7 +99,8 @@ export default function CreateTeamPage() {
           // Update admin activity immediately so team shows up
           teamsAPI.updateUserActivity(currentUser.id);
         } else {
-          console.error("❌ API returned error:", result.error);
+          syncError = result.error || "Unknown error saving to Supabase";
+          console.error("❌ API returned error:", syncError);
           console.error("   Team was saved locally but NOT to Supabase.");
           console.error("   It will NOT appear on other devices.");
           console.error("   Full error details:", JSON.stringify(result, null, 2));
@@ -105,10 +108,18 @@ export default function CreateTeamPage() {
       }
     } catch (error: any) {
       // API failed, but continue with local storage
+      syncError = error?.message || "Failed to sync to Supabase";
       console.error("❌ API sync failed, using local storage only:");
       console.error("   Error:", error);
       console.error("   Error message:", error?.message);
       console.error("   Error stack:", error?.stack);
+    }
+
+    // Show error message if sync failed
+    if (!syncSuccess && syncError) {
+      setError(`Team created locally, but failed to sync to server: ${syncError}. It may not appear on other devices.`);
+      // Wait a bit so user can see the error
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
 
     // Only redirect after sync attempt completes
