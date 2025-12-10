@@ -60,6 +60,17 @@ export default function TeamsPage() {
       };
       updateActivity();
 
+      // Run cleanup immediately on load to remove inactive teams
+      const runCleanup = async () => {
+        try {
+          const { teamsAPI } = await import('@/lib/api-utils');
+          await teamsAPI.cleanupInactiveTeams();
+        } catch (e) {
+          // Silently fail
+        }
+      };
+      runCleanup();
+
       loadTeams();
       
       // Auto-refresh teams every 2 seconds for rapid multiplayer sync
@@ -69,7 +80,7 @@ export default function TeamsPage() {
         updateActivity();
       }, 2000);
       
-      // Cleanup inactive teams every 30 seconds
+      // Cleanup inactive teams every 10 seconds (more frequent)
       const cleanupInterval = setInterval(async () => {
         try {
           const { teamsAPI } = await import('@/lib/api-utils');
@@ -79,7 +90,7 @@ export default function TeamsPage() {
         } catch (e) {
           // Silently fail
         }
-      }, 30000); // Every 30 seconds
+      }, 10000); // Every 10 seconds (was 30)
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
