@@ -70,28 +70,53 @@ export default function CreateTeamPage() {
     allTeams.push(newTeam);
     localStorage.setItem("teams", JSON.stringify(allTeams));
 
-    // Try to sync to API for cross-device sharing
+    // Try to sync to API for cross-device sharing BEFORE redirecting
+    let syncSuccess = false;
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
       const { isSupabaseConfigured } = await import('@/lib/supabase');
       
+      console.log("🔄 Attempting to sync team to Supabase...");
+      console.log("   Team data:", JSON.stringify(newTeam, null, 2));
+      console.log("   Supabase configured:", isSupabaseConfigured());
+      
       if (!isSupabaseConfigured()) {
         console.warn("⚠️ Supabase not configured - team created locally only. It won't appear in other browsers. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
       } else {
+        console.log("   Calling teamsAPI.createTeam...");
         const result = await teamsAPI.createTeam(newTeam);
         
+        console.log("   Result:", JSON.stringify(result, null, 2));
+        
         if (result.success) {
+          syncSuccess = true;
           // API sync successful - the team is now on the server
           console.log("✅ Team synced to Supabase successfully - visible across all browsers!");
+          console.log("   Team ID:", newTeam.id);
+          console.log("   Team Name:", newTeam.name);
+          // Update admin activity immediately so team shows up
+          teamsAPI.updateUserActivity(currentUser.id);
         } else {
           console.error("❌ API returned error:", result.error);
+          console.error("   Team was saved locally but NOT to Supabase.");
+          console.error("   It will NOT appear on other devices.");
+          console.error("   Full error details:", JSON.stringify(result, null, 2));
         }
       }
-    } catch (error) {
+    } catch (error: any) {
       // API failed, but continue with local storage
-      console.error("❌ API sync failed, using local storage only:", error);
+      console.error("❌ API sync failed, using local storage only:");
+      console.error("   Error:", error);
+      console.error("   Error message:", error?.message);
+      console.error("   Error stack:", error?.stack);
     }
 
+    // Only redirect after sync attempt completes
+    if (syncSuccess) {
+      console.log("✅ Redirecting to team page...");
+    } else {
+      console.warn("⚠️ Redirecting despite sync failure - team may not appear on other devices");
+    }
     router.push(`/teams/${newTeam.id}`);
   };
 

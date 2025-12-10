@@ -137,10 +137,10 @@ export default function TeamsPage() {
           if (data.success && Array.isArray(data.teams)) {
             apiTeams = data.teams;
             setApiStatus("connected");
-            console.log(`✅ Loaded ${apiTeams.length} teams from Supabase`);
+            console.log(`✅ Loaded ${apiTeams.length} teams from Supabase:`, apiTeams.map(t => t.name));
           } else {
             setApiStatus("offline");
-            console.log("API response invalid:", data);
+            console.error("❌ API response invalid:", data);
           }
         }
       } catch (apiError) {
@@ -186,9 +186,16 @@ export default function TeamsPage() {
         }
       });
       
-      // Filter out inactive teams (admin and all members offline)
+      // Show ALL teams from Supabase (cross-device sync)
+      // Only filter local teams by activity, but always show API teams
       const { teamsAPI } = await import('@/lib/api-utils');
-      const activeTeams = mergedTeams.filter((team: Team) => {
+      
+      // Separate API teams (always show these) from local-only teams
+      const apiTeamIds = new Set(apiTeams.map(t => t.id));
+      const localOnlyTeams = mergedTeams.filter(t => !apiTeamIds.has(t.id));
+      
+      // Filter local-only teams by activity (but keep all API teams)
+      const activeLocalTeams = localOnlyTeams.filter((team: Team) => {
         // Check if admin is online
         const adminOnline = teamsAPI.isUserOnline(team.adminId);
         
@@ -197,18 +204,27 @@ export default function TeamsPage() {
           teamsAPI.isUserOnline(member.id)
         );
 
-        // Keep team if admin OR any member is online
-        return adminOnline || membersOnline;
+        // Keep team if admin OR any member is online, OR if team is very new (created in last 10 minutes)
+        const teamAge = Date.now() - new Date(team.createdAt).getTime();
+        const isNewTeam = teamAge < 10 * 60 * 1000; // 10 minutes
+        
+        return adminOnline || membersOnline || isNewTeam;
       });
       
+      // Combine: All API teams + active local teams
+      const allTeamsToShow = [
+        ...mergedTeams.filter(t => apiTeamIds.has(t.id)), // All API teams (from Supabase)
+        ...activeLocalTeams // Active local-only teams
+      ];
+      
       // Sort by creation date (newest first)
-      const sortedTeams = activeTeams.sort((a, b) => 
+      const sortedTeams = allTeamsToShow.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
       setTeams(sortedTeams);
       
-      // Sync only active teams back to localStorage (remove inactive ones)
+      // Sync all teams back to localStorage (for offline support)
       localStorage.setItem("teams", JSON.stringify(sortedTeams));
     } catch (error) {
       console.error("Error loading teams:", error);

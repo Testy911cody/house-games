@@ -333,7 +333,19 @@ async function getTeamsFromDB(): Promise<Team[]> {
         .select('*')
         .order('created_at', { ascending: false });
       
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase query error:', error);
+        console.error('   Error code:', error.code);
+        console.error('   Error message:', error.message);
+        console.error('   Error details:', error.details);
+        throw error;
+      }
+      
+      console.log(`📊 Raw Supabase response: ${data?.length || 0} teams found`);
+      if (data && data.length > 0) {
+        console.log('   Team IDs:', data.map((t: any) => t.id));
+      }
+      
       return (data || []).map((team: any) => ({
         id: team.id,
         name: team.name,
@@ -344,8 +356,12 @@ async function getTeamsFromDB(): Promise<Team[]> {
         createdAt: team.created_at,
         description: team.description,
       }));
-    } catch (error) {
-      console.error('Supabase error:', error);
+    } catch (error: any) {
+      console.error('❌ Supabase error getting teams:', error);
+      if (error.code === 'PGRST301' || error.message?.includes('permission') || error.message?.includes('policy')) {
+        console.error('⚠️  RLS Policy Error: Row Level Security might be blocking access.');
+        console.error('   Make sure the "Allow all operations" policy exists in Supabase.');
+      }
       return [];
     }
   }
@@ -355,9 +371,11 @@ async function getTeamsFromDB(): Promise<Team[]> {
 async function saveTeamToDB(team: Team): Promise<Team> {
   if (isSupabaseConfigured() && supabase) {
     try {
+      console.log('💾 Saving team to Supabase:', team.id, team.name);
+      // Use upsert instead of insert to handle duplicates gracefully
       const { data, error } = await supabase
         .from('teams')
-        .insert([{
+        .upsert([{
           id: team.id,
           name: team.name,
           code: team.code,
@@ -366,11 +384,28 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           members: team.members,
           description: team.description,
           created_at: team.createdAt,
-        }])
+        }], {
+          onConflict: 'id'
+        })
         .select()
         .single();
       
-      if (error) throw error;
+      if (error) {
+        console.error('❌ Supabase insert error:', error);
+        console.error('   Error code:', error.code);
+        console.error('   Error message:', error.message);
+        console.error('   Error details:', error.details);
+        if (error.code === '23505') {
+          console.warn('   ⚠️  Duplicate key - team might already exist');
+        }
+        if (error.code === 'PGRST301' || error.message?.includes('permission') || error.message?.includes('policy')) {
+          console.error('   ⚠️  RLS Policy Error: Row Level Security might be blocking insert.');
+          console.error('   Make sure the "Allow all operations" policy exists in Supabase.');
+        }
+        throw error;
+      }
+      
+      console.log('✅ Team saved to Supabase successfully:', data.id);
       return {
         id: data.id,
         name: data.name,
@@ -382,7 +417,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         description: data.description,
       };
     } catch (error) {
-      console.error('Supabase error:', error);
+      console.error('❌ Supabase error saving team:', error);
       throw error;
     }
   }
@@ -578,5 +613,195 @@ export const teamsAPI = {
 
   // Clean up inactive teams
   cleanupInactiveTeams,
+};
+
+/**
+ * Game State API for multiplayer synchronization
+ * Stores game state in Supabase for real-time cross-device sync
+ */
+export interface GameState {
+  id: string; // gameId (e.g., "codenames_team123")
+  gameType: string; // "codenames", "drawguess", "taboo", etc.
+  teamId?: string; // Optional team ID if game is team-based
+  state: any; // Game-specific state object
+  lastUpdated: string; // ISO timestamp
+  updatedBy: string; // User ID who last updated
+}
+
+async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('game_states')
+        .select('*')
+        .eq('id', gameId)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') return null; // Not found
+        throw error;
+      }
+      
+      if (!data) return null;
+      
+      return {
+        id: data.id,
+        gameType: data.game_type,
+        teamId: data.team_id,
+        state: data.state,
+        lastUpdated: data.last_updated,
+        updatedBy: data.updated_by,
+      };
+    } catch (error) {
+      console.error('Supabase error getting game state:', error);
+      return null;
+    }
+  }
+  
+  // Fallback to localStorage
+  if (typeof window !== 'undefined') {
+    const localState = localStorage.getItem(`game_state_${gameId}`);
+    if (localState) {
+      try {
+        return JSON.parse(localState);
+      } catch (e) {
+        return null;
+      }
+    }
+  }
+  return null;
+}
+
+async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('game_states')
+        .upsert([{
+          id: gameState.id,
+          game_type: gameState.gameType,
+          team_id: gameState.teamId,
+          state: gameState.state,
+          last_updated: new Date().toISOString(),
+          updated_by: gameState.updatedBy,
+        }], {
+          onConflict: 'id'
+        })
+        .select()
+        .single();
+      
+      if (error) throw error;
+      
+      return {
+        id: data.id,
+        gameType: data.game_type,
+        teamId: data.team_id,
+        state: data.state,
+        lastUpdated: data.last_updated,
+        updatedBy: data.updated_by,
+      };
+    } catch (error) {
+      console.error('Supabase error saving game state:', error);
+      throw error;
+    }
+  }
+  
+  // Fallback to localStorage
+  if (typeof window !== 'undefined') {
+    localStorage.setItem(`game_state_${gameState.id}`, JSON.stringify(gameState));
+  }
+  return gameState;
+}
+
+async function deleteGameStateFromDB(gameId: string): Promise<boolean> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { error } = await supabase
+        .from('game_states')
+        .delete()
+        .eq('id', gameId);
+      
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Supabase error deleting game state:', error);
+      return false;
+    }
+  }
+  
+  // Fallback to localStorage
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(`game_state_${gameId}`);
+  }
+  return true;
+}
+
+export const gameStateAPI = {
+  /**
+   * Get game state by game ID
+   */
+  async getGameState(gameId: string): Promise<{ success: boolean; state?: GameState }> {
+    try {
+      const state = await getGameStateFromDB(gameId);
+      if (!state) {
+        return { success: false };
+      }
+      return { success: true, state };
+    } catch (error: any) {
+      console.error('Error fetching game state:', error);
+      return { success: false };
+    }
+  },
+  
+  /**
+   * Save or update game state
+   */
+  async saveGameState(gameState: GameState): Promise<{ success: boolean; state?: GameState; error?: string }> {
+    try {
+      const savedState = await saveGameStateToDB({
+        ...gameState,
+        lastUpdated: new Date().toISOString(),
+      });
+      return { success: true, state: savedState };
+    } catch (error: any) {
+      console.error('Error saving game state:', error);
+      return { success: false, error: error.message || 'Failed to save game state' };
+    }
+  },
+  
+  /**
+   * Delete game state
+   */
+  async deleteGameState(gameId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const deleted = await deleteGameStateFromDB(gameId);
+      return { success: deleted };
+    } catch (error: any) {
+      console.error('Error deleting game state:', error);
+      return { success: false, error: error.message || 'Failed to delete game state' };
+    }
+  },
+  
+  /**
+   * Create a game ID from team ID and game type
+   */
+  createGameId(teamId: string | null, gameType: string): string {
+    if (teamId) {
+      return `${gameType}_${teamId}`;
+    }
+    // For games without teams, use user ID
+    if (typeof window !== 'undefined') {
+      const user = localStorage.getItem('currentUser');
+      if (user) {
+        try {
+          const userData = JSON.parse(user);
+          return `${gameType}_${userData.id}`;
+        } catch (e) {
+          return `${gameType}_${Date.now()}`;
+        }
+      }
+    }
+    return `${gameType}_${Date.now()}`;
+  },
 };
 

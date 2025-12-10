@@ -50,13 +50,23 @@ export default function DrawGuessPage() {
   const [wordOptions, setWordOptions] = useState<string[]>([]);
   const guessInputRef = useRef<HTMLInputElement>(null);
 
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [lastSyncedState, setLastSyncedState] = useState<string>("");
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
       router.push("/");
       return;
     }
-    setCurrentUser(JSON.parse(user));
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    // Create game ID
+    const currentTeam = localStorage.getItem("currentTeam");
+    const { gameStateAPI } = require('@/lib/api-utils');
+    const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'drawguess');
+    setGameId(id);
   }, [router]);
 
   useEffect(() => {
@@ -92,33 +102,118 @@ export default function DrawGuessPage() {
     }
   }, [phase, role, timeLeft]);
 
+  // Save game state to Supabase whenever it changes
   useEffect(() => {
-    if (phase === "drawing" && role === "drawer") {
-      localStorage.setItem("drawguess_game_state", JSON.stringify({
-        currentWord,
-        timeLeft,
-        guesses,
-        phase: "drawing"
-      }));
-    }
-  }, [phase, role, currentWord, timeLeft, guesses]);
+    if (!currentUser || !gameId || phase === "setup" || phase === "waiting") return;
+    
+    const saveState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        
+        // Get current drawing from canvas
+        let drawingData = "";
+        if (canvasRef.current && role === "drawer") {
+          drawingData = canvasRef.current.toDataURL();
+        }
+        
+        const stateToSave = {
+          phase,
+          currentWord,
+          timeLeft,
+          guesses,
+          players,
+          currentDrawerIndex,
+          round,
+          roundsPerPlayer,
+          drawingData,
+        };
+        
+        const stateString = JSON.stringify(stateToSave);
+        if (stateString === lastSyncedState) return; // Skip if unchanged
+        
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'drawguess',
+          teamId: (() => {
+            const team = localStorage.getItem("currentTeam");
+            if (team) {
+              try {
+                return JSON.parse(team).id;
+              } catch (e) {
+                return undefined;
+              }
+            }
+            return undefined;
+          })(),
+          state: stateToSave,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+        
+        setLastSyncedState(stateString);
+      } catch (error) {
+        console.error('Error saving game state:', error);
+      }
+    };
+    
+    // Debounce saves
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [phase, currentWord, timeLeft, guesses, players, currentDrawerIndex, round, roundsPerPlayer, currentUser, gameId, lastSyncedState, role]);
 
+  // Poll for game state updates from other devices
   useEffect(() => {
-    if (phase === "drawing" && role === "guesser") {
-      const interval = setInterval(() => {
-        const shared = localStorage.getItem("drawguess_game_state");
-        if (shared) {
-          const state = JSON.parse(shared);
-          setTimeLeft(state.timeLeft);
-          setGuesses(state.guesses || []);
-          if (state.phase === "roundEnd") {
-            setPhase("roundEnd");
+    if (!currentUser || !gameId || phase === "setup" || phase === "waiting") return;
+    
+    const pollState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state) {
+          const remoteState = result.state.state;
+          const remoteStateString = JSON.stringify(remoteState);
+          
+          // Only update if state is different and from another user
+          if (remoteStateString !== lastSyncedState && result.state.updatedBy !== currentUser.id) {
+            // Merge remote state
+            if (remoteState.phase) setPhase(remoteState.phase);
+            if (remoteState.currentWord !== undefined) setCurrentWord(remoteState.currentWord);
+            if (remoteState.timeLeft !== undefined) setTimeLeft(remoteState.timeLeft);
+            if (remoteState.guesses) setGuesses(remoteState.guesses);
+            if (remoteState.players) setPlayers(remoteState.players);
+            if (remoteState.currentDrawerIndex !== undefined) setCurrentDrawerIndex(remoteState.currentDrawerIndex);
+            if (remoteState.round !== undefined) setRound(remoteState.round);
+            if (remoteState.roundsPerPlayer !== undefined) setRoundsPerPlayer(remoteState.roundsPerPlayer);
+            
+            // Update drawing canvas for guessers
+            if (remoteState.drawingData && role === "guesser" && guesserCanvasRef.current) {
+              const canvas = guesserCanvasRef.current;
+              const ctx = canvas.getContext("2d");
+              if (ctx) {
+                const img = new Image();
+                img.onload = () => {
+                  ctx.clearRect(0, 0, canvas.width, canvas.height);
+                  ctx.drawImage(img, 0, 0);
+                };
+                img.src = remoteState.drawingData;
+              }
+            }
+            
+            setLastSyncedState(remoteStateString);
           }
         }
-      }, 300);
-      return () => clearInterval(interval);
-    }
-  }, [phase, role]);
+      } catch (error) {
+        console.error('Error polling game state:', error);
+      }
+    };
+    
+    // Poll every 1 second for real-time updates
+    const intervalId = setInterval(pollState, 1000);
+    pollState(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [currentUser, gameId, phase, lastSyncedState, role]);
 
   useEffect(() => {
     if (phase === "drawing" && role === "guesser" && guessInputRef.current) {
@@ -136,23 +231,46 @@ export default function DrawGuessPage() {
       canvas.width = canvas.offsetWidth;
       canvas.height = canvas.offsetHeight;
 
-      // Load drawing from localStorage
-      const savedDrawing = localStorage.getItem("drawguess_drawing");
-      if (savedDrawing) {
-        const img = new Image();
-        img.onload = () => {
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
-          ctx.drawImage(img, 0, 0);
-        };
-        img.src = savedDrawing;
-      } else {
-        ctx.fillStyle = "#1a1a2e";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
+      // Load drawing from game state or localStorage
+      const loadDrawing = async () => {
+        if (gameId && currentUser) {
+          try {
+            const { gameStateAPI } = await import('@/lib/api-utils');
+            const result = await gameStateAPI.getGameState(gameId);
+            if (result.success && result.state?.state?.drawingData) {
+              const img = new Image();
+              img.onload = () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.drawImage(img, 0, 0);
+              };
+              img.src = result.state.state.drawingData;
+              return;
+            }
+          } catch (error) {
+            console.error('Error loading drawing:', error);
+          }
+        }
+        
+        // Fallback to localStorage
+        const savedDrawing = localStorage.getItem("drawguess_drawing");
+        if (savedDrawing) {
+          const img = new Image();
+          img.onload = () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+          };
+          img.src = savedDrawing;
+        } else {
+          ctx.fillStyle = "#1a1a2e";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+      };
+      
+      loadDrawing();
     }
-  }, [role, phase]);
+  }, [role, phase, gameId, currentUser]);
 
-  // Load drawing for guessers
+  // Load drawing for guessers (handled by pollState useEffect above)
   useEffect(() => {
     if (role === "guesser" && phase === "drawing" && guesserCanvasRef.current) {
       const canvas = guesserCanvasRef.current;
@@ -163,23 +281,6 @@ export default function DrawGuessPage() {
         ctx.fillStyle = "#1a1a2e";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
-
-      const interval = setInterval(() => {
-        const savedDrawing = localStorage.getItem("drawguess_drawing");
-        if (savedDrawing && guesserCanvasRef.current) {
-          const canvas = guesserCanvasRef.current;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return;
-
-          const img = new Image();
-          img.onload = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-          };
-          img.src = savedDrawing;
-        }
-      }, 200);
-      return () => clearInterval(interval);
     }
   }, [role, phase]);
 
@@ -233,9 +334,12 @@ export default function DrawGuessPage() {
     ctx.beginPath();
     ctx.moveTo(x, y);
 
-    // Save drawing to localStorage
+    // Save drawing to localStorage (for immediate local sync)
     const dataURL = canvas.toDataURL();
     localStorage.setItem("drawguess_drawing", dataURL);
+    
+    // Also trigger state save (will be debounced by useEffect)
+    setLastSyncedState(""); // Force update
   };
 
   const clearCanvas = () => {
@@ -261,8 +365,34 @@ export default function DrawGuessPage() {
     setPlayers(players.map(p => p.id === id ? { ...p, name } : p));
   };
 
-  const startGame = () => {
+  const startGame = async () => {
     if (players.length < 2) return;
+    
+    // Try to load existing game state
+    if (gameId && currentUser) {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state && result.state.state.phase !== "setup") {
+          // Load existing game state
+          const savedState = result.state.state;
+          setPhase(savedState.phase || "waiting");
+          setCurrentWord(savedState.currentWord || null);
+          setTimeLeft(savedState.timeLeft || 60);
+          setGuesses(savedState.guesses || []);
+          setPlayers(savedState.players || players);
+          setCurrentDrawerIndex(savedState.currentDrawerIndex || 0);
+          setRound(savedState.round || 1);
+          setRoundsPerPlayer(savedState.roundsPerPlayer || roundsPerPlayer);
+          return;
+        }
+      } catch (error) {
+        console.error('Error loading game state:', error);
+      }
+    }
+    
+    // Start new game
     setPhase("waiting");
     setCurrentDrawerIndex(0);
     setRound(1);
@@ -285,7 +415,7 @@ export default function DrawGuessPage() {
     localStorage.setItem("drawguess_guesses", JSON.stringify([]));
   };
 
-  const submitGuess = (e: React.FormEvent) => {
+  const submitGuess = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!guess.trim() || !currentWord || role !== "guesser") return;
 
@@ -300,30 +430,102 @@ export default function DrawGuessPage() {
 
     const updatedGuesses = [...guesses, newGuess];
     setGuesses(updatedGuesses);
-
-    // Save to localStorage
-    const allGuesses = JSON.parse(localStorage.getItem("drawguess_guesses") || "[]");
-    allGuesses.push(newGuess);
-    localStorage.setItem("drawguess_guesses", JSON.stringify(allGuesses));
-
-    // Update game state
-    localStorage.setItem("drawguess_game_state", JSON.stringify({
-      currentWord,
-      timeLeft,
-      guesses: updatedGuesses,
-      phase: isCorrect ? "roundEnd" : "drawing"
-    }));
-
     setGuess("");
 
     if (isCorrect) {
       // Award points
-      setPlayers(players.map(p => 
+      const updatedPlayers = players.map(p => 
         p.id === currentUser.id ? { ...p, score: p.score + 10 } : p
-      ));
+      );
+      setPlayers(updatedPlayers);
+      
+      // Immediately sync correct guess
+      if (gameId && currentUser) {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          let drawingData = "";
+          if (canvasRef.current) {
+            drawingData = canvasRef.current.toDataURL();
+          }
+          
+          await gameStateAPI.saveGameState({
+            id: gameId,
+            gameType: 'drawguess',
+            teamId: (() => {
+              const team = localStorage.getItem("currentTeam");
+              if (team) {
+                try {
+                  return JSON.parse(team).id;
+                } catch (e) {
+                  return undefined;
+                }
+              }
+              return undefined;
+            })(),
+            state: {
+              phase: "roundEnd",
+              currentWord,
+              timeLeft,
+              guesses: updatedGuesses,
+              players: updatedPlayers,
+              currentDrawerIndex,
+              round,
+              roundsPerPlayer,
+              drawingData,
+            },
+            lastUpdated: new Date().toISOString(),
+            updatedBy: currentUser.id,
+          });
+        } catch (error) {
+          console.error('Error syncing guess:', error);
+        }
+      }
+      
       setTimeout(() => {
         endRound();
       }, 1500);
+    } else {
+      // Sync incorrect guess
+      if (gameId && currentUser) {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          let drawingData = "";
+          if (canvasRef.current) {
+            drawingData = canvasRef.current.toDataURL();
+          }
+          
+          await gameStateAPI.saveGameState({
+            id: gameId,
+            gameType: 'drawguess',
+            teamId: (() => {
+              const team = localStorage.getItem("currentTeam");
+              if (team) {
+                try {
+                  return JSON.parse(team).id;
+                } catch (e) {
+                  return undefined;
+                }
+              }
+              return undefined;
+            })(),
+            state: {
+              phase,
+              currentWord,
+              timeLeft,
+              guesses: updatedGuesses,
+              players,
+              currentDrawerIndex,
+              round,
+              roundsPerPlayer,
+              drawingData,
+            },
+            lastUpdated: new Date().toISOString(),
+            updatedBy: currentUser.id,
+          });
+        } catch (error) {
+          console.error('Error syncing guess:', error);
+        }
+      }
     }
   };
 

@@ -50,7 +50,7 @@ Copy both of these - you'll need them!
 
 1. In Supabase dashboard, go to **SQL Editor**
 2. Click **"New query"**
-3. Paste this SQL:
+3. Copy and paste **ONLY the SQL code below** (do NOT include the ```sql markers):
 
 ```sql
 -- Create teams table
@@ -68,8 +68,24 @@ CREATE TABLE IF NOT EXISTS teams (
 -- Create index on code for faster lookups
 CREATE INDEX IF NOT EXISTS idx_teams_code ON teams(code);
 
+-- Create game_states table for multiplayer game synchronization
+CREATE TABLE IF NOT EXISTS game_states (
+  id TEXT PRIMARY KEY,
+  game_type TEXT NOT NULL,
+  team_id TEXT,
+  state JSONB NOT NULL,
+  last_updated TIMESTAMPTZ DEFAULT NOW(),
+  updated_by TEXT NOT NULL
+);
+
+-- Create indexes for faster lookups
+CREATE INDEX IF NOT EXISTS idx_game_states_game_type ON game_states(game_type);
+CREATE INDEX IF NOT EXISTS idx_game_states_team_id ON game_states(team_id);
+CREATE INDEX IF NOT EXISTS idx_game_states_last_updated ON game_states(last_updated);
+
 -- Enable Row Level Security (optional, for future security)
 ALTER TABLE teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE game_states ENABLE ROW LEVEL SECURITY;
 
 -- Create policy to allow all operations (for now)
 -- You can restrict this later for better security
@@ -77,10 +93,18 @@ CREATE POLICY "Allow all operations" ON teams
   FOR ALL
   USING (true)
   WITH CHECK (true);
+
+CREATE POLICY "Allow all operations" ON game_states
+  FOR ALL
+  USING (true)
+  WITH CHECK (true);
 ```
 
-4. Click **"Run"** (or press Ctrl+Enter)
-5. You should see "Success. No rows returned"
+4. **Important:** Make sure you only copied the SQL code (lines starting with `--` or `CREATE`), NOT the markdown code block markers (```sql and ```)
+5. Click **"Run"** (or press Ctrl+Enter)
+6. You should see "Success. No rows returned"
+
+**Alternative:** You can also copy the SQL from the `SUPABASE_SETUP_SQL.sql` file in the project root, which contains only the SQL code without any markdown formatting.
 
 ---
 

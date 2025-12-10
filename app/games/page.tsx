@@ -126,6 +126,14 @@ export default function GamesPage() {
       color: "cyan",
       players: "2-4 Players",
     },
+    {
+      id: "tetris",
+      name: "TETRIS",
+      description: "Classic Tetris multiplayer - clear lines and compete for the highest score!",
+      icon: "🧩",
+      color: "cyan",
+      players: "2-4 Players",
+    },
   ];
 
   if (!currentUser) {

@@ -5,18 +5,37 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, X, Users, Plus, Trash2, Play, Crown, RotateCcw, Zap } from "lucide-react";
 import Link from "next/link";
 
-const TABOO_WORDS = [
+// Difficulty-based word lists
+const TABOO_WORDS_EASY = [
   "Pizza", "Elephant", "Computer", "Beach", "Doctor", "Bicycle", "Library",
-  "Guitar", "Rainbow", "Butterfly", "Telescope", "Volcano", "Dinosaur",
-  "Helicopter", "Cactus", "Kangaroo", "Tornado", "Penguin", "Pyramid",
-  "Castle", "Dragon", "Wizard", "Treasure", "Pirate", "Ship", "Island",
-  "Mountain", "Forest", "River", "Ocean", "Desert", "Jungle", "Space",
+  "Guitar", "Rainbow", "Butterfly", "Penguin", "Castle", "Dragon", "Ship",
+  "Island", "Mountain", "Forest", "River", "Ocean", "Desert", "Jungle",
   "Rocket", "Astronaut", "Planet", "Star", "Moon", "Sun", "Cloud",
-  "Camera", "Chocolate", "Diamond", "Firework", "Garden",
-  "Hamburger", "Iceberg", "Jellyfish", "Kingdom", "Lighthouse", "Mermaid",
-  "Nightmare", "Orchestra", "Parachute", "Quicksand", "Rollercoaster",
-  "Submarine", "Trampoline", "Umbrella", "Vampire", "Waterfall", "Xylophone"
+  "Camera", "Chocolate", "Diamond", "Garden", "Hamburger", "Umbrella", "Waterfall"
 ];
+
+const TABOO_WORDS_MEDIUM = [
+  "Telescope", "Volcano", "Dinosaur", "Helicopter", "Cactus", "Kangaroo",
+  "Tornado", "Pyramid", "Wizard", "Treasure", "Pirate", "Space",
+  "Firework", "Iceberg", "Jellyfish", "Kingdom", "Lighthouse", "Mermaid",
+  "Orchestra", "Parachute", "Rollercoaster", "Submarine", "Trampoline", "Vampire", "Xylophone"
+];
+
+const TABOO_WORDS_HARD = [
+  "Philosophy", "Metaphor", "Ambiguity", "Paradox", "Abstract", "Conceptual",
+  "Existential", "Theoretical", "Hypothetical", "Paradigm", "Epistemology",
+  "Ontology", "Axiom", "Postulate", "Synthesis", "Analysis", "Deduction",
+  "Induction", "Inference", "Rationale", "Cognition", "Perception", "Consciousness",
+  "Subconscious", "Empirical", "Objective", "Subjective", "Relative", "Absolute",
+  "Transcendent", "Immanent", "Dialectical", "Hermeneutic", "Phenomenological",
+  "Semiotics", "Semantics", "Syntax", "Pragmatic", "Contextual", "Nuanced",
+  "Sophisticated", "Intricate", "Complex", "Multifaceted", "Multidimensional"
+];
+
+// Combined word list for medium difficulty
+const TABOO_WORDS = [...TABOO_WORDS_EASY, ...TABOO_WORDS_MEDIUM, ...TABOO_WORDS_HARD];
+
+type Difficulty = "easy" | "medium" | "hard";
 
 const TEAM_COLORS = [
   { name: "Pink", bg: "bg-pink-500", border: "border-pink-500", text: "text-pink-400", glow: "neon-box-pink", light: "bg-pink-900/30" },
@@ -43,6 +62,7 @@ export default function TabooPage() {
   const guessInputRef = useRef<HTMLInputElement>(null);
   
   const [phase, setPhase] = useState<GamePhase>("setup");
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
   const [roundsPerTeam, setRoundsPerTeam] = useState(2);
@@ -62,13 +82,23 @@ export default function TabooPage() {
   const [guessHistory, setGuessHistory] = useState<{ guess: string; correct: boolean }[]>([]);
   const [showCorrectFeedback, setShowCorrectFeedback] = useState(false);
 
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [lastSyncedState, setLastSyncedState] = useState<string>("");
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
       router.push("/");
       return;
     }
-    setCurrentUser(JSON.parse(user));
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    // Create game ID
+    const currentTeam = localStorage.getItem("currentTeam");
+    const { gameStateAPI } = require('@/lib/api-utils');
+    const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'taboo');
+    setGameId(id);
   }, [router]);
 
   // Separate effect to initialize team from currentTeam
@@ -111,35 +141,110 @@ export default function TabooPage() {
     }
   }, [currentWord, role]);
 
+  // Save game state to Supabase whenever it changes
   useEffect(() => {
-    if (role === "guesser" && isPlaying) {
-      const interval = setInterval(() => {
-        const shared = localStorage.getItem("taboo_game_state");
-        if (shared) {
-          const state = JSON.parse(shared);
-          setCurrentWord(state.currentWord);
-          setTimeLeft(state.timeLeft);
-          setRoundScore(state.roundScore);
-          if (state.ended) {
-            setIsPlaying(false);
-            setPhase("roundEnd");
+    if (!currentUser || !gameId || phase === "setup" || !isPlaying) return;
+    
+    const saveState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const stateToSave = {
+          phase,
+          difficulty,
+          teams,
+          currentTeamIndex,
+          roundsPerTeam,
+          roundsPlayed,
+          selectedTeam,
+          role,
+          words,
+          currentWord,
+          usedWords,
+          timeLeft,
+          isPlaying,
+          roundScore,
+          guessHistory,
+        };
+        
+        const stateString = JSON.stringify(stateToSave);
+        if (stateString === lastSyncedState) return; // Skip if unchanged
+        
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'taboo',
+          teamId: (() => {
+            const team = localStorage.getItem("currentTeam");
+            if (team) {
+              try {
+                return JSON.parse(team).id;
+              } catch (e) {
+                return undefined;
+              }
+            }
+            return undefined;
+          })(),
+          state: stateToSave,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+        
+        setLastSyncedState(stateString);
+      } catch (error) {
+        console.error('Error saving game state:', error);
+      }
+    };
+    
+    // Debounce saves
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [phase, difficulty, teams, currentTeamIndex, roundsPerTeam, roundsPlayed, selectedTeam, role, words, currentWord, usedWords, timeLeft, isPlaying, roundScore, guessHistory, currentUser, gameId, lastSyncedState]);
+
+  // Poll for game state updates from other devices
+  useEffect(() => {
+    if (!currentUser || !gameId || phase === "setup" || !isPlaying) return;
+    
+    const pollState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state) {
+          const remoteState = result.state.state;
+          const remoteStateString = JSON.stringify(remoteState);
+          
+          // Only update if state is different and from another user
+          if (remoteStateString !== lastSyncedState && result.state.updatedBy !== currentUser.id) {
+            // Merge remote state
+            if (remoteState.phase) setPhase(remoteState.phase);
+            if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+            if (remoteState.teams) setTeams(remoteState.teams);
+            if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
+            if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
+            if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
+            if (remoteState.selectedTeam) setSelectedTeam(remoteState.selectedTeam);
+            if (remoteState.role) setRole(remoteState.role);
+            if (remoteState.words) setWords(remoteState.words);
+            if (remoteState.currentWord !== undefined) setCurrentWord(remoteState.currentWord);
+            if (remoteState.usedWords) setUsedWords(remoteState.usedWords);
+            if (remoteState.timeLeft !== undefined) setTimeLeft(remoteState.timeLeft);
+            if (remoteState.isPlaying !== undefined) setIsPlaying(remoteState.isPlaying);
+            if (remoteState.roundScore) setRoundScore(remoteState.roundScore);
+            if (remoteState.guessHistory) setGuessHistory(remoteState.guessHistory);
+            
+            setLastSyncedState(remoteStateString);
           }
         }
-      }, 300);
-      return () => clearInterval(interval);
-    }
-  }, [role, isPlaying]);
-
-  useEffect(() => {
-    if (role === "describer" && isPlaying) {
-      localStorage.setItem("taboo_game_state", JSON.stringify({
-        currentWord,
-        timeLeft,
-        roundScore,
-        ended: false
-      }));
-    }
-  }, [role, isPlaying, currentWord, timeLeft, roundScore]);
+      } catch (error) {
+        console.error('Error polling game state:', error);
+      }
+    };
+    
+    // Poll every 1 second for real-time updates
+    const intervalId = setInterval(pollState, 1000);
+    pollState(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [currentUser, gameId, phase, isPlaying, lastSyncedState]);
 
   useEffect(() => {
     if (role === "describer" && isPlaying) {
@@ -160,7 +265,29 @@ export default function TabooPage() {
   }, [role, isPlaying, currentWord]);
 
   const generateWordGrid = () => {
-    const shuffled = [...TABOO_WORDS].sort(() => Math.random() - 0.5);
+    // Select words based on difficulty
+    let wordPool: string[];
+    switch (difficulty) {
+      case "easy":
+        wordPool = TABOO_WORDS_EASY;
+        break;
+      case "hard":
+        wordPool = TABOO_WORDS_HARD;
+        break;
+      case "medium":
+      default:
+        // Medium uses mix: 50% easy, 30% medium, 20% hard
+        const easyCount = Math.floor(25 * 0.5);
+        const mediumCount = Math.floor(25 * 0.3);
+        const hardCount = 25 - easyCount - mediumCount;
+        const easyWords = [...TABOO_WORDS_EASY].sort(() => Math.random() - 0.5).slice(0, easyCount);
+        const mediumWords = [...TABOO_WORDS_MEDIUM].sort(() => Math.random() - 0.5).slice(0, mediumCount);
+        const hardWords = [...TABOO_WORDS_HARD].sort(() => Math.random() - 0.5).slice(0, hardCount);
+        wordPool = [...easyWords, ...mediumWords, ...hardWords];
+        break;
+    }
+    
+    const shuffled = [...wordPool].sort(() => Math.random() - 0.5);
     return shuffled.slice(0, 25);
   };
 
@@ -311,6 +438,7 @@ export default function TabooPage() {
     setGuessHistory([]);
     localStorage.removeItem("taboo_game_state");
     localStorage.removeItem("taboo_guesses");
+    // Keep difficulty setting
   };
 
   if (!currentUser) return null;
@@ -421,8 +549,35 @@ export default function TabooPage() {
               </button>
             )}
 
+            {/* Difficulty Selection */}
+            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-purple-500/50 animate-fade-in delay-600">
+              <label className="block text-purple-400 font-semibold mb-3">
+                DIFFICULTY LEVEL
+              </label>
+              <div className="flex gap-3">
+                {(["easy", "medium", "hard"] as Difficulty[]).map((diff) => (
+                  <button
+                    key={diff}
+                    onClick={() => setDifficulty(diff)}
+                    className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all hover:scale-105 ${
+                      difficulty === diff
+                        ? "bg-purple-500 text-black neon-box-purple"
+                        : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-purple-500"
+                    }`}
+                  >
+                    {diff.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 text-xs text-gray-400 text-center">
+                {difficulty === "easy" && "Simple, concrete words"}
+                {difficulty === "medium" && "Mix of simple and moderate words"}
+                {difficulty === "hard" && "Abstract and complex words"}
+              </div>
+            </div>
+
             {/* Rounds Setting */}
-            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50 animate-fade-in delay-600">
+            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50 animate-fade-in delay-700">
               <label className="block text-yellow-400 font-semibold mb-3">
                 ROUNDS PER TEAM
               </label>

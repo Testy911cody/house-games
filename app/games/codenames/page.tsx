@@ -5,110 +5,117 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff, RotateCcw, Crown, Users, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 
-const CODEWORDS = [
-  "APPLE", "ARROW", "BALL", "BANK", "BEAR", "BED", "BEE", "BIRD", "BLOCK", "BOARD",
-  "BOLT", "BOMB", "BOOK", "BOW", "BOX", "BRIDGE", "BRUSH", "BUCKET", "BUG", "BULL",
-  "CAKE", "CAMEL", "CAP", "CAR", "CARD", "CARROT", "CASTLE", "CAT", "CHAIN", "CHEST",
-  "CHICK", "CHINA", "CHURCH", "CIRCLE", "CLIFF", "CLOAK", "CLOCK", "CLOUD", "CLOWN", "COACH",
-  "COAST", "COIN", "COMIC", "COMPOUND", "CONCERT", "CONDUCTOR", "CONTRACT", "COOK", "COPPER", "COTTON",
-  "COURT", "COVER", "CRANE", "CRASH", "CRICKET", "CROSS", "CROWN", "CYCLE", "DANCE", "DATE",
-  "DAY", "DEATH", "DECK", "DEGREE", "DESIGN", "DESK", "DIAMOND", "DICE", "DINOSAUR", "DISEASE",
-  "DOCTOR", "DOG", "DOLL", "DOOR", "DRAFT", "DRAGON", "DRESS", "DRILL", "DRINK", "DRIVE",
-  "DROWN", "DRUM", "DUCK", "DUMB", "DUTY", "EARTH", "EAST", "EAT", "EDGE", "EGG",
-  "ELBOW", "ELEPHANT", "EMPIRE", "ENGINE", "ENGLAND", "EUROPE", "EYE", "FACE", "FAIR", "FALL",
-  "FAN", "FENCE", "FIELD", "FIGHTER", "FIGURE", "FILE", "FILM", "FIRE", "FISH", "FLUTE",
-  "FLY", "FOOT", "FORCE", "FOREST", "FORK", "FRAME", "FRANCE", "FREEDOM", "FROG", "FUEL",
-  "GAME", "GAS", "GENIUS", "GERMANY", "GHOST", "GIANT", "GLASS", "GLOVE", "GOLD", "GRACE",
-  "GRASS", "GREEK", "GREEN", "GROUND", "HAM", "HAND", "HAPPY", "HARP", "HAT", "HEAD",
-  "HEART", "HELICOPTER", "HIMALAYAS", "HOLE", "HOLLYWOOD", "HONEY", "HOOD", "HOOK", "HORN", "HORSE",
-  "HOSE", "HOTEL", "HOUR", "HOUSE", "ICE", "ICELAND", "INK", "IRON", "ISLAND", "IVORY",
-  "JACK", "JAM", "JET", "JEW", "JOB", "JOCKEY", "JOIN", "JOKE", "JUDGE", "JUICE",
-  "JUMP", "JUNGLE", "KANGAROO", "KETCHUP", "KEY", "KICK", "KING", "KIWI", "KNIFE", "KNIGHT",
-  "KNOCK", "KNOT", "LAB", "LADDER", "LADY", "LAKE", "LAMB", "LAMP", "LAND", "LAP",
-  "LASER", "LAW", "LEAD", "LEAF", "LEAGUE", "LEAK", "LEAN", "LEAP", "LEG", "LETTER",
-  "LEVEL", "LIBRARY", "LIE", "LIFE", "LIFT", "LIGHT", "LIMB", "LINE", "LINK", "LION",
-  "LIP", "LIST", "LOCK", "LOG", "LONDON", "LOOK", "LOOP", "LORD", "LOSS", "LOVE",
+// Difficulty-based word lists
+const CODEWORDS_EASY = [
+  "APPLE", "BALL", "BEAR", "BED", "BEE", "BIRD", "BOOK", "BOX", "CAKE", "CAR",
+  "CAT", "CLOCK", "CLOUD", "COIN", "CROWN", "DOG", "DOOR", "DRUM", "DUCK", "EGG",
+  "EYE", "FIRE", "FISH", "FLAG", "FOOT", "FORK", "GAME", "GOLD", "HAND", "HAT",
+  "HEART", "HORSE", "HOUSE", "ICE", "KEY", "KING", "KNIFE", "LAMP", "LEAF", "LION",
+  "MOON", "MOUSE", "MUSIC", "NOSE", "OCEAN", "PEN", "PIG", "PIZZA", "PLANE", "RING",
+  "ROAD", "ROSE", "SHIP", "SHOE", "SNOW", "STAR", "SUN", "TABLE", "TREE", "WATER"
+];
+
+const CODEWORDS_MEDIUM = [
+  "ARROW", "BANK", "BLOCK", "BOARD", "BOLT", "BOMB", "BOW", "BRIDGE", "BRUSH", "BUCKET",
+  "BUG", "BULL", "CAMEL", "CAP", "CARD", "CARROT", "CASTLE", "CHAIN", "CHEST", "CHICK",
+  "CHINA", "CHURCH", "CIRCLE", "CLIFF", "CLOAK", "CLOWN", "COACH", "COAST", "COMIC", "COMPOUND",
+  "CONCERT", "CONDUCTOR", "CONTRACT", "COOK", "COPPER", "COTTON", "COURT", "COVER", "CRANE", "CRASH",
+  "CRICKET", "CROSS", "CYCLE", "DANCE", "DATE", "DAY", "DEATH", "DECK", "DEGREE", "DESIGN",
+  "DESK", "DIAMOND", "DICE", "DINOSAUR", "DISEASE", "DOCTOR", "DOLL", "DRAFT", "DRAGON", "DRESS",
+  "DRILL", "DRINK", "DRIVE", "DROWN", "DUMB", "DUTY", "EARTH", "EAST", "EAT", "EDGE",
+  "ELBOW", "ELEPHANT", "EMPIRE", "ENGINE", "ENGLAND", "EUROPE", "FACE", "FAIR", "FALL", "FAN",
+  "FENCE", "FIELD", "FIGHTER", "FIGURE", "FILE", "FILM", "FLUTE", "FLY", "FORCE", "FOREST",
+  "FRAME", "FRANCE", "FREEDOM", "FROG", "FUEL", "GAS", "GENIUS", "GERMANY", "GHOST", "GIANT",
+  "GLASS", "GLOVE", "GRACE", "GRASS", "GREEK", "GREEN", "GROUND", "HAM", "HAPPY", "HARP",
+  "HEAD", "HELICOPTER", "HIMALAYAS", "HOLE", "HOLLYWOOD", "HONEY", "HOOD", "HOOK", "HORN", "HOSE",
+  "HOTEL", "HOUR", "ICELAND", "INK", "IRON", "ISLAND", "IVORY", "JACK", "JAM", "JET",
+  "JOB", "JOCKEY", "JOIN", "JOKE", "JUDGE", "JUICE", "JUMP", "JUNGLE", "KANGAROO", "KETCHUP",
+  "KICK", "KIWI", "KNIGHT", "KNOCK", "KNOT", "LAB", "LADDER", "LADY", "LAKE", "LAMB",
+  "LAND", "LAP", "LASER", "LAW", "LEAD", "LEAGUE", "LEAK", "LEAN", "LEAP", "LEG",
+  "LETTER", "LEVEL", "LIBRARY", "LIE", "LIFE", "LIFT", "LIGHT", "LIMB", "LINE", "LINK",
+  "LIP", "LIST", "LOCK", "LOG", "LONDON", "LOOK", "LOOP", "LORD", "LOSS", "LOVE"
+];
+
+const CODEWORDS_HARD = [
   "MACHINE", "MAGIC", "MAID", "MAIL", "MALL", "MAN", "MAP", "MARBLE", "MARCH", "MARK",
   "MARKET", "MASK", "MASS", "MATCH", "MATE", "MATH", "MATTER", "MAY", "MAZE", "MEAL",
   "MEAN", "MEASURE", "MEAT", "MEDAL", "MEDIA", "MELON", "MEMORY", "MENU", "MERCURY", "MESS",
   "METAL", "METER", "METHOD", "MIDDLE", "MILK", "MIND", "MINE", "MINUTE", "MIRROR", "MISS",
-  "MODEL", "MOLE", "MOON", "MORNING", "MOSQUITO", "MOTHER", "MOTION", "MOUNTAIN", "MOUSE", "MOUTH",
-  "MOVE", "MOVIE", "MUFFIN", "MULE", "MUSIC", "NAIL", "NAME", "NAP", "NARROW", "NATION",
-  "NATURE", "NECK", "NEED", "NEEDLE", "NEGATIVE", "NERVE", "NET", "NETWORK", "NEWS", "NIGHT",
-  "NOISE", "NONE", "NOON", "NORTH", "NOSE", "NOTE", "NOTHING", "NOTICE", "NOVEL", "NUMBER",
-  "NURSE", "NUT", "OBJECT", "OCEAN", "OCTOPUS", "OFFICE", "OIL", "OLIVE", "ONION", "OPEN",
-  "OPERA", "ORANGE", "ORBIT", "ORDER", "ORGAN", "ORGANIC", "ORIGIN", "OTHER", "OUT", "OUTPUT",
-  "OVAL", "OVEN", "OVER", "OWN", "OWNER", "PACE", "PACK", "PAGE", "PAIN", "PAINT",
-  "PAIR", "PALACE", "PALE", "PALM", "PAN", "PANEL", "PANIC", "PANT", "PAPER", "PARADE",
-  "PARENT", "PARK", "PART", "PARTY", "PASS", "PASTE", "PATCH", "PATH", "PATTERN", "PAUSE",
-  "PAY", "PEACE", "PEAK", "PEAR", "PEN", "PENCIL", "PENNY", "PEOPLE", "PEPPER", "PERIOD",
-  "PERMIT", "PERSON", "PHONE", "PHOTO", "PHYSICS", "PIANO", "PICK", "PICTURE", "PIE", "PIECE",
-  "PIG", "PILE", "PILOT", "PIN", "PINE", "PINK", "PIPE", "PIRATE", "PISTOL", "PIT",
-  "PITCH", "PIZZA", "PLACE", "PLAIN", "PLAN", "PLANE", "PLANET", "PLANT", "PLASTIC", "PLATE",
-  "PLAY", "PLAYER", "PLOT", "PLUG", "PLUM", "PLUNGE", "POCKET", "POEM", "POET", "POINT",
-  "POISON", "POLE", "POLICE", "POLICY", "POLISH", "POLITICS", "POOL", "POOR", "POP", "POPCORN",
-  "PORT", "POSE", "POSITION", "POSITIVE", "POSSESS", "POST", "POT", "POTATO", "POTTERY", "POUND",
-  "POUR", "POWDER", "POWER", "PRACTICE", "PRAISE", "PRAY", "PRESENT", "PRESS", "PRETTY", "PRICE",
-  "PRIDE", "PRIMARY", "PRIME", "PRINCE", "PRINT", "PRIOR", "PRIZE", "PROBLEM", "PROCESS", "PRODUCE",
-  "PRODUCT", "PROFIT", "PROGRAM", "PROJECT", "PROMISE", "PROMOTE", "PROOF", "PROPERTY", "PROPOSE", "PROTECT",
-  "PROUD", "PROVE", "PROVIDE", "PUBLIC", "PUDDING", "PULL", "PUMP", "PUNCH", "PUPIL", "PURPLE",
-  "PURPOSE", "PURSE", "PUSH", "PUT", "PUZZLE", "QUACK", "QUALITY", "QUANTITY", "QUARTER", "QUEEN",
-  "QUESTION", "QUICK", "QUIET", "QUILT", "QUIT", "QUIZ", "QUOTE", "RABBIT", "RACE", "RACK",
-  "RADAR", "RADIO", "RAIL", "RAIN", "RAINBOW", "RAISE", "RALLY", "RANGE", "RANK", "RAPID",
-  "RARE", "RATE", "RATHER", "RATIO", "RAW", "RAY", "RAZOR", "REACH", "REACT", "READ",
-  "REAL", "REALITY", "REALIZE", "REALLY", "REASON", "REBEL", "RECALL", "RECEIVE", "RECENT", "RECIPE",
-  "RECORD", "RECOVER", "RECRUIT", "RED", "REDUCE", "REFER", "REFLECT", "REFORM", "REFUSE", "REGARD",
-  "REGION", "REGULAR", "REJECT", "RELATE", "RELAX", "RELEASE", "RELEVANT", "RELIABLE", "RELIEF", "RELIGION",
-  "RELY", "REMAIN", "REMEMBER", "REMIND", "REMOVE", "RENDER", "RENEW", "RENT", "REPAIR", "REPEAT",
-  "REPLACE", "REPLY", "REPORT", "REPRESENT", "REPUBLIC", "REPUTATION", "REQUEST", "REQUIRE", "RESCUE", "RESEARCH",
-  "RESERVE", "RESIDENT", "RESIGN", "RESIST", "RESOLVE", "RESORT", "RESOURCE", "RESPECT", "RESPOND", "REST",
-  "RESTAURANT", "RESTORE", "RESTRICT", "RESULT", "RETAIN", "RETIRE", "RETURN", "REVEAL", "REVENGE", "REVENUE",
-  "REVIEW", "REVOLUTION", "REWARD", "RHYME", "RICE", "RICH", "RIDE", "RIDGE", "RIFLE", "RIGHT",
-  "RIGID", "RING", "RINSE", "RIOT", "RIP", "RIPE", "RISE", "RISK", "RIVAL", "RIVER",
-  "ROAD", "ROAR", "ROAST", "ROB", "ROBOT", "ROCK", "ROCKET", "ROD", "ROLE", "ROLL",
-  "ROMANCE", "ROOF", "ROOM", "ROOT", "ROPE", "ROSE", "ROT", "ROTATE", "ROUGH", "ROUND",
-  "ROUTE", "ROW", "ROYAL", "RUB", "RUBBER", "RUBBISH", "RUBY", "RUDE", "RUIN", "RULE",
-  "RUN", "RUSH", "RUST", "SACK", "SAD", "SAFE", "SAIL", "SAILOR", "SAKE", "SALAD",
-  "SALARY", "SALE", "SALT", "SAME", "SAMPLE", "SAND", "SANDWICH", "SATISFY", "SAUCE", "SAUSAGE",
-  "SAVE", "SAW", "SAY", "SCALE", "SCAN", "SCAR", "SCARCE", "SCARE", "SCARF", "SCATTER",
-  "SCENE", "SCENT", "SCHEDULE", "SCHEME", "SCHOOL", "SCIENCE", "SCISSORS", "SCORE", "SCRAPE", "SCRATCH",
-  "SCREAM", "SCREEN", "SCREW", "SCRIPT", "SCULPTURE", "SEA", "SEAL", "SEAM", "SEARCH", "SEASON",
-  "SEAT", "SECOND", "SECRET", "SECTION", "SECTOR", "SECURE", "SEE", "SEED", "SEEK", "SEEM",
-  "SEIZE", "SELECT", "SELL", "SEND", "SENIOR", "SENSE", "SENTENCE", "SERIES", "SERIOUS", "SERVE",
-  "SERVICE", "SESSION", "SET", "SETTLE", "SETUP", "SEVEN", "SEVERAL", "SEVERE", "SEW", "SEX",
-  "SHADE", "SHADOW", "SHAKE", "SHALL", "SHALLOW", "SHAME", "SHAPE", "SHARE", "SHARK", "SHARP",
-  "SHE", "SHEEP", "SHEET", "SHELF", "SHELL", "SHELTER", "SHIELD", "SHIFT", "SHINE", "SHIP",
-  "SHIRT", "SHOCK", "SHOE", "SHOOT", "SHOP", "SHORE", "SHORT", "SHOT", "SHOULD", "SHOULDER",
-  "SHOUT", "SHOVE", "SHOW", "SHOWER", "SHRED", "SHRIEK", "SHRINK", "SHRUG", "SHUT", "SHY",
-  "SICK", "SIDE", "SIDEWALK", "SIGHT", "SIGN", "SIGNAL", "SILENCE", "SILENT", "SILK", "SILLY",
-  "SILVER", "SIMILAR", "SIMPLE", "SINCE", "SING", "SINGLE", "SINK", "SIP", "SIR", "SISTER",
-  "SIT", "SITE", "SITUATION", "SIX", "SIZE", "SKATE", "SKELETON", "SKETCH", "SKI", "SKILL",
-  "SKIN", "SKIP", "SKIRT", "SKULL", "SKY", "SLAB", "SLACK", "SLAVE", "SLEEP", "SLEEVE",
-  "SLICE", "SLIDE", "SLIGHT", "SLIM", "SLIP", "SLIT", "SLOPE", "SLOT", "SLOW", "SLUG",
-  "SLUM", "SLUMP", "SMALL", "SMART", "SMASH", "SMELL", "SMILE", "SMOKE", "SMOOTH", "SNAKE",
-  "SNAP", "SNATCH", "SNEAK", "SNEEZE", "SNIFF", "SNOW", "SNUG", "SO", "SOAK", "SOAP",
-  "SOAR", "SOCCER", "SOCIAL", "SOCIETY", "SOCK", "SODA", "SOFA", "SOFT", "SOIL", "SOLAR",
-  "SOLD", "SOLDIER", "SOLE", "SOLID", "SOLO", "SOLUTION", "SOLVE", "SOME", "SON", "SONG",
-  "SOON", "SORE", "SORRY", "SORT", "SOUL", "SOUND", "SOUP", "SOUR", "SOURCE", "SOUTH",
-  "SPACE", "SPARE", "SPARK", "SPEAK", "SPEAR", "SPECIAL", "SPEECH", "SPEED", "SPELL", "SPEND",
-  "SPHERE", "SPICE", "SPIDER", "SPIKE", "SPILL", "SPIN", "SPINE", "SPIRIT", "SPIT", "SPLIT",
-  "SPOIL", "SPOKE", "SPONGE", "SPOON", "SPORT", "SPOT", "SPRAY", "SPREAD", "SPRING", "SPRING",
-  "SPY", "SQUAD", "SQUARE", "SQUASH", "SQUAT", "SQUAWK", "SQUEEZE", "SQUID", "SQUINT", "SQUIRM",
-  "SQUIRT", "STAB", "STABLE", "STACK", "STADIUM", "STAFF", "STAGE", "STAIR", "STAKE", "STALE",
-  "STALK", "STALL", "STAMP", "STAND", "STAR", "STARE", "STARK", "START", "STATE", "STATEMENT",
-  "STATION", "STATUE", "STATUS", "STAY", "STEADY", "STEAK", "STEAL", "STEAM", "STEEL", "STEEP",
-  "STEM", "STEP", "STERN", "STEW", "STICK", "STIFF", "STILL", "STING", "STINK", "STIR",
-  "STOCK", "STOMACH", "STONE", "STOOP", "STOP", "STORE", "STORM", "STORY", "STOVE", "STRAGHT",
-  "STRAND", "STRANGE", "STRAP", "STRAW", "STRAW", "STREAM", "STREET", "STRENGTH", "STRESS", "STRETCH",
-  "STRICT", "STRIKE", "STRING", "STRIP", "STRIPE", "STRIVE", "STROKE", "STRONG", "STRUGGLE", "STUB",
-  "STUCK", "STUDENT", "STUDIO", "STUDY", "STUFF", "STUMBLE", "STUMP", "STUN", "STUNT", "STUPID",
-  "STURDY", "STYLE", "SUBJECT", "SUBMIT", "SUBSCRIBE", "SUBSTANCE", "SUBSTITUTE", "SUBTLE", "SUBTRACT", "SUBURB",
-  "SUCCEED", "SUCCESS", "SUCH", "SUCK", "SUDDEN", "SUFFER", "SUGAR", "SUGGEST", "SUIT", "SULPHUR",
-  "SUM", "SUMMER", "SUN", "SUNNY", "SUNRISE", "SUNSET", "SUPER", "SUPPLY", "SUPPORT", "SUPPOSE",
-  "SUPREME", "SURE", "SURFACE", "SURGE", "SURGEON", "SURPLUS", "SURPRISE", "SURRENDER", "SURROUND", "SURVEY",
-  "SURVIVE", "SUSPECT", "SUSPEND", "SUSTAIN", "SWALLOW", "SWAMP", "SWAN", "SWAP", "SWARM", "SWAY",
-  "SWEAR", "SWEAT", "SWEEP", "SWEET", "SWELL", "SWERVE", "SWIFT", "SWIM", "SWING", "SWITCH",
-  "SWORD", "SYMBOL", "SYMPTOM", "SYRUP", "SYSTEM", "TABLE", "TACK", "TACKLE", "TACTIC", "TAG",
+  "MODEL", "MOLE", "MORNING", "MOSQUITO", "MOTHER", "MOTION", "MOUNTAIN", "MOUTH", "MOVE", "MOVIE",
+  "MUFFIN", "MULE", "NAIL", "NAME", "NAP", "NARROW", "NATION", "NATURE", "NECK", "NEED",
+  "NEEDLE", "NEGATIVE", "NERVE", "NET", "NETWORK", "NEWS", "NIGHT", "NOISE", "NONE", "NOON",
+  "NORTH", "NOTE", "NOTHING", "NOTICE", "NOVEL", "NUMBER", "NURSE", "NUT", "OBJECT", "OCTOPUS",
+  "OFFICE", "OIL", "OLIVE", "ONION", "OPEN", "OPERA", "ORANGE", "ORBIT", "ORDER", "ORGAN",
+  "ORGANIC", "ORIGIN", "OTHER", "OUT", "OUTPUT", "OVAL", "OVEN", "OVER", "OWN", "OWNER",
+  "PACE", "PACK", "PAGE", "PAIN", "PAINT", "PAIR", "PALACE", "PALE", "PALM", "PAN",
+  "PANEL", "PANIC", "PANT", "PAPER", "PARADE", "PARENT", "PARK", "PART", "PARTY", "PASS",
+  "PASTE", "PATCH", "PATH", "PATTERN", "PAUSE", "PAY", "PEACE", "PEAK", "PEAR", "PENCIL",
+  "PENNY", "PEOPLE", "PEPPER", "PERIOD", "PERMIT", "PERSON", "PHONE", "PHOTO", "PHYSICS", "PIANO",
+  "PICK", "PICTURE", "PIE", "PIECE", "PILE", "PILOT", "PIN", "PINE", "PINK", "PIPE",
+  "PIRATE", "PISTOL", "PIT", "PITCH", "PLACE", "PLAIN", "PLAN", "PLANET", "PLANT", "PLASTIC",
+  "PLATE", "PLAY", "PLAYER", "PLOT", "PLUG", "PLUM", "PLUNGE", "POCKET", "POEM", "POET",
+  "POINT", "POISON", "POLE", "POLICE", "POLICY", "POLISH", "POLITICS", "POOL", "POOR", "POP",
+  "POPCORN", "PORT", "POSE", "POSITION", "POSITIVE", "POSSESS", "POST", "POT", "POTATO", "POTTERY",
+  "POUND", "POUR", "POWDER", "POWER", "PRACTICE", "PRAISE", "PRAY", "PRESENT", "PRESS", "PRETTY",
+  "PRICE", "PRIDE", "PRIMARY", "PRIME", "PRINCE", "PRINT", "PRIOR", "PRIZE", "PROBLEM", "PROCESS",
+  "PRODUCE", "PRODUCT", "PROFIT", "PROGRAM", "PROJECT", "PROMISE", "PROMOTE", "PROOF", "PROPERTY", "PROPOSE",
+  "PROTECT", "PROUD", "PROVE", "PROVIDE", "PUBLIC", "PUDDING", "PULL", "PUMP", "PUNCH", "PUPIL",
+  "PURPLE", "PURPOSE", "PURSE", "PUSH", "PUT", "PUZZLE", "QUACK", "QUALITY", "QUANTITY", "QUARTER",
+  "QUEEN", "QUESTION", "QUICK", "QUIET", "QUILT", "QUIT", "QUIZ", "QUOTE", "RABBIT", "RACE",
+  "RACK", "RADAR", "RADIO", "RAIL", "RAIN", "RAINBOW", "RAISE", "RALLY", "RANGE", "RANK",
+  "RAPID", "RARE", "RATE", "RATHER", "RATIO", "RAW", "RAY", "RAZOR", "REACH", "REACT",
+  "READ", "REAL", "REALITY", "REALIZE", "REALLY", "REASON", "REBEL", "RECALL", "RECEIVE", "RECENT",
+  "RECIPE", "RECORD", "RECOVER", "RECRUIT", "RED", "REDUCE", "REFER", "REFLECT", "REFORM", "REFUSE",
+  "REGARD", "REGION", "REGULAR", "REJECT", "RELATE", "RELAX", "RELEASE", "RELEVANT", "RELIABLE", "RELIEF",
+  "RELIGION", "RELY", "REMAIN", "REMEMBER", "REMIND", "REMOVE", "RENDER", "RENEW", "RENT", "REPAIR",
+  "REPEAT", "REPLACE", "REPLY", "REPORT", "REPRESENT", "REPUBLIC", "REPUTATION", "REQUEST", "REQUIRE", "RESCUE",
+  "RESEARCH", "RESERVE", "RESIDENT", "RESIGN", "RESIST", "RESOLVE", "RESORT", "RESOURCE", "RESPECT", "RESPOND",
+  "REST", "RESTAURANT", "RESTORE", "RESTRICT", "RESULT", "RETAIN", "RETIRE", "RETURN", "REVEAL", "REVENGE",
+  "REVENUE", "REVIEW", "REVOLUTION", "REWARD", "RHYME", "RICE", "RICH", "RIDE", "RIDGE", "RIFLE",
+  "RIGHT", "RIGID", "RINSE", "RIOT", "RIP", "RIPE", "RISE", "RISK", "RIVAL", "RIVER",
+  "ROAR", "ROAST", "ROB", "ROBOT", "ROCK", "ROCKET", "ROD", "ROLE", "ROLL", "ROMANCE",
+  "ROOF", "ROOM", "ROOT", "ROPE", "ROT", "ROTATE", "ROUGH", "ROUND", "ROUTE", "ROW",
+  "ROYAL", "RUB", "RUBBER", "RUBBISH", "RUBY", "RUDE", "RUIN", "RULE", "RUN", "RUSH",
+  "RUST", "SACK", "SAD", "SAFE", "SAIL", "SAILOR", "SAKE", "SALAD", "SALARY", "SALE",
+  "SALT", "SAME", "SAMPLE", "SAND", "SANDWICH", "SATISFY", "SAUCE", "SAUSAGE", "SAVE", "SAW",
+  "SAY", "SCALE", "SCAN", "SCAR", "SCARCE", "SCARE", "SCARF", "SCATTER", "SCENE", "SCENT",
+  "SCHEDULE", "SCHEME", "SCHOOL", "SCIENCE", "SCISSORS", "SCORE", "SCRAPE", "SCRATCH", "SCREAM", "SCREEN",
+  "SCREW", "SCRIPT", "SCULPTURE", "SEA", "SEAL", "SEAM", "SEARCH", "SEASON", "SEAT", "SECOND",
+  "SECRET", "SECTION", "SECTOR", "SECURE", "SEE", "SEED", "SEEK", "SEEM", "SEIZE", "SELECT",
+  "SELL", "SEND", "SENIOR", "SENSE", "SENTENCE", "SERIES", "SERIOUS", "SERVE", "SERVICE", "SESSION",
+  "SET", "SETTLE", "SETUP", "SEVEN", "SEVERAL", "SEVERE", "SEW", "SEX", "SHADE", "SHADOW",
+  "SHAKE", "SHALL", "SHALLOW", "SHAME", "SHAPE", "SHARE", "SHARK", "SHARP", "SHE", "SHEEP",
+  "SHEET", "SHELF", "SHELL", "SHELTER", "SHIELD", "SHIFT", "SHINE", "SHIRT", "SHOCK", "SHOOT",
+  "SHOP", "SHORE", "SHORT", "SHOT", "SHOULD", "SHOULDER", "SHOUT", "SHOVE", "SHOW", "SHOWER",
+  "SHRED", "SHRIEK", "SHRINK", "SHRUG", "SHUT", "SHY", "SICK", "SIDE", "SIDEWALK", "SIGHT",
+  "SIGN", "SIGNAL", "SILENCE", "SILENT", "SILK", "SILLY", "SILVER", "SIMILAR", "SIMPLE", "SINCE",
+  "SING", "SINGLE", "SINK", "SIP", "SIR", "SISTER", "SIT", "SITE", "SITUATION", "SIX",
+  "SIZE", "SKATE", "SKELETON", "SKETCH", "SKI", "SKILL", "SKIN", "SKIP", "SKIRT", "SKULL",
+  "SKY", "SLAB", "SLACK", "SLAVE", "SLEEP", "SLEEVE", "SLICE", "SLIDE", "SLIGHT", "SLIM",
+  "SLIP", "SLIT", "SLOPE", "SLOT", "SLOW", "SLUG", "SLUM", "SLUMP", "SMALL", "SMART",
+  "SMASH", "SMELL", "SMILE", "SMOKE", "SMOOTH", "SNAKE", "SNAP", "SNATCH", "SNEAK", "SNEEZE",
+  "SNIFF", "SNUG", "SO", "SOAK", "SOAP", "SOAR", "SOCCER", "SOCIAL", "SOCIETY", "SOCK",
+  "SODA", "SOFA", "SOFT", "SOIL", "SOLAR", "SOLD", "SOLDIER", "SOLE", "SOLID", "SOLO",
+  "SOLUTION", "SOLVE", "SOME", "SON", "SONG", "SOON", "SORE", "SORRY", "SORT", "SOUL",
+  "SOUND", "SOUP", "SOUR", "SOURCE", "SOUTH", "SPACE", "SPARE", "SPARK", "SPEAK", "SPEAR",
+  "SPECIAL", "SPEECH", "SPEED", "SPELL", "SPEND", "SPHERE", "SPICE", "SPIDER", "SPIKE", "SPILL",
+  "SPIN", "SPINE", "SPIRIT", "SPIT", "SPLIT", "SPOIL", "SPOKE", "SPONGE", "SPOON", "SPORT",
+  "SPOT", "SPRAY", "SPREAD", "SPRING", "SPY", "SQUAD", "SQUARE", "SQUASH", "SQUAT", "SQUAWK",
+  "SQUEEZE", "SQUID", "SQUINT", "SQUIRM", "SQUIRT", "STAB", "STABLE", "STACK", "STADIUM", "STAFF",
+  "STAGE", "STAIR", "STAKE", "STALE", "STALK", "STALL", "STAMP", "STAND", "STARE", "STARK",
+  "START", "STATE", "STATEMENT", "STATION", "STATUE", "STATUS", "STAY", "STEADY", "STEAK", "STEAL",
+  "STEAM", "STEEL", "STEEP", "STEM", "STEP", "STERN", "STEW", "STICK", "STIFF", "STILL",
+  "STING", "STINK", "STIR", "STOCK", "STOMACH", "STONE", "STOOP", "STOP", "STORE", "STORM",
+  "STORY", "STOVE", "STRAGHT", "STRAND", "STRANGE", "STRAP", "STRAW", "STREAM", "STREET", "STRENGTH",
+  "STRESS", "STRETCH", "STRICT", "STRIKE", "STRING", "STRIP", "STRIPE", "STRIVE", "STROKE", "STRONG",
+  "STRUGGLE", "STUB", "STUCK", "STUDENT", "STUDIO", "STUDY", "STUFF", "STUMBLE", "STUMP", "STUN",
+  "STUNT", "STUPID", "STURDY", "STYLE", "SUBJECT", "SUBMIT", "SUBSCRIBE", "SUBSTANCE", "SUBSTITUTE", "SUBTLE",
+  "SUBTRACT", "SUBURB", "SUCCEED", "SUCCESS", "SUCH", "SUCK", "SUDDEN", "SUFFER", "SUGAR", "SUGGEST",
+  "SUIT", "SULPHUR", "SUM", "SUMMER", "SUNNY", "SUNRISE", "SUNSET", "SUPER", "SUPPLY", "SUPPORT",
+  "SUPPOSE", "SUPREME", "SURE", "SURFACE", "SURGE", "SURGEON", "SURPLUS", "SURPRISE", "SURRENDER", "SURROUND",
+  "SURVEY", "SURVIVE", "SUSPECT", "SUSPEND", "SUSTAIN", "SWALLOW", "SWAMP", "SWAN", "SWAP", "SWARM",
+  "SWAY", "SWEAR", "SWEAT", "SWEEP", "SWEET", "SWELL", "SWERVE", "SWIFT", "SWIM", "SWING",
+  "SWITCH", "SWORD", "SYMBOL", "SYMPTOM", "SYRUP", "SYSTEM", "TACK", "TACKLE", "TACTIC", "TAG",
   "TAIL", "TAKE", "TALE", "TALENT", "TALK", "TALL", "TAME", "TAN", "TANGLE", "TANK",
   "TAP", "TAPE", "TARGET", "TASK", "TASTE", "TASTY", "TATTOO", "TAX", "TAXI", "TEA",
   "TEACH", "TEAM", "TEAR", "TEASE", "TECHNOLOGY", "TEEN", "TELEPHONE", "TELL", "TEMPER", "TEMPLE",
@@ -127,46 +134,51 @@ const CODEWORDS = [
   "TOWN", "TOY", "TRACE", "TRACK", "TRACT", "TRACTOR", "TRADE", "TRADITION", "TRAFFIC", "TRAGEDY",
   "TRAIL", "TRAIN", "TRAIT", "TRAMP", "TRANCE", "TRANSACTION", "TRANSFER", "TRANSFORM", "TRANSIT", "TRANSLATE",
   "TRANSMIT", "TRANSPORT", "TRAP", "TRASH", "TRAVEL", "TRAY", "TREAD", "TREASON", "TREASURE", "TREAT",
-  "TREATMENT", "TREATY", "TREE", "TREK", "TREMENDOUS", "TRIAL", "TRIBE", "TRICK", "TRIGGER", "TRIM",
-  "TRIP", "TRIUMPH", "TROLLEY", "TROOP", "TROPHY", "TROPICAL", "TROUBLE", "TRUCK", "TRUE", "TRULY",
-  "TRUMPET", "TRUNK", "TRUST", "TRUTH", "TRY", "TUB", "TUBE", "TUESDAY", "TUG", "TUITION",
-  "TULIP", "TUMBLE", "TUNE", "TUNNEL", "TURBINE", "TURF", "TURKEY", "TURN", "TURNIP", "TURTLE",
-  "TUTOR", "TV", "TWELVE", "TWENTY", "TWICE", "TWIG", "TWILIGHT", "TWIN", "TWIST", "TWITCH",
-  "TWO", "TYPE", "TYPICAL", "UGLY", "UMBRELLA", "UNABLE", "UNAWARE", "UNBALANCE", "UNCLE", "UNCOVER",
-  "UNDER", "UNDERGO", "UNDERSTAND", "UNDERTAKE", "UNDO", "UNDRESS", "UNEMPLOYMENT", "UNEXPECTED", "UNFAIR", "UNFOLD",
-  "UNFORTUNATELY", "UNHAPPY", "UNIFORM", "UNION", "UNIQUE", "UNIT", "UNITE", "UNITY", "UNIVERSAL", "UNIVERSE",
-  "UNIVERSITY", "UNKNOWN", "UNLESS", "UNLIKE", "UNLIKELY", "UNLOAD", "UNLOCK", "UNLUCKY", "UNNECESSARY", "UNPLEASANT",
-  "UNREST", "UNSAFE", "UNTIL", "UNUSUAL", "UNVEIL", "UNWILLING", "UP", "UPDATE", "UPGRADE", "UPHOLD",
-  "UPON", "UPPER", "UPRIGHT", "UPSET", "UPSTAIRS", "UPWARD", "URBAN", "URGE", "URGENT", "US",
-  "USAGE", "USE", "USED", "USEFUL", "USER", "USUAL", "USUALLY", "UTILITY", "UTTER", "VACANT",
-  "VACATION", "VACUUM", "VAGUE", "VAIN", "VALID", "VALLEY", "VALUABLE", "VALUE", "VAN", "VANISH",
-  "VARIABLE", "VARIATION", "VARIETY", "VARIOUS", "VAST", "VAT", "VAULT", "VEGETABLE", "VEHICLE", "VEIL",
-  "VEIN", "VELOCITY", "VELVET", "VENDOR", "VENTURE", "VERB", "VERBAL", "VERDICT", "VERIFY", "VERSION",
-  "VERSUS", "VERTICAL", "VERY", "VESSEL", "VEST", "VETERAN", "VIA", "VIBRATE", "VICE", "VICTIM",
-  "VICTOR", "VICTORY", "VIDEO", "VIEW", "VIEWER", "VILLAGE", "VILLAIN", "VIOLATE", "VIOLENCE", "VIOLENT",
-  "VIOLET", "VIOLIN", "VIRGIN", "VIRTUAL", "VIRTUE", "VIRUS", "VISIBLE", "VISION", "VISIT", "VISITOR",
-  "VISUAL", "VITAL", "VITAMIN", "VIVID", "VOCABULARY", "VOCAL", "VOCATION", "VOICE", "VOID", "VOLCANO",
-  "VOLTAGE", "VOLUME", "VOLUNTARY", "VOLUNTEER", "VOTE", "VOTER", "VOW", "VOYAGE", "VULNERABLE", "WAGE",
-  "WAGON", "WAIST", "WAIT", "WAITER", "WAKE", "WALK", "WALL", "WALLET", "WALNUT", "WANDER",
-  "WANT", "WAR", "WARD", "WARDROBE", "WAREHOUSE", "WARFARE", "WARM", "WARN", "WARRANT", "WARRANTY",
-  "WARRIOR", "WARTIME", "WASH", "WASTE", "WATCH", "WATER", "WATERFALL", "WATERPROOF", "WAVE", "WAX",
-  "WAY", "WE", "WEAK", "WEALTH", "WEALTHY", "WEAPON", "WEAR", "WEARY", "WEATHER", "WEAVE",
-  "WEB", "WEDDING", "WEDGE", "WEDNESDAY", "WEED", "WEEK", "WEEKDAY", "WEEKEND", "WEEKLY", "WEEP",
-  "WEIGH", "WEIGHT", "WEIRD", "WELCOME", "WELFARE", "WELL", "WEST", "WESTERN", "WET", "WHALE",
-  "WHAT", "WHATEVER", "WHEAT", "WHEEL", "WHEN", "WHENEVER", "WHERE", "WHEREAS", "WHEREVER", "WHETHER",
-  "WHICH", "WHILE", "WHIP", "WHIRL", "WHISK", "WHISPER", "WHISTLE", "WHITE", "WHO", "WHOEVER",
-  "WHOLE", "WHOM", "WHOSE", "WHY", "WICKED", "WIDE", "WIDEN", "WIDOW", "WIDTH", "WIFE",
-  "WILD", "WILL", "WILLING", "WILLOW", "WIN", "WIND", "WINDOW", "WINE", "WING", "WINK",
-  "WINNER", "WINTER", "WIPE", "WIRE", "WISDOM", "WISE", "WISH", "WIT", "WITCH", "WITH",
-  "WITHIN", "WITHOUT", "WITNESS", "WIZARD", "WOLF", "WOMAN", "WOMB", "WONDER", "WONDERFUL", "WOOD",
-  "WOODEN", "WOOL", "WOOLEN", "WORD", "WORK", "WORKER", "WORKFORCE", "WORKPLACE", "WORKSHOP", "WORLD",
-  "WORLDWIDE", "WORM", "WORRY", "WORSE", "WORSHIP", "WORST", "WORTH", "WORTHY", "WOULD", "WOUND",
-  "WRAP", "WRATH", "WREAK", "WRECK", "WRENCH", "WRESTLE", "WRETCHED", "WRIGGLE", "WRING", "WRINKLE",
-  "WRIST", "WRITE", "WRITER", "WRITING", "WRONG", "WROTE", "WRUNG", "WRY", "YARD", "YARN",
-  "YAWN", "YEAR", "YELLOW", "YES", "YESTERDAY", "YET", "YIELD", "YOGA", "YOGURT", "YOU",
-  "YOUNG", "YOUR", "YOURS", "YOURSELF", "YOUTH", "ZAP", "ZEAL", "ZEBRA", "ZERO", "ZEST",
-  "ZIGZAG", "ZINC", "ZIP", "ZIPPER", "ZONE", "ZOO", "ZOOM"
+  "TREATMENT", "TREATY", "TREK", "TREMENDOUS", "TRIAL", "TRIBE", "TRICK", "TRIGGER", "TRIM", "TRIP",
+  "TRIUMPH", "TROLLEY", "TROOP", "TROPHY", "TROPICAL", "TROUBLE", "TRUCK", "TRUE", "TRULY", "TRUMPET",
+  "TRUNK", "TRUST", "TRUTH", "TRY", "TUB", "TUBE", "TUESDAY", "TUG", "TUITION", "TULIP",
+  "TUMBLE", "TUNE", "TUNNEL", "TURBINE", "TURF", "TURKEY", "TURN", "TURNIP", "TURTLE", "TUTOR",
+  "TV", "TWELVE", "TWENTY", "TWICE", "TWIG", "TWILIGHT", "TWIN", "TWIST", "TWITCH", "TWO",
+  "TYPE", "TYPICAL", "UGLY", "UMBRELLA", "UNABLE", "UNAWARE", "UNBALANCE", "UNCLE", "UNCOVER", "UNDER",
+  "UNDERGO", "UNDERSTAND", "UNDERTAKE", "UNDO", "UNDRESS", "UNEMPLOYMENT", "UNEXPECTED", "UNFAIR", "UNFOLD", "UNFORTUNATELY",
+  "UNHAPPY", "UNIFORM", "UNION", "UNIQUE", "UNIT", "UNITE", "UNITY", "UNIVERSAL", "UNIVERSE", "UNIVERSITY",
+  "UNKNOWN", "UNLESS", "UNLIKE", "UNLIKELY", "UNLOAD", "UNLOCK", "UNLUCKY", "UNNECESSARY", "UNPLEASANT", "UNREST",
+  "UNSAFE", "UNTIL", "UNUSUAL", "UNVEIL", "UNWILLING", "UP", "UPDATE", "UPGRADE", "UPHOLD", "UPON",
+  "UPPER", "UPRIGHT", "UPSET", "UPSTAIRS", "UPWARD", "URBAN", "URGE", "URGENT", "US", "USAGE",
+  "USE", "USED", "USEFUL", "USER", "USUAL", "USUALLY", "UTILITY", "UTTER", "VACANT", "VACATION",
+  "VACUUM", "VAGUE", "VAIN", "VALID", "VALLEY", "VALUABLE", "VALUE", "VAN", "VANISH", "VARIABLE",
+  "VARIATION", "VARIETY", "VARIOUS", "VAST", "VAT", "VAULT", "VEGETABLE", "VEHICLE", "VEIL", "VEIN",
+  "VELOCITY", "VELVET", "VENDOR", "VENTURE", "VERB", "VERBAL", "VERDICT", "VERIFY", "VERSION", "VERSUS",
+  "VERTICAL", "VERY", "VESSEL", "VEST", "VETERAN", "VIA", "VIBRATE", "VICE", "VICTIM", "VICTOR",
+  "VICTORY", "VIDEO", "VIEW", "VIEWER", "VILLAGE", "VILLAIN", "VIOLATE", "VIOLENCE", "VIOLENT", "VIOLET",
+  "VIOLIN", "VIRGIN", "VIRTUAL", "VIRTUE", "VIRUS", "VISIBLE", "VISION", "VISIT", "VISITOR", "VISUAL",
+  "VITAL", "VITAMIN", "VIVID", "VOCABULARY", "VOCAL", "VOCATION", "VOICE", "VOID", "VOLCANO", "VOLTAGE",
+  "VOLUME", "VOLUNTARY", "VOLUNTEER", "VOTE", "VOTER", "VOW", "VOYAGE", "VULNERABLE", "WAGE", "WAGON",
+  "WAIST", "WAIT", "WAITER", "WAKE", "WALK", "WALL", "WALLET", "WALNUT", "WANDER", "WANT",
+  "WAR", "WARD", "WARDROBE", "WAREHOUSE", "WARFARE", "WARM", "WARN", "WARRANT", "WARRANTY", "WARRIOR",
+  "WARTIME", "WASH", "WASTE", "WATCH", "WATERFALL", "WATERPROOF", "WAVE", "WAX", "WAY", "WE",
+  "WEAK", "WEALTH", "WEALTHY", "WEAPON", "WEAR", "WEARY", "WEATHER", "WEAVE", "WEB", "WEDDING",
+  "WEDGE", "WEDNESDAY", "WEED", "WEEK", "WEEKDAY", "WEEKEND", "WEEKLY", "WEEP", "WEIGH", "WEIGHT",
+  "WEIRD", "WELCOME", "WELFARE", "WELL", "WEST", "WESTERN", "WET", "WHALE", "WHAT", "WHATEVER",
+  "WHEAT", "WHEEL", "WHEN", "WHENEVER", "WHERE", "WHEREAS", "WHEREVER", "WHETHER", "WHICH", "WHILE",
+  "WHIP", "WHIRL", "WHISK", "WHISPER", "WHISTLE", "WHITE", "WHO", "WHOEVER", "WHOLE", "WHOM",
+  "WHOSE", "WHY", "WICKED", "WIDE", "WIDEN", "WIDOW", "WIDTH", "WIFE", "WILD", "WILL",
+  "WILLING", "WILLOW", "WIN", "WIND", "WINDOW", "WINE", "WING", "WINK", "WINNER", "WINTER",
+  "WIPE", "WIRE", "WISDOM", "WISE", "WISH", "WIT", "WITCH", "WITH", "WITHIN", "WITHOUT",
+  "WITNESS", "WIZARD", "WOLF", "WOMAN", "WOMB", "WONDER", "WONDERFUL", "WOOD", "WOODEN", "WOOL",
+  "WOOLEN", "WORD", "WORK", "WORKER", "WORKFORCE", "WORKPLACE", "WORKSHOP", "WORLD", "WORLDWIDE", "WORM",
+  "WORRY", "WORSE", "WORSHIP", "WORST", "WORTH", "WORTHY", "WOULD", "WOUND", "WRAP", "WRATH",
+  "WREAK", "WRECK", "WRENCH", "WRESTLE", "WRETCHED", "WRIGGLE", "WRING", "WRINKLE", "WRIST", "WRITE",
+  "WRITER", "WRITING", "WRONG", "WROTE", "WRUNG", "WRY", "YARD", "YARN", "YAWN", "YEAR",
+  "YELLOW", "YES", "YESTERDAY", "YET", "YIELD", "YOGA", "YOGURT", "YOU", "YOUNG", "YOUR",
+  "YOURS", "YOURSELF", "YOUTH", "ZAP", "ZEAL", "ZEBRA", "ZERO", "ZEST", "ZIGZAG", "ZINC",
+  "ZIP", "ZIPPER", "ZONE", "ZOO", "ZOOM"
 ];
+
+// Combined word list for medium difficulty (uses all words)
+const CODEWORDS = [...CODEWORDS_EASY, ...CODEWORDS_MEDIUM, ...CODEWORDS_HARD];
+
+type Difficulty = "easy" | "medium" | "hard";
 
 type CardType = "red" | "blue" | "neutral" | "assassin";
 type GamePhase = "setup" | "playing" | "gameOver";
@@ -215,6 +227,7 @@ export default function CodenamesPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   
   const [phase, setPhase] = useState<GamePhase>("setup");
+  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [redTeamName, setRedTeamName] = useState("RED TEAM");
   const [blueTeamName, setBlueTeamName] = useState("BLUE TEAM");
   const [role, setRole] = useState<PlayerRole | null>(null);
@@ -255,13 +268,17 @@ export default function CodenamesPage() {
     cardsRemaining: cards.filter(c => c.type === "blue" && !c.revealed).length,
   };
 
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [lastSyncedState, setLastSyncedState] = useState<string>("");
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
       router.push("/");
       return;
     }
-    setCurrentUser(JSON.parse(user));
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
 
     // Check if there's a current group and set team name
     const currentTeam = localStorage.getItem("currentTeam");
@@ -269,11 +286,124 @@ export default function CodenamesPage() {
       try {
         const team = JSON.parse(currentTeam);
         setRedTeamName(team.name);
+        // Create game ID from team
+        const { gameStateAPI } = require('@/lib/api-utils');
+        const id = gameStateAPI.createGameId(team.id, 'codenames');
+        setGameId(id);
       } catch (e) {
         console.error("Error loading team:", e);
       }
+    } else {
+      // Create game ID from user
+      const { gameStateAPI } = require('@/lib/api-utils');
+      const id = gameStateAPI.createGameId(null, 'codenames');
+      setGameId(id);
     }
   }, [router]);
+
+  // Save game state to Supabase whenever it changes
+  useEffect(() => {
+    if (!currentUser || !gameId || phase === "setup") return;
+    
+    const saveState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const stateToSave = {
+          phase,
+          difficulty,
+          redTeamName,
+          blueTeamName,
+          cards,
+          currentTeam,
+          clue,
+          guessesRemaining,
+          gameOverReason,
+          players,
+          gameLog: gameLog.map(entry => ({
+            ...entry,
+            timestamp: entry.timestamp.toISOString()
+          })),
+        };
+        
+        const stateString = JSON.stringify(stateToSave);
+        if (stateString === lastSyncedState) return; // Skip if unchanged
+        
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'codenames',
+          teamId: (() => {
+            const team = localStorage.getItem("currentTeam");
+            if (team) {
+              try {
+                return JSON.parse(team).id;
+              } catch (e) {
+                return undefined;
+              }
+            }
+            return undefined;
+          })(),
+          state: stateToSave,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+        
+        setLastSyncedState(stateString);
+      } catch (error) {
+        console.error('Error saving game state:', error);
+      }
+    };
+    
+    // Debounce saves to avoid too many API calls
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [phase, cards, currentTeam, clue, guessesRemaining, gameOverReason, players, gameLog, currentUser, gameId, lastSyncedState, difficulty, redTeamName, blueTeamName]);
+
+  // Poll for game state updates from other devices
+  useEffect(() => {
+    if (!currentUser || !gameId || phase === "setup") return;
+    
+    const pollState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state) {
+          const remoteState = result.state.state;
+          const remoteStateString = JSON.stringify(remoteState);
+          
+          // Only update if state is different and from another user
+          if (remoteStateString !== lastSyncedState && result.state.updatedBy !== currentUser.id) {
+            // Merge remote state
+            if (remoteState.phase) setPhase(remoteState.phase);
+            if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+            if (remoteState.redTeamName) setRedTeamName(remoteState.redTeamName);
+            if (remoteState.blueTeamName) setBlueTeamName(remoteState.blueTeamName);
+            if (remoteState.cards) setCards(remoteState.cards);
+            if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
+            if (remoteState.clue) setClue(remoteState.clue);
+            if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
+            if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
+            if (remoteState.players) setPlayers(remoteState.players);
+            if (remoteState.gameLog) {
+              setGameLog(remoteState.gameLog.map((entry: any) => ({
+                ...entry,
+                timestamp: new Date(entry.timestamp)
+              })));
+            }
+            setLastSyncedState(remoteStateString);
+          }
+        }
+      } catch (error) {
+        console.error('Error polling game state:', error);
+      }
+    };
+    
+    // Poll every 1 second for real-time updates
+    const intervalId = setInterval(pollState, 1000);
+    pollState(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [currentUser, gameId, phase, lastSyncedState]);
 
   const getPlayerInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -287,7 +417,29 @@ export default function CodenamesPage() {
   };
 
   const generateBoard = () => {
-    const shuffled = [...CODEWORDS].sort(() => Math.random() - 0.5);
+    // Select words based on difficulty
+    let wordPool: string[];
+    switch (difficulty) {
+      case "easy":
+        wordPool = CODEWORDS_EASY;
+        break;
+      case "hard":
+        wordPool = CODEWORDS_HARD;
+        break;
+      case "medium":
+      default:
+        // Medium uses mix: 40% easy, 30% medium, 30% hard
+        const easyCount = Math.floor(25 * 0.4);
+        const mediumCount = Math.floor(25 * 0.3);
+        const hardCount = 25 - easyCount - mediumCount;
+        const easyWords = [...CODEWORDS_EASY].sort(() => Math.random() - 0.5).slice(0, easyCount);
+        const mediumWords = [...CODEWORDS_MEDIUM].sort(() => Math.random() - 0.5).slice(0, mediumCount);
+        const hardWords = [...CODEWORDS_HARD].sort(() => Math.random() - 0.5).slice(0, hardCount);
+        wordPool = [...easyWords, ...mediumWords, ...hardWords];
+        break;
+    }
+    
+    const shuffled = [...wordPool].sort(() => Math.random() - 0.5);
     const selectedWords = shuffled.slice(0, 25);
     
     // Create card types: 9 red, 8 blue, 7 neutral, 1 assassin
@@ -311,7 +463,38 @@ export default function CodenamesPage() {
     setCards(newCards);
   };
 
-  const startGame = () => {
+  const startGame = async () => {
+    // Try to load existing game state first
+    if (gameId && currentUser) {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state && result.state.state.phase === "playing") {
+          // Load existing game state
+          const savedState = result.state.state;
+          setPhase(savedState.phase || "playing");
+          setDifficulty(savedState.difficulty || difficulty);
+          setRedTeamName(savedState.redTeamName || redTeamName);
+          setBlueTeamName(savedState.blueTeamName || blueTeamName);
+          setCards(savedState.cards || []);
+          setCurrentTeam(savedState.currentTeam || "red");
+          setClue(savedState.clue || { word: "", number: 0 });
+          setGuessesRemaining(savedState.guessesRemaining || 0);
+          setGameOverReason(savedState.gameOverReason || "");
+          setPlayers(savedState.players || []);
+          setGameLog((savedState.gameLog || []).map((entry: any) => ({
+            ...entry,
+            timestamp: new Date(entry.timestamp)
+          })));
+          return;
+        }
+      } catch (error) {
+        console.error('Error loading game state:', error);
+      }
+    }
+    
+    // Start new game
     generateBoard();
     setPhase("playing");
     setCurrentTeam("red");
@@ -334,63 +517,185 @@ export default function CodenamesPage() {
     }
   };
 
-  const revealCard = (index: number) => {
+  const revealCard = async (index: number) => {
     if (role !== "operative" || guessesRemaining === 0 || cards[index].revealed) return;
     
     const newCards = [...cards];
     newCards[index].revealed = true;
     newCards[index].clickedBy = currentUser.name;
     setCards(newCards);
-    setGuessesRemaining(prev => prev - 1);
+    const newGuessesRemaining = guessesRemaining - 1;
+    setGuessesRemaining(newGuessesRemaining);
     
     // Add to game log
-    setGameLog(prev => [...prev, {
-      type: "guess",
+    const newLogEntry = {
+      type: "guess" as const,
       team: currentTeam,
       player: currentUser.name,
       word: newCards[index].word,
       timestamp: new Date()
-    }]);
+    };
+    setGameLog(prev => [...prev, newLogEntry]);
     
     const card = newCards[index];
+    let newPhase = phase;
+    let newCurrentTeam = currentTeam;
+    let newClue = clue;
+    let newGuessesRemainingAfter = newGuessesRemaining;
+    let newGameOverReason = gameOverReason;
     
     // Check for game over conditions
     if (card.type === "assassin") {
       // Current team loses
-      setGameOverReason(`${currentTeam === "red" ? redTeamName : blueTeamName} hit the assassin! ${currentTeam === "red" ? blueTeamName : redTeamName} wins!`);
-      setPhase("gameOver");
-      return;
-    }
-    
-    if (card.type !== currentTeam) {
+      newGameOverReason = `${currentTeam === "red" ? redTeamName : blueTeamName} hit the assassin! ${currentTeam === "red" ? blueTeamName : redTeamName} wins!`;
+      newPhase = "gameOver";
+      setGameOverReason(newGameOverReason);
+      setPhase(newPhase);
+    } else if (card.type !== currentTeam) {
       // Wrong team's card or neutral - switch teams
-      setCurrentTeam(currentTeam === "red" ? "blue" : "red");
-      setClue({ word: "", number: 0 });
-      setGuessesRemaining(0);
-      return;
+      newCurrentTeam = currentTeam === "red" ? "blue" : "red";
+      newClue = { word: "", number: 0 };
+      newGuessesRemainingAfter = 0;
+      setCurrentTeam(newCurrentTeam);
+      setClue(newClue);
+      setGuessesRemaining(newGuessesRemainingAfter);
+    } else {
+      // Check if team won
+      const teamCards = newCards.filter(c => c.type === currentTeam);
+      const allRevealed = teamCards.every(c => c.revealed);
+      if (allRevealed) {
+        newGameOverReason = `${currentTeam === "red" ? redTeamName : blueTeamName} found all their words!`;
+        newPhase = "gameOver";
+        setGameOverReason(newGameOverReason);
+        setPhase(newPhase);
+      }
     }
     
-    // Check if team won
-    const teamCards = newCards.filter(c => c.type === currentTeam);
-    const allRevealed = teamCards.every(c => c.revealed);
-    if (allRevealed) {
-      setGameOverReason(`${currentTeam === "red" ? redTeamName : blueTeamName} found all their words!`);
-      setPhase("gameOver");
+    // Immediately sync card reveal to other devices
+    if (gameId && currentUser) {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'codenames',
+          teamId: (() => {
+            const team = localStorage.getItem("currentTeam");
+            if (team) {
+              try {
+                return JSON.parse(team).id;
+              } catch (e) {
+                return undefined;
+              }
+            }
+            return undefined;
+          })(),
+          state: {
+            phase: newPhase,
+            difficulty,
+            redTeamName,
+            blueTeamName,
+            cards: newCards,
+            currentTeam: newCurrentTeam,
+            clue: newClue,
+            guessesRemaining: newGuessesRemainingAfter,
+            gameOverReason: newGameOverReason,
+            players,
+            gameLog: [...gameLog, newLogEntry].map(entry => ({
+              ...entry,
+              timestamp: entry.timestamp.toISOString()
+            })),
+          },
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+        setLastSyncedState(JSON.stringify({
+          phase: newPhase,
+          difficulty,
+          redTeamName,
+          blueTeamName,
+          cards: newCards,
+          currentTeam: newCurrentTeam,
+          clue: newClue,
+          guessesRemaining: newGuessesRemainingAfter,
+          gameOverReason: newGameOverReason,
+          players,
+          gameLog: [...gameLog, newLogEntry],
+        }));
+      } catch (error) {
+        console.error('Error syncing card reveal:', error);
+      }
     }
   };
 
-  const giveClue = () => {
+  const giveClue = async () => {
     if (!clue.word.trim() || clue.number < 1 || clue.number > 9) return;
-    setGuessesRemaining(clue.number + 1); // +1 for the bonus guess
+    const newGuessesRemaining = clue.number + 1; // +1 for the bonus guess
+    setGuessesRemaining(newGuessesRemaining);
     // Add to game log
-    setGameLog(prev => [...prev, {
-      type: "clue",
+    const newLogEntry = {
+      type: "clue" as const,
       team: currentTeam,
       player: currentUser.name,
       clue: clue.word,
       number: clue.number,
       timestamp: new Date()
-    }]);
+    };
+    setGameLog(prev => [...prev, newLogEntry]);
+    
+    // Immediately sync clue to other devices
+    if (gameId && currentUser) {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'codenames',
+          teamId: (() => {
+            const team = localStorage.getItem("currentTeam");
+            if (team) {
+              try {
+                return JSON.parse(team).id;
+              } catch (e) {
+                return undefined;
+              }
+            }
+            return undefined;
+          })(),
+          state: {
+            phase,
+            difficulty,
+            redTeamName,
+            blueTeamName,
+            cards,
+            currentTeam,
+            clue,
+            guessesRemaining: newGuessesRemaining,
+            gameOverReason,
+            players,
+            gameLog: [...gameLog, newLogEntry].map(entry => ({
+              ...entry,
+              timestamp: entry.timestamp.toISOString()
+            })),
+          },
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+        setLastSyncedState(JSON.stringify({
+          phase,
+          difficulty,
+          redTeamName,
+          blueTeamName,
+          cards,
+          currentTeam,
+          clue,
+          guessesRemaining: newGuessesRemaining,
+          gameOverReason,
+          players,
+          gameLog: [...gameLog, newLogEntry],
+        }));
+      } catch (error) {
+        console.error('Error syncing clue:', error);
+      }
+    }
   };
 
   const passTurn = () => {
@@ -414,6 +719,7 @@ export default function CodenamesPage() {
     setClue({ word: "", number: 0 });
     setGuessesRemaining(0);
     setGameOverReason("");
+    // Keep difficulty setting
   };
 
   if (!currentUser) return null;
@@ -473,6 +779,33 @@ export default function CodenamesPage() {
             <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center">
               🎯 SETUP YOUR TEAMS
             </h2>
+
+            {/* Difficulty Selection */}
+            <div className="mb-6 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50">
+              <label className="block text-yellow-400 font-semibold mb-3">
+                DIFFICULTY LEVEL
+              </label>
+              <div className="flex gap-3">
+                {(["easy", "medium", "hard"] as Difficulty[]).map((diff) => (
+                  <button
+                    key={diff}
+                    onClick={() => setDifficulty(diff)}
+                    className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all hover:scale-105 ${
+                      difficulty === diff
+                        ? "bg-yellow-500 text-black neon-box-yellow"
+                        : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-yellow-500"
+                    }`}
+                  >
+                    {diff.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 text-xs text-gray-400 text-center">
+                {difficulty === "easy" && "Simple, common words"}
+                {difficulty === "medium" && "Mix of simple and complex words"}
+                {difficulty === "hard" && "Complex and abstract words"}
+              </div>
+            </div>
 
             <div className="space-y-4 mb-6">
               <div className="bg-red-900/30 rounded-xl p-4 border-2 border-red-500 neon-box-pink">
@@ -575,7 +908,7 @@ export default function CodenamesPage() {
               <h3 className="text-xl font-bold text-center text-cyan-400 mb-6">WHAT'S YOUR ROLE?</h3>
               <div className="grid md:grid-cols-2 gap-6">
                 <button
-                  onClick={() => { 
+                  onClick={async () => { 
                     setRole("spymaster");
                     // Add player to players list
                     const newPlayer: Player = {
@@ -587,6 +920,47 @@ export default function CodenamesPage() {
                       const filtered = prev.filter(p => p.name !== currentUser.name);
                       return [...filtered, newPlayer];
                     });
+                    // Immediately sync role selection
+                    if (gameId && currentUser) {
+                      try {
+                        const { gameStateAPI } = await import('@/lib/api-utils');
+                        await gameStateAPI.saveGameState({
+                          id: gameId,
+                          gameType: 'codenames',
+                          teamId: (() => {
+                            const team = localStorage.getItem("currentTeam");
+                            if (team) {
+                              try {
+                                return JSON.parse(team).id;
+                              } catch (e) {
+                                return undefined;
+                              }
+                            }
+                            return undefined;
+                          })(),
+                          state: {
+                            phase,
+                            difficulty,
+                            redTeamName,
+                            blueTeamName,
+                            cards,
+                            currentTeam,
+                            clue,
+                            guessesRemaining,
+                            gameOverReason,
+                            players: [...players.filter(p => p.name !== currentUser.name), newPlayer],
+                            gameLog: gameLog.map(entry => ({
+                              ...entry,
+                              timestamp: entry.timestamp.toISOString()
+                            })),
+                          },
+                          lastUpdated: new Date().toISOString(),
+                          updatedBy: currentUser.id,
+                        });
+                      } catch (error) {
+                        console.error('Error syncing role:', error);
+                      }
+                    }
                   }}
                   className={`${selectedTeam === "red" ? redTeam.color.light : blueTeam.color.light} border-2 ${selectedTeam === "red" ? redTeam.color.border : blueTeam.color.border} ${selectedTeam === "red" ? redTeam.color.glow : blueTeam.color.glow} p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4`}
                 >
@@ -600,7 +974,7 @@ export default function CodenamesPage() {
                 </button>
 
                 <button
-                  onClick={() => { 
+                  onClick={async () => { 
                     setRole("operative");
                     // Add player to players list
                     const newPlayer: Player = {
@@ -612,6 +986,47 @@ export default function CodenamesPage() {
                       const filtered = prev.filter(p => p.name !== currentUser.name);
                       return [...filtered, newPlayer];
                     });
+                    // Immediately sync role selection
+                    if (gameId && currentUser) {
+                      try {
+                        const { gameStateAPI } = await import('@/lib/api-utils');
+                        await gameStateAPI.saveGameState({
+                          id: gameId,
+                          gameType: 'codenames',
+                          teamId: (() => {
+                            const team = localStorage.getItem("currentTeam");
+                            if (team) {
+                              try {
+                                return JSON.parse(team).id;
+                              } catch (e) {
+                                return undefined;
+                              }
+                            }
+                            return undefined;
+                          })(),
+                          state: {
+                            phase,
+                            difficulty,
+                            redTeamName,
+                            blueTeamName,
+                            cards,
+                            currentTeam,
+                            clue,
+                            guessesRemaining,
+                            gameOverReason,
+                            players: [...players.filter(p => p.name !== currentUser.name), newPlayer],
+                            gameLog: gameLog.map(entry => ({
+                              ...entry,
+                              timestamp: entry.timestamp.toISOString()
+                            })),
+                          },
+                          lastUpdated: new Date().toISOString(),
+                          updatedBy: currentUser.id,
+                        });
+                      } catch (error) {
+                        console.error('Error syncing role:', error);
+                      }
+                    }
                   }}
                   className="bg-gray-800/50 border-2 border-gray-600 hover:border-cyan-500 hover:neon-box-cyan p-8 rounded-2xl transition-all hover:scale-105 flex flex-col items-center gap-4"
                 >
