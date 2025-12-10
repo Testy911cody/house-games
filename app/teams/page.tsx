@@ -538,6 +538,7 @@ export default function TeamsPage() {
                   <Link
                     href={`/teams/${team.id}`}
                     className="block space-y-4"
+                    prefetch={false}
                   >
                     <div className="flex items-start justify-between animate-fade-in-left">
                       <h3 className="text-xl font-bold text-purple-400 pixel-font text-sm flex-1">
