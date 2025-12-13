@@ -329,6 +329,7 @@ let teamsStorage: Team[] = [];
 async function getTeamsFromDB(): Promise<Team[]> {
   if (isSupabaseConfigured() && supabase) {
     try {
+      console.log('🔍 Querying Supabase for all teams...');
       const { data, error } = await supabase
         .from('teams')
         .select('*')
@@ -339,15 +340,31 @@ async function getTeamsFromDB(): Promise<Team[]> {
         console.error('   Error code:', error.code);
         console.error('   Error message:', error.message);
         console.error('   Error details:', error.details);
+        console.error('   Error hint:', error.hint);
         throw error;
       }
       
       console.log(`📊 Raw Supabase response: ${data?.length || 0} teams found`);
       if (data && data.length > 0) {
         console.log('   Team IDs:', data.map((t: any) => t.id));
+        console.log('   Team names:', data.map((t: any) => t.name));
+        console.log('   Team details:', data.map((t: any) => ({
+          id: t.id,
+          name: t.name,
+          admin_id: t.admin_id,
+          admin_name: t.admin_name,
+          members_count: t.members?.length || 0,
+          created_at: t.created_at,
+          last_game_access: t.last_game_access
+        })));
+      } else {
+        console.warn('⚠️  No teams found in Supabase. This could mean:');
+        console.warn('   1. No teams have been created yet');
+        console.warn('   2. Teams are being created but not saved to Supabase');
+        console.warn('   3. RLS policies are blocking access');
       }
       
-      return (data || []).map((team: any) => ({
+      const mappedTeams = (data || []).map((team: any) => ({
         id: team.id,
         name: team.name,
         code: team.code,
@@ -358,15 +375,20 @@ async function getTeamsFromDB(): Promise<Team[]> {
         description: team.description,
         lastGameAccess: team.last_game_access || null,
       }));
+      
+      console.log(`✅ Successfully mapped ${mappedTeams.length} teams from Supabase`);
+      return mappedTeams;
     } catch (error: any) {
       console.error('❌ Supabase error getting teams:', error);
       if (error.code === 'PGRST301' || error.message?.includes('permission') || error.message?.includes('policy')) {
         console.error('⚠️  RLS Policy Error: Row Level Security might be blocking access.');
         console.error('   Make sure the "Allow all operations" policy exists in Supabase.');
+        console.error('   Check your Supabase dashboard -> Authentication -> Policies');
       }
       return [];
     }
   }
+  console.log('⚠️  Supabase not configured, returning local storage teams');
   return teamsStorage;
 }
 
@@ -409,7 +431,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
       
       // If insert fails due to conflict, try update instead
       if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
-        console.log('   Team exists, updating instead...');
+        console.log('   Team exists (duplicate key), updating instead...');
         const { data: updateData, error: updateError } = await supabase
           .from('teams')
           .update({
@@ -427,14 +449,6 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           .single();
         
         if (updateError) {
-          throw updateError;
-        }
-        
-        // Use update result
-        console.log('   Supabase response - data:', updateData);
-        console.log('   Supabase response - error:', updateError);
-        
-        if (updateError) {
           console.error('❌ Supabase update error:', updateError);
           throw updateError;
         }
@@ -445,6 +459,21 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         }
         
         console.log('✅ Team updated in Supabase successfully:', updateData.id);
+        console.log('   Verifying team is accessible...');
+        
+        // Verify the team can be retrieved (to ensure it's visible to other devices)
+        const { data: verifyData, error: verifyError } = await supabase
+          .from('teams')
+          .select('id')
+          .eq('id', team.id)
+          .single();
+        
+        if (verifyError || !verifyData) {
+          console.warn('⚠️  Warning: Team was updated but could not be verified. It may not be visible to other devices.');
+        } else {
+          console.log('✅ Team verified - should be visible to other devices');
+        }
+        
         return {
           id: updateData.id,
           name: updateData.name,
@@ -478,11 +507,27 @@ async function saveTeamToDB(team: Team): Promise<Team> {
       }
       
       if (!data) {
-        console.error('❌ Supabase returned no data after upsert');
-        throw new Error('No data returned from Supabase after upsert');
+        console.error('❌ Supabase returned no data after insert');
+        throw new Error('No data returned from Supabase after insert');
       }
       
       console.log('✅ Team saved to Supabase successfully:', data.id);
+      console.log('   Verifying team is accessible...');
+      
+      // Verify the team can be retrieved (to ensure it's visible to other devices)
+      const { data: verifyData, error: verifyError } = await supabase
+        .from('teams')
+        .select('id')
+        .eq('id', team.id)
+        .single();
+      
+      if (verifyError || !verifyData) {
+        console.warn('⚠️  Warning: Team was saved but could not be verified. It may not be visible to other devices.');
+        console.warn('   This could indicate an RLS policy issue. Check your Supabase policies.');
+      } else {
+        console.log('✅ Team verified - should be visible to other devices');
+      }
+      
       return {
         id: data.id,
         name: data.name,
