@@ -326,6 +326,7 @@ export default function CodenamesPage() {
   const loadAvailableTeams = async () => {
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
+      const { isSupabaseConfigured } = await import('@/lib/supabase');
       const result = await teamsAPI.getTeams();
       
       if (result.success && result.teams) {
@@ -333,22 +334,46 @@ export default function CodenamesPage() {
         const currentTeamData = localStorage.getItem("currentTeam");
         const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
         
+        console.log(`🔍 Codenames: Loaded ${result.teams.length} teams, current team: ${currentTeamId}`);
+        
         const onlineTeams = result.teams
           .filter((team: any) => {
             // Don't show the current user's team
-            if (team.id === currentTeamId) return false;
+            if (team.id === currentTeamId) {
+              console.log(`   ⏭️ Skipping own team: ${team.name}`);
+              return false;
+            }
             
-            // Check if team has online members
+            // If Supabase is configured, show ALL teams (they're synced across devices)
+            if (isSupabaseConfigured()) {
+              console.log(`   ✅ Showing Supabase team: ${team.name} (${team.id})`);
+              return true;
+            }
+            
+            // For local-only teams, check activity (but be more lenient)
             const adminOnline = teamsAPI.isUserOnline(team.adminId);
             const membersOnline = team.members?.some((member: any) => 
               teamsAPI.isUserOnline(member.id)
             ) || false;
             
-            // Also show new teams (created in last 10 minutes)
+            // Show new teams (created in last 30 minutes - more lenient)
             const teamAge = Date.now() - new Date(team.createdAt).getTime();
-            const isNewTeam = teamAge < 10 * 60 * 1000;
+            const isNewTeam = teamAge < 30 * 60 * 1000; // 30 minutes
             
-            return adminOnline || membersOnline || isNewTeam;
+            // Also check if team has accessed a game recently (they're active)
+            const hasRecentGameAccess = team.lastGameAccess 
+              ? (Date.now() - new Date(team.lastGameAccess).getTime()) < 10 * 60 * 1000
+              : false;
+            
+            const shouldShow = adminOnline || membersOnline || isNewTeam || hasRecentGameAccess;
+            
+            if (shouldShow) {
+              console.log(`   ✅ Showing local team: ${team.name} (admin: ${adminOnline}, members: ${membersOnline}, new: ${isNewTeam}, recent game: ${hasRecentGameAccess})`);
+            } else {
+              console.log(`   ⏭️ Skipping inactive local team: ${team.name}`);
+            }
+            
+            return shouldShow;
           })
           .map((team: any) => ({
             id: team.id,
@@ -358,10 +383,14 @@ export default function CodenamesPage() {
             adminName: team.adminName,
           }));
         
+        console.log(`   📋 Showing ${onlineTeams.length} available teams:`, onlineTeams.map(t => t.name));
         setAvailableTeams(onlineTeams);
+      } else {
+        console.warn('⚠️ Failed to load teams:', result);
+        setAvailableTeams([]);
       }
     } catch (error) {
-      console.error('Error loading available teams:', error);
+      console.error('❌ Error loading available teams:', error);
       setAvailableTeams([]);
     }
   };

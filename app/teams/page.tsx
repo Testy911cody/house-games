@@ -210,6 +210,7 @@ export default function TeamsPage() {
       const localOnlyTeams = mergedTeams.filter(t => !apiTeamIds.has(t.id));
       
       // Filter local-only teams by activity (but keep all API teams)
+      // Be more lenient - show teams that have been active recently
       const activeLocalTeams = localOnlyTeams.filter((team: Team) => {
         // Check if admin is online
         const adminOnline = teamsAPI.isUserOnline(team.adminId);
@@ -219,11 +220,16 @@ export default function TeamsPage() {
           teamsAPI.isUserOnline(member.id)
         );
 
-        // Keep team if admin OR any member is online, OR if team is very new (created in last 10 minutes)
+        // Keep team if admin OR any member is online, OR if team is new (created in last 30 minutes)
         const teamAge = Date.now() - new Date(team.createdAt).getTime();
-        const isNewTeam = teamAge < 10 * 60 * 1000; // 10 minutes
+        const isNewTeam = teamAge < 30 * 60 * 1000; // 30 minutes (more lenient)
         
-        return adminOnline || membersOnline || isNewTeam;
+        // Also show teams that have accessed a game recently (they're active)
+        const hasRecentGameAccess = team.lastGameAccess 
+          ? (Date.now() - new Date(team.lastGameAccess).getTime()) < 10 * 60 * 1000
+          : false;
+        
+        return adminOnline || membersOnline || isNewTeam || hasRecentGameAccess;
       });
       
       // Combine: All API teams + active local teams
