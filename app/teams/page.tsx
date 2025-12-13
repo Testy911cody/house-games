@@ -249,6 +249,60 @@ export default function TeamsPage() {
       
       // Sync all teams back to localStorage (for offline support)
       localStorage.setItem("teams", JSON.stringify(sortedTeams));
+      
+      // If Supabase is connected but we have local teams not in Supabase, sync them
+      if (apiStatus === "connected" && localTeams.length > 0 && apiTeams.length === 0) {
+        console.log("🔄 Supabase connected but empty - syncing local teams to Supabase...");
+        console.log(`   Found ${localTeams.length} local teams to sync`);
+        
+        // Sync teams one by one (don't await, do it in background)
+        (async () => {
+          for (const team of localTeams) {
+            try {
+              const { teamsAPI } = await import('@/lib/api-utils');
+              const result = await teamsAPI.createTeam(team);
+              if (result.success) {
+                console.log(`   ✅ Synced team to Supabase: ${team.name} (${team.id})`);
+              } else {
+                console.error(`   ❌ Failed to sync team ${team.name}:`, result.error);
+              }
+            } catch (error: any) {
+              console.error(`   ❌ Error syncing team ${team.name}:`, error?.message || error);
+            }
+          }
+          // Reload teams after sync attempt
+          console.log("   🔄 Reloading teams after sync...");
+          setTimeout(() => loadTeams(), 2000);
+        })();
+      }
+      
+      // If Supabase is configured but we have local teams not in Supabase, try to sync them
+      if (apiStatus === "connected" && localTeams.length > 0 && apiTeams.length === 0) {
+        console.log("🔄 Detected local teams but none in Supabase - attempting to sync...");
+        const localTeamIds = new Set(localTeams.map((t: Team) => t.id));
+        const apiTeamIds = new Set(apiTeams.map((t: Team) => t.id));
+        const teamsToSync = localTeams.filter((t: Team) => !apiTeamIds.has(t.id));
+        
+        if (teamsToSync.length > 0) {
+          console.log(`   Found ${teamsToSync.length} local teams to sync to Supabase`);
+          // Sync teams one by one
+          for (const team of teamsToSync) {
+            try {
+              const { teamsAPI } = await import('@/lib/api-utils');
+              const result = await teamsAPI.createTeam(team);
+              if (result.success) {
+                console.log(`   ✅ Synced team to Supabase: ${team.name}`);
+              } else {
+                console.error(`   ❌ Failed to sync team ${team.name}:`, result.error);
+              }
+            } catch (error) {
+              console.error(`   ❌ Error syncing team ${team.name}:`, error);
+            }
+          }
+          // Reload teams after sync
+          setTimeout(() => loadTeams(), 1000);
+        }
+      }
     } catch (error) {
       console.error("Error loading teams:", error);
       // Fallback to localStorage only
