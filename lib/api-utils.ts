@@ -389,10 +389,11 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         created_at: team.createdAt,
       });
       
-      // Use upsert instead of insert to handle duplicates gracefully
+      // Use insert with onConflict to handle duplicates gracefully
+      // This avoids the 400 error from upsert's onConflict option
       const { data, error } = await supabase
         .from('teams')
-        .upsert([{
+        .insert({
           id: team.id,
           name: team.name,
           code: team.code,
@@ -402,11 +403,60 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           description: team.description,
           created_at: team.createdAt,
           last_game_access: team.lastGameAccess || null,
-        }], {
-          onConflict: 'id'
         })
         .select()
         .single();
+      
+      // If insert fails due to conflict, try update instead
+      if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
+        console.log('   Team exists, updating instead...');
+        const { data: updateData, error: updateError } = await supabase
+          .from('teams')
+          .update({
+            name: team.name,
+            code: team.code,
+            admin_id: team.adminId,
+            admin_name: team.adminName,
+            members: team.members,
+            description: team.description,
+            created_at: team.createdAt,
+            last_game_access: team.lastGameAccess || null,
+          })
+          .eq('id', team.id)
+          .select()
+          .single();
+        
+        if (updateError) {
+          throw updateError;
+        }
+        
+        // Use update result
+        console.log('   Supabase response - data:', updateData);
+        console.log('   Supabase response - error:', updateError);
+        
+        if (updateError) {
+          console.error('❌ Supabase update error:', updateError);
+          throw updateError;
+        }
+        
+        if (!updateData) {
+          console.error('❌ Supabase returned no data after update');
+          throw new Error('No data returned from Supabase after update');
+        }
+        
+        console.log('✅ Team updated in Supabase successfully:', updateData.id);
+        return {
+          id: updateData.id,
+          name: updateData.name,
+          code: updateData.code,
+          adminId: updateData.admin_id,
+          adminName: updateData.admin_name,
+          members: updateData.members || [],
+          createdAt: updateData.created_at,
+          description: updateData.description,
+          lastGameAccess: updateData.last_game_access || null,
+        };
+      }
       
       console.log('   Supabase response - data:', data);
       console.log('   Supabase response - error:', error);
@@ -760,22 +810,50 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
 async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
   if (isSupabaseConfigured() && supabase) {
     try {
+      // Use insert with error handling for conflicts to avoid 400 errors
       const { data, error } = await supabase
         .from('game_states')
-        .upsert([{
+        .insert({
           id: gameState.id,
           game_type: gameState.gameType,
           team_id: gameState.teamId,
           state: gameState.state,
           last_updated: new Date().toISOString(),
           updated_by: gameState.updatedBy,
-        }], {
-          onConflict: 'id'
         })
         .select()
         .single();
       
+      // If insert fails due to conflict, try update instead
+      if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
+        const { data: updateData, error: updateError } = await supabase
+          .from('game_states')
+          .update({
+            game_type: gameState.gameType,
+            team_id: gameState.teamId,
+            state: gameState.state,
+            last_updated: new Date().toISOString(),
+            updated_by: gameState.updatedBy,
+          })
+          .eq('id', gameState.id)
+          .select()
+          .single();
+        
+        if (updateError) throw updateError;
+        if (!updateData) throw new Error('No data returned from Supabase after update');
+        
+        return {
+          id: updateData.id,
+          gameType: updateData.game_type,
+          teamId: updateData.team_id,
+          state: updateData.state,
+          lastUpdated: updateData.last_updated,
+          updatedBy: updateData.updated_by,
+        };
+      }
+      
       if (error) throw error;
+      if (!data) throw new Error('No data returned from Supabase after insert');
       
       return {
         id: data.id,
