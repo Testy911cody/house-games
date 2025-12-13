@@ -411,12 +411,53 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         created_at: team.createdAt,
       });
       
+      // Build insert data object, conditionally including last_game_access
+      // (in case the column doesn't exist in the database yet)
+      const insertData: any = {
+        id: team.id,
+        name: team.name,
+        code: team.code,
+        admin_id: team.adminId,
+        admin_name: team.adminName,
+        members: team.members,
+        description: team.description,
+        created_at: team.createdAt,
+      };
+      
+      // Only include last_game_access if it's defined (and column exists)
+      // We'll try with it first, and if it fails, retry without it
+      if (team.lastGameAccess !== undefined) {
+        insertData.last_game_access = team.lastGameAccess;
+      }
+      
       // Use insert with onConflict to handle duplicates gracefully
       // This avoids the 400 error from upsert's onConflict option
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('teams')
-        .insert({
-          id: team.id,
+        .insert(insertData)
+        .select()
+        .single();
+      
+      // If error is about missing column, retry without last_game_access
+      if (error && error.message?.includes('last_game_access') && error.message?.includes('schema cache')) {
+        console.warn('⚠️  last_game_access column not found, retrying without it...');
+        console.warn('   Run SUPABASE_ADD_LAST_GAME_ACCESS.sql in your Supabase SQL editor to add this column');
+        delete insertData.last_game_access;
+        const retryResult = await supabase
+          .from('teams')
+          .insert(insertData)
+          .select()
+          .single();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
+      
+      // If insert fails due to conflict, try update instead
+      if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
+        console.log('   Team exists (duplicate key), updating instead...');
+        
+        // Build update data object
+        const updateDataObj: any = {
           name: team.name,
           code: team.code,
           admin_id: team.adminId,
@@ -424,29 +465,33 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           members: team.members,
           description: team.description,
           created_at: team.createdAt,
-          last_game_access: team.lastGameAccess || null,
-        })
-        .select()
-        .single();
-      
-      // If insert fails due to conflict, try update instead
-      if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
-        console.log('   Team exists (duplicate key), updating instead...');
-        const { data: updateData, error: updateError } = await supabase
+        };
+        
+        // Only include last_game_access if it's defined
+        if (team.lastGameAccess !== undefined) {
+          updateDataObj.last_game_access = team.lastGameAccess;
+        }
+        
+        let { data: updateData, error: updateError } = await supabase
           .from('teams')
-          .update({
-            name: team.name,
-            code: team.code,
-            admin_id: team.adminId,
-            admin_name: team.adminName,
-            members: team.members,
-            description: team.description,
-            created_at: team.createdAt,
-            last_game_access: team.lastGameAccess || null,
-          })
+          .update(updateDataObj)
           .eq('id', team.id)
           .select()
           .single();
+        
+        // If error is about missing column, retry without last_game_access
+        if (updateError && updateError.message?.includes('last_game_access') && updateError.message?.includes('schema cache')) {
+          console.warn('⚠️  last_game_access column not found in update, retrying without it...');
+          delete updateDataObj.last_game_access;
+          const retryUpdate = await supabase
+            .from('teams')
+            .update(updateDataObj)
+            .eq('id', team.id)
+            .select()
+            .single();
+          updateData = retryUpdate.data;
+          updateError = retryUpdate.error;
+        }
         
         if (updateError) {
           console.error('❌ Supabase update error:', updateError);
@@ -564,12 +609,27 @@ async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<T
       if (updates.description !== undefined) updateData.description = updates.description;
       if (updates.lastGameAccess !== undefined) updateData.last_game_access = updates.lastGameAccess;
       
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('teams')
         .update(updateData)
         .eq('id', teamId)
         .select()
         .single();
+      
+      // If error is about missing column, retry without last_game_access
+      if (error && error.message?.includes('last_game_access') && error.message?.includes('schema cache')) {
+        console.warn('⚠️  last_game_access column not found in updateTeamInDB, retrying without it...');
+        console.warn('   Run SUPABASE_ADD_LAST_GAME_ACCESS.sql in your Supabase SQL editor to add this column');
+        delete updateData.last_game_access;
+        const retryResult = await supabase
+          .from('teams')
+          .update(updateData)
+          .eq('id', teamId)
+          .select()
+          .single();
+        data = retryResult.data;
+        error = retryResult.error;
+      }
       
       if (error) throw error;
       if (!data) return null;
