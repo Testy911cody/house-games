@@ -194,7 +194,7 @@ export default function WaitingRoom({
                 // Notify parent component about joined teams
                 if (onTeamJoined && remoteJoinedIds.length > joinedTeamIds.length) {
                   // Find newly joined teams
-                  const newTeams = remoteJoinedIds.filter(id => !joinedTeamIds.includes(id));
+                  const newTeams = remoteJoinedIds.filter((id: string) => !joinedTeamIds.includes(id));
                   for (const teamId of newTeams) {
                     const { teamsAPI } = await import('@/lib/api-utils');
                     const teamsResult = await teamsAPI.getTeams();
