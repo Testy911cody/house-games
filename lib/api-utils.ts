@@ -915,7 +915,7 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
 async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
   if (isSupabaseConfigured() && supabase) {
     try {
-      // Use insert with error handling for conflicts to avoid 400 errors
+      // Use insert with error handling for conflicts to avoid 400/409 errors
       const { data, error } = await supabase
         .from('game_states')
         .insert({
@@ -929,8 +929,20 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
         .select()
         .single();
       
-      // If insert fails due to conflict, try update instead
-      if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
+      // If insert fails due to conflict (duplicate key), try update instead
+      // Check for various error indicators: error code, status code, or error message
+      const isConflictError = error && (
+        error.code === '23505' || // PostgreSQL duplicate key error
+        error.code === 'PGRST301' || // PostgREST conflict
+        (error as any).status === 409 || // HTTP 409 Conflict
+        (error as any).statusCode === 409 || // HTTP 409 Conflict (alternative)
+        error.message?.toLowerCase().includes('duplicate') ||
+        error.message?.toLowerCase().includes('conflict') ||
+        error.message?.toLowerCase().includes('already exists')
+      );
+      
+      if (isConflictError) {
+        // Game state already exists, update it instead
         const { data: updateData, error: updateError } = await supabase
           .from('game_states')
           .update({
@@ -944,8 +956,14 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
           .select()
           .single();
         
-        if (updateError) throw updateError;
-        if (!updateData) throw new Error('No data returned from Supabase after update');
+        if (updateError) {
+          console.error('❌ Supabase update error after conflict:', updateError);
+          throw updateError;
+        }
+        if (!updateData) {
+          console.error('❌ No data returned from Supabase after update');
+          throw new Error('No data returned from Supabase after update');
+        }
         
         return {
           id: updateData.id,
@@ -957,8 +975,17 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
         };
       }
       
-      if (error) throw error;
-      if (!data) throw new Error('No data returned from Supabase after insert');
+      if (error) {
+        console.error('❌ Supabase insert error:', error);
+        console.error('   Error code:', error.code);
+        console.error('   Error message:', error.message);
+        console.error('   Error status:', (error as any).status);
+        throw error;
+      }
+      if (!data) {
+        console.error('❌ No data returned from Supabase after insert');
+        throw new Error('No data returned from Supabase after insert');
+      }
       
       return {
         id: data.id,
@@ -969,7 +996,7 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
         updatedBy: data.updated_by,
       };
     } catch (error) {
-      console.error('Supabase error saving game state:', error);
+      console.error('❌ Supabase error saving game state:', error);
       throw error;
     }
   }
