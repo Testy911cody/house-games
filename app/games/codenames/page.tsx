@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff, RotateCcw, Crown, Users, AlertTriangle } from "lucide-react";
 import Link from "next/link";
@@ -595,6 +595,88 @@ export default function CodenamesPage() {
     return () => clearTimeout(timeoutId);
   }, [phase, cards, currentTeam, clue, guessesRemaining, gameOverReason, players, gameLog, currentUser, gameId, lastSyncedState, difficulty, redTeamName, blueTeamName]);
 
+  // Auto-switch turns when guesses run out (but not if turn was already switched by wrong card)
+  const prevGuessesRemainingRef = useRef<number>(0);
+  useEffect(() => {
+    prevGuessesRemainingRef.current = guessesRemaining;
+  });
+  
+  useEffect(() => {
+    // Only auto-switch if:
+    // 1. We're playing
+    // 2. Guesses just reached 0 (was > 0 before)
+    // 3. Game isn't over
+    // 4. We have a clue (meaning a turn was in progress)
+    if (phase !== "playing" || guessesRemaining !== 0 || gameOverReason) return;
+    if (prevGuessesRemainingRef.current <= 0) return; // Was already 0, don't switch
+    if (!clue.word && clue.number === 0) return; // No clue, turn already switched or game just started
+    
+    // Small delay to allow the UI to update first
+    const timeoutId = setTimeout(async () => {
+      const newCurrentTeam = currentTeam === "red" ? "blue" : "red";
+      const newClue = { word: "", number: 0 };
+      setCurrentTeam(newCurrentTeam);
+      setClue(newClue);
+      
+      // Sync turn switch to other devices
+      if (gameId && currentUser) {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          await gameStateAPI.saveGameState({
+            id: gameId,
+            gameType: 'codenames',
+            teamId: (() => {
+              const team = localStorage.getItem("currentTeam");
+              if (team) {
+                try {
+                  return JSON.parse(team).id;
+                } catch (e) {
+                  return undefined;
+                }
+              }
+              return undefined;
+            })(),
+            state: {
+              phase,
+              difficulty,
+              redTeamName,
+              blueTeamName,
+              cards,
+              currentTeam: newCurrentTeam,
+              clue: newClue,
+              guessesRemaining: 0,
+              gameOverReason,
+              players,
+              gameLog: gameLog.map(entry => ({
+                ...entry,
+                timestamp: entry.timestamp.toISOString()
+              })),
+            },
+            lastUpdated: new Date().toISOString(),
+            updatedBy: currentUser.id,
+          });
+          setLastSyncedState(JSON.stringify({
+            phase,
+            difficulty,
+            redTeamName,
+            blueTeamName,
+            cards,
+            currentTeam: newCurrentTeam,
+            clue: newClue,
+            guessesRemaining: 0,
+            gameOverReason,
+            players,
+            gameLog,
+          }));
+        } catch (error) {
+          console.error('Error syncing auto turn switch:', error);
+        }
+      }
+    }, 500); // Small delay to show the "no guesses remaining" state
+    
+    return () => clearTimeout(timeoutId);
+  }, [guessesRemaining, phase, currentTeam, clue, gameOverReason, gameId, currentUser, cards, difficulty, redTeamName, blueTeamName, players, gameLog]);
+
   // Poll for game state updates from other devices
   useEffect(() => {
     if (!currentUser || !gameId) return;
@@ -993,16 +1075,74 @@ export default function CodenamesPage() {
     }
   };
 
-  const passTurn = () => {
-    setGameLog(prev => [...prev, {
-      type: "pass",
+  const passTurn = async () => {
+    const newLogEntry = {
+      type: "pass" as const,
       team: currentTeam,
       player: currentUser.name,
       timestamp: new Date()
-    }]);
-    setCurrentTeam(currentTeam === "red" ? "blue" : "red");
-    setClue({ word: "", number: 0 });
+    };
+    setGameLog(prev => [...prev, newLogEntry]);
+    const newCurrentTeam = currentTeam === "red" ? "blue" : "red";
+    const newClue = { word: "", number: 0 };
+    setCurrentTeam(newCurrentTeam);
+    setClue(newClue);
     setGuessesRemaining(0);
+    
+    // Sync turn switch to other devices
+    if (gameId && currentUser) {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'codenames',
+          teamId: (() => {
+            const team = localStorage.getItem("currentTeam");
+            if (team) {
+              try {
+                return JSON.parse(team).id;
+              } catch (e) {
+                return undefined;
+              }
+            }
+            return undefined;
+          })(),
+          state: {
+            phase,
+            difficulty,
+            redTeamName,
+            blueTeamName,
+            cards,
+            currentTeam: newCurrentTeam,
+            clue: newClue,
+            guessesRemaining: 0,
+            gameOverReason,
+            players,
+            gameLog: [...gameLog, newLogEntry].map(entry => ({
+              ...entry,
+              timestamp: entry.timestamp.toISOString()
+            })),
+          },
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+        setLastSyncedState(JSON.stringify({
+          phase,
+          difficulty,
+          redTeamName,
+          blueTeamName,
+          cards,
+          currentTeam: newCurrentTeam,
+          clue: newClue,
+          guessesRemaining: 0,
+          gameOverReason,
+          players,
+          gameLog: [...gameLog, newLogEntry],
+        }));
+      } catch (error) {
+        console.error('Error syncing turn switch:', error);
+      }
+    }
   };
 
   const resetGame = () => {
