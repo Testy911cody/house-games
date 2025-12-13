@@ -597,19 +597,27 @@ export default function CodenamesPage() {
 
   // Auto-switch turns when guesses run out (but not if turn was already switched by wrong card)
   const prevGuessesRemainingRef = useRef<number>(0);
-  useEffect(() => {
-    prevGuessesRemainingRef.current = guessesRemaining;
-  });
   
   useEffect(() => {
+    // Store the previous value before we check
+    const prevGuesses = prevGuessesRemainingRef.current;
+    // Update ref for next render (this will be the "previous" value next time)
+    prevGuessesRemainingRef.current = guessesRemaining;
+    
     // Only auto-switch if:
     // 1. We're playing
     // 2. Guesses just reached 0 (was > 0 before)
     // 3. Game isn't over
     // 4. We have a clue (meaning a turn was in progress)
-    if (phase !== "playing" || guessesRemaining !== 0 || gameOverReason) return;
-    if (prevGuessesRemainingRef.current <= 0) return; // Was already 0, don't switch
-    if (!clue.word && clue.number === 0) return; // No clue, turn already switched or game just started
+    if (phase !== "playing" || guessesRemaining !== 0 || gameOverReason) {
+      return;
+    }
+    if (prevGuesses <= 0) {
+      return; // Was already 0, don't switch
+    }
+    if (!clue.word && clue.number === 0) {
+      return; // No clue, turn already switched or game just started
+    }
     
     // Small delay to allow the UI to update first
     const timeoutId = setTimeout(async () => {
