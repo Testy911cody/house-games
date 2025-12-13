@@ -141,6 +141,64 @@ export default function WaitingRoom({
     
     return () => clearInterval(interval);
   }, [gameId, showAvailableGames]);
+  
+  // Poll game state to sync joined teams across devices
+  useEffect(() => {
+    if (!gameId || !currentUser) return;
+    
+    const pollGameState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state) {
+          const remoteState = result.state.state;
+          
+          // Only update if state is different and from another user
+          if (result.state.updatedBy !== currentUser.id && remoteState.phase === "waiting") {
+            // Update joined teams if they changed
+            if (remoteState.joinedTeamIds && Array.isArray(remoteState.joinedTeamIds)) {
+              const remoteJoinedIds = remoteState.joinedTeamIds;
+              // Only update if the remote state has different teams
+              if (JSON.stringify(remoteJoinedIds.sort()) !== JSON.stringify(joinedTeamIds.sort())) {
+                setJoinedTeamIds(remoteJoinedIds);
+                setIsPlayingAgainstComputer(remoteState.isPlayingAgainstComputer !== false);
+                
+                // Notify parent component about joined teams
+                if (onTeamJoined && remoteJoinedIds.length > joinedTeamIds.length) {
+                  // Find newly joined teams
+                  const newTeams = remoteJoinedIds.filter(id => !joinedTeamIds.includes(id));
+                  for (const teamId of newTeams) {
+                    const { teamsAPI } = await import('@/lib/api-utils');
+                    const teamsResult = await teamsAPI.getTeams();
+                    if (teamsResult.success && teamsResult.teams) {
+                      const team = teamsResult.teams.find((t: any) => t.id === teamId);
+                      if (team) {
+                        onTeamJoined(teamId, team.name);
+                      }
+                    }
+                  }
+                }
+              }
+            }
+            
+            // Update isPlayingAgainstComputer status
+            if (remoteState.isPlayingAgainstComputer !== undefined) {
+              setIsPlayingAgainstComputer(remoteState.isPlayingAgainstComputer);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error polling game state:', error);
+      }
+    };
+    
+    // Poll every 1 second for real-time sync
+    const intervalId = setInterval(pollGameState, 1000);
+    pollGameState(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [gameId, currentUser, joinedTeamIds, onTeamJoined]);
 
   // Countdown timer
   useEffect(() => {
@@ -178,11 +236,12 @@ export default function WaitingRoom({
       
       if (result.success && result.teams) {
         const team = result.teams.find((t: any) => t.id === teamId);
-        if (team) {
-          setJoinedTeamIds(prev => [...prev, teamId]);
+        if (team && !joinedTeamIds.includes(teamId)) {
+          const updatedJoinedIds = [...joinedTeamIds, teamId];
+          setJoinedTeamIds(updatedJoinedIds);
           setIsPlayingAgainstComputer(false);
           
-          // Update game state
+          // Update game state immediately
           if (gameId && currentUser) {
             const { gameStateAPI } = await import('@/lib/api-utils');
             await gameStateAPI.saveGameState({
@@ -191,8 +250,10 @@ export default function WaitingRoom({
               teamId: currentTeamId || undefined,
               state: {
                 phase: "waiting",
-                joinedTeamIds: [...joinedTeamIds, teamId],
+                joinedTeamIds: updatedJoinedIds,
                 isPlayingAgainstComputer: false,
+                currentTeamName: currentTeamName,
+                currentTeamId: currentTeamId,
               },
               lastUpdated: new Date().toISOString(),
               updatedBy: currentUser.id,

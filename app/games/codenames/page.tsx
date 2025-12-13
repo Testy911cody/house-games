@@ -503,8 +503,12 @@ export default function CodenamesPage() {
         }
       };
       
-      const timeoutId = setTimeout(saveWaitingState, 500);
-      return () => clearTimeout(timeoutId);
+      // Save immediately when waiting room state changes
+      saveWaitingState();
+      
+      // Also save periodically to ensure sync
+      const intervalId = setInterval(saveWaitingState, 2000);
+      return () => clearInterval(intervalId);
     }
     
     if (phase === "setup") return;
@@ -578,13 +582,31 @@ export default function CodenamesPage() {
             
             // Only update if state is different and from another user
             if (result.state.updatedBy !== currentUser.id) {
-              if (remoteState.blueTeamId && remoteState.blueTeamId !== blueTeamId) {
-                setBlueTeamId(remoteState.blueTeamId);
-                setIsPlayingAgainstComputer(false);
-                if (remoteState.blueTeamName) {
-                  setBlueTeamName(remoteState.blueTeamName);
+              // Update blue team if it changed
+              if (remoteState.blueTeamId) {
+                if (remoteState.blueTeamId !== blueTeamId) {
+                  setBlueTeamId(remoteState.blueTeamId);
+                  setIsPlayingAgainstComputer(false);
+                  if (remoteState.blueTeamName) {
+                    setBlueTeamName(remoteState.blueTeamName);
+                  }
                 }
+              } else if (blueTeamId && !remoteState.blueTeamId) {
+                // Blue team was removed
+                setBlueTeamId(null);
+                setIsPlayingAgainstComputer(true);
               }
+              
+              // Update isPlayingAgainstComputer status
+              if (remoteState.isPlayingAgainstComputer !== undefined) {
+                setIsPlayingAgainstComputer(remoteState.isPlayingAgainstComputer);
+              }
+              
+              // Update red team name if it changed
+              if (remoteState.redTeamName && remoteState.redTeamName !== redTeamName) {
+                setRedTeamName(remoteState.redTeamName);
+              }
+              
               if (remoteState.phase && remoteState.phase !== "waiting") {
                 // Game started by another player
                 if (remoteState.phase === "setup" || remoteState.phase === "playing") {
