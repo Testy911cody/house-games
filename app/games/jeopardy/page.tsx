@@ -925,10 +925,50 @@ export default function JeopardyPage() {
           }
         }}
         onStartGame={() => {
+          // Ensure current team is in teams array
+          const currentTeamData = localStorage.getItem("currentTeam");
+          if (currentTeamData) {
+            try {
+              const teamData = JSON.parse(currentTeamData);
+              const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
+              if (!currentTeamExists) {
+                const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
+                const gameTeam: Team = {
+                  id: `team_${teamData.id}`,
+                  name: teamData.name,
+                  color: availableColor,
+                  score: 0
+                };
+                setTeams(prev => [gameTeam, ...prev]);
+              }
+            } catch (e) {
+              console.error("Error adding current team:", e);
+            }
+          }
           setPhase("setup");
         }}
         onPlayAgainstComputer={() => {
           setIsPlayingAgainstComputer(true);
+          // Ensure current team is in teams array
+          const currentTeamData = localStorage.getItem("currentTeam");
+          if (currentTeamData) {
+            try {
+              const teamData = JSON.parse(currentTeamData);
+              const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
+              if (!currentTeamExists) {
+                const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
+                const gameTeam: Team = {
+                  id: `team_${teamData.id}`,
+                  name: teamData.name,
+                  color: availableColor,
+                  score: 0
+                };
+                setTeams(prev => [gameTeam, ...prev]);
+              }
+            } catch (e) {
+              console.error("Error adding current team:", e);
+            }
+          }
           setPhase("setup");
         }}
         minPlayers={2}

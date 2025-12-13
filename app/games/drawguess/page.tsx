@@ -650,15 +650,18 @@ export default function DrawGuessPage() {
           if (result.success && result.teams) {
             const team = result.teams.find((t: any) => t.id === teamId);
             if (team) {
-              const newPlayers: Player[] = [
-                ...team.members.map((m: any) => ({ 
-                  id: m.id, 
-                  name: m.name, 
-                  score: 0, 
-                  hasDrawn: false 
-                }))
-              ];
-              setPlayers(prev => [...prev, ...newPlayers]);
+              const newPlayers: Player[] = team.members.map((m: any) => ({ 
+                id: m.id, 
+                name: m.name, 
+                score: 0, 
+                hasDrawn: false 
+              }));
+              // Only add players that don't already exist
+              setPlayers(prev => {
+                const existingIds = new Set(prev.map(p => p.id));
+                const uniqueNewPlayers = newPlayers.filter(p => !existingIds.has(p.id));
+                return [...prev, ...uniqueNewPlayers];
+              });
             }
           }
         }}
