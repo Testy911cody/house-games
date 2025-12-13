@@ -1355,6 +1355,28 @@ export default function CodenamesPage() {
 
   // PLAYING PHASE - Role Selection
   if (phase === "playing" && !role) {
+    // Auto-select team based on waiting room setup
+    // If blueTeamId is set and matches current user's team, they're blue, otherwise red (host)
+    if (!selectedTeam && currentUser) {
+      const currentTeamData = localStorage.getItem("currentTeam");
+      let currentTeamId = null;
+      if (currentTeamData) {
+        try {
+          currentTeamId = JSON.parse(currentTeamData).id;
+        } catch (e) {
+          // Ignore parse errors
+        }
+      }
+      
+      // If blueTeamId matches current user's team, they're on blue team
+      // Otherwise, they're on red team (the host)
+      if (blueTeamId && currentTeamId === blueTeamId) {
+        setSelectedTeam("blue");
+      } else {
+        setSelectedTeam("red");
+      }
+    }
+    
     return (
       <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
@@ -1378,25 +1400,6 @@ export default function CodenamesPage() {
             <h2 className={`pixel-font text-3xl md:text-4xl font-bold ${activeTeam.color.text} mb-2`}>
               CHOOSE YOUR ROLE
             </h2>
-          </div>
-
-          {/* Team Selection */}
-          <div className="neon-card neon-box-cyan p-8 mb-6 card-3d">
-            <h3 className="text-xl font-bold text-center text-cyan-400 mb-4">CHOOSE YOUR TEAM</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <button
-                onClick={() => setSelectedTeam("red")}
-                className={`${redTeam.color.light} border-2 ${redTeam.color.border} ${selectedTeam === "red" ? redTeam.color.glow : ""} p-4 rounded-xl transition-all hover:scale-105`}
-              >
-                <div className={`${redTeam.color.text} font-bold text-lg`}>{redTeam.name}</div>
-              </button>
-              <button
-                onClick={() => setSelectedTeam("blue")}
-                className={`${blueTeam.color.light} border-2 ${blueTeam.color.border} ${selectedTeam === "blue" ? blueTeam.color.glow : ""} p-4 rounded-xl transition-all hover:scale-105`}
-              >
-                <div className={`${blueTeam.color.text} font-bold text-lg`}>{blueTeam.name}</div>
-              </button>
-            </div>
           </div>
 
           {/* Role Selection */}
