@@ -20,6 +20,7 @@ interface Team {
   members: TeamMember[];
   createdAt: string;
   description?: string;
+  lastGameAccess?: string;
 }
 
 export default function TeamsPage() {
