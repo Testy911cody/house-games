@@ -77,16 +77,32 @@ export default function WaitingRoom({
   const loadAvailableTeams = async () => {
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
+      const { isSupabaseConfigured } = await import('@/lib/supabase');
       const result = await teamsAPI.getTeams();
       
       if (result.success && result.teams) {
+        console.log(`🔍 Loaded ${result.teams.length} teams for waiting room`);
+        
         // Filter to only show teams that are online and not already in this game
         const onlineTeams = result.teams
           .filter((team: any) => {
             // Don't show the current user's team
-            if (team.id === currentTeamId) return false;
+            if (team.id === currentTeamId) {
+              console.log(`   Skipping own team: ${team.name}`);
+              return false;
+            }
             
-            // Check if team has online members
+            // If Supabase is configured, show ALL teams from Supabase (they're synced)
+            // Only filter by activity for local-only teams
+            const isFromSupabase = isSupabaseConfigured();
+            
+            if (isFromSupabase) {
+              // Show all teams from Supabase (they're already synced across devices)
+              console.log(`   ✅ Showing Supabase team: ${team.name} (${team.id})`);
+              return true;
+            }
+            
+            // For local-only teams, check activity
             const adminOnline = teamsAPI.isUserOnline(team.adminId);
             const membersOnline = team.members?.some((member: any) => 
               teamsAPI.isUserOnline(member.id)
@@ -96,7 +112,14 @@ export default function WaitingRoom({
             const teamAge = Date.now() - new Date(team.createdAt).getTime();
             const isNewTeam = teamAge < 10 * 60 * 1000;
             
-            return adminOnline || membersOnline || isNewTeam;
+            const shouldShow = adminOnline || membersOnline || isNewTeam;
+            if (shouldShow) {
+              console.log(`   ✅ Showing local team: ${team.name} (admin online: ${adminOnline}, members online: ${membersOnline}, new: ${isNewTeam})`);
+            } else {
+              console.log(`   ⏭️ Skipping inactive local team: ${team.name}`);
+            }
+            
+            return shouldShow;
           })
           .map((team: any) => ({
             id: team.id,
@@ -106,10 +129,14 @@ export default function WaitingRoom({
             adminName: team.adminName,
           }));
         
+        console.log(`   📋 Showing ${onlineTeams.length} available teams:`, onlineTeams.map(t => t.name));
         setAvailableTeams(onlineTeams);
+      } else {
+        console.warn('⚠️ Failed to load teams:', result);
+        setAvailableTeams([]);
       }
     } catch (error) {
-      console.error('Error loading available teams:', error);
+      console.error('❌ Error loading available teams:', error);
       setAvailableTeams([]);
     }
   };

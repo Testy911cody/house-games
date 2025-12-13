@@ -73,12 +73,12 @@ export default function TeamsPage() {
 
       loadTeams();
       
-      // Auto-refresh teams every 2 seconds for rapid multiplayer sync
+      // Auto-refresh teams every 1 second for rapid multiplayer sync
       const refreshInterval = setInterval(() => {
         loadTeams();
         // Update user activity on each refresh
         updateActivity();
-      }, 2000);
+      }, 1000);
       
       // Run cleanup every 2 minutes to remove inactive teams
       const cleanupInterval = setInterval(async () => {
@@ -130,6 +130,9 @@ export default function TeamsPage() {
         // Check if Supabase is configured
         if (!isSupabaseConfigured()) {
           console.warn("⚠️ Supabase not configured - teams will only sync locally. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
+          console.warn("   To enable cross-device sync, add these to your .env.local file:");
+          console.warn("   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co");
+          console.warn("   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key");
           setApiStatus("offline");
         } else {
           const data = await teamsAPI.getTeams();
@@ -137,7 +140,19 @@ export default function TeamsPage() {
           if (data.success && Array.isArray(data.teams)) {
             apiTeams = data.teams;
             setApiStatus("connected");
-            console.log(`✅ Loaded ${apiTeams.length} teams from Supabase:`, apiTeams.map(t => t.name));
+            console.log(`✅ Loaded ${apiTeams.length} teams from Supabase:`, apiTeams.map(t => `${t.name} (${t.id})`));
+            
+            // Debug: Log team details
+            if (apiTeams.length > 0) {
+              console.log("   Team details:", apiTeams.map(t => ({
+                id: t.id,
+                name: t.name,
+                code: t.code,
+                adminId: t.adminId,
+                members: t.members?.length || 0,
+                createdAt: t.createdAt
+              })));
+            }
           } else {
             setApiStatus("offline");
             console.error("❌ API response invalid:", data);
@@ -213,7 +228,7 @@ export default function TeamsPage() {
       
       // Combine: All API teams + active local teams
       const allTeamsToShow = [
-        ...mergedTeams.filter(t => apiTeamIds.has(t.id)), // All API teams (from Supabase)
+        ...mergedTeams.filter(t => apiTeamIds.has(t.id)), // All API teams (from Supabase) - ALWAYS SHOW
         ...activeLocalTeams // Active local-only teams
       ];
       
@@ -221,6 +236,8 @@ export default function TeamsPage() {
       const sortedTeams = allTeamsToShow.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
+      
+      console.log(`📋 Showing ${sortedTeams.length} teams total (${apiTeams.length} from Supabase, ${activeLocalTeams.length} local)`);
       
       setTeams(sortedTeams);
       
