@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Check, X, Users, Play, RotateCcw, Palette, Eraser, Trash2, Zap, Clock, Trophy } from "lucide-react";
+import WaitingRoom from "@/app/components/WaitingRoom";
 
 const DRAWING_WORDS = [
   "Cat", "Dog", "Elephant", "Lion", "Tiger", "Bear", "Rabbit", "Horse", "Cow", "Pig",
@@ -18,7 +19,7 @@ const DRAWING_WORDS = [
   "Cactus", "Palm Tree", "Snowman", "Gift", "Balloon", "Kite", "Umbrella", "Key", "Lock", "Crown"
 ];
 
-type GamePhase = "setup" | "waiting" | "drawing" | "guessing" | "roundEnd" | "gameOver";
+type GamePhase = "waitingRoom" | "setup" | "waiting" | "drawing" | "guessing" | "roundEnd" | "gameOver";
 type PlayerRole = "drawer" | "guesser";
 
 interface Player {
@@ -38,7 +39,7 @@ export default function DrawGuessPage() {
   const [guess, setGuess] = useState("");
   const [guesses, setGuesses] = useState<{ player: string; guess: string; correct: boolean }[]>([]);
   const [timeLeft, setTimeLeft] = useState(60);
-  const [phase, setPhase] = useState<GamePhase>("setup");
+  const [phase, setPhase] = useState<GamePhase>("waitingRoom");
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentDrawerIndex, setCurrentDrawerIndex] = useState(0);
   const [role, setRole] = useState<PlayerRole | null>(null);
@@ -52,6 +53,8 @@ export default function DrawGuessPage() {
 
   const [gameId, setGameId] = useState<string | null>(null);
   const [lastSyncedState, setLastSyncedState] = useState<string>("");
+  const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
+  const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -104,7 +107,7 @@ export default function DrawGuessPage() {
 
   // Save game state to Supabase whenever it changes
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup" || phase === "waiting") return;
+    if (!currentUser || !gameId || phase === "setup" || phase === "waiting" || phase === "waitingRoom") return;
     
     const saveState = async () => {
       try {
@@ -163,7 +166,7 @@ export default function DrawGuessPage() {
 
   // Poll for game state updates from other devices
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup" || phase === "waiting") return;
+    if (!currentUser || !gameId || phase === "setup" || phase === "waiting" || phase === "waitingRoom") return;
     
     const pollState = async () => {
       try {
@@ -613,6 +616,66 @@ export default function DrawGuessPage() {
   if (!currentUser) return null;
 
   const currentDrawer = players[currentDrawerIndex];
+
+  // WAITING ROOM PHASE
+  if (phase === "waitingRoom") {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo = null;
+    if (currentTeamData) {
+      try {
+        teamInfo = JSON.parse(currentTeamData);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    
+    const currentTeamName = teamInfo?.name || "Solo Player";
+    const currentTeamId = teamInfo?.id || null;
+
+    return (
+      <WaitingRoom
+        gameType="drawguess"
+        gameName="DRAW & GUESS"
+        gameIcon="🎨"
+        currentTeamName={currentTeamName}
+        currentTeamId={currentTeamId}
+        gameId={gameId || ""}
+        currentUser={currentUser}
+        onTeamJoined={async (teamId, teamName) => {
+          setJoinedTeamIds(prev => [...prev, teamId]);
+          setIsPlayingAgainstComputer(false);
+          // Add players from joined team
+          const { teamsAPI } = await import('@/lib/api-utils');
+          const result = await teamsAPI.getTeams();
+          if (result.success && result.teams) {
+            const team = result.teams.find((t: any) => t.id === teamId);
+            if (team) {
+              const newPlayers: Player[] = [
+                ...team.members.map((m: any) => ({ 
+                  id: m.id, 
+                  name: m.name, 
+                  score: 0, 
+                  hasDrawn: false 
+                }))
+              ];
+              setPlayers(prev => [...prev, ...newPlayers]);
+            }
+          }
+        }}
+        onStartGame={() => {
+          setPhase("setup");
+        }}
+        onPlayAgainstComputer={() => {
+          setIsPlayingAgainstComputer(true);
+          setPhase("setup");
+        }}
+        minPlayers={2}
+        maxPlayers={8}
+        waitTime={30}
+        showAvailableGames={true}
+      />
+    );
+  }
 
   // SETUP PHASE
   if (phase === "setup") {

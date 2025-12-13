@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star, Sparkles, Loader2 } from "lucide-react";
 import Link from "next/link";
+import WaitingRoom from "@/app/components/WaitingRoom";
 
 // TOPICS WITH SUB-CATEGORIES
 const TOPICS: Record<string, {
@@ -428,7 +429,7 @@ interface Question {
   points: number;
 }
 
-type GamePhase = "setup" | "topicSelect" | "categorySelect" | "playing" | "question" | "answer" | "gameOver";
+type GamePhase = "waiting" | "setup" | "topicSelect" | "categorySelect" | "playing" | "question" | "answer" | "gameOver";
 
 interface CustomCategory {
   name: string;
@@ -450,9 +451,12 @@ export default function JeopardyPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
   
-  const [phase, setPhase] = useState<GamePhase>("setup");
+  const [phase, setPhase] = useState<GamePhase>("waiting");
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
+  const [gameId, setGameId] = useState<string | null>(null);
+  const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
+  const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
   
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -489,6 +493,12 @@ export default function JeopardyPage() {
       return;
     }
     setCurrentUser(JSON.parse(user));
+    
+    // Create game ID
+    const currentTeam = localStorage.getItem("currentTeam");
+    const { gameStateAPI } = require('@/lib/api-utils');
+    const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'jeopardy');
+    setGameId(id);
     
     // Load custom categories from localStorage
     const savedCustomCategories = localStorage.getItem("jeopardy_custom_categories");
@@ -869,6 +879,65 @@ export default function JeopardyPage() {
 
   const currentTeam = teams[currentTeamIndex];
   const topicColor = currentTopicData ? COLOR_CLASSES[currentTopicData.color] : COLOR_CLASSES.cyan;
+
+  // WAITING ROOM PHASE
+  if (phase === "waiting") {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo = null;
+    if (currentTeamData) {
+      try {
+        teamInfo = JSON.parse(currentTeamData);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    
+    const currentTeamName = teamInfo?.name || "Solo Player";
+    const currentTeamId = teamInfo?.id || null;
+
+    return (
+      <WaitingRoom
+        gameType="jeopardy"
+        gameName="JEOPARDY"
+        gameIcon="🎯"
+        currentTeamName={currentTeamName}
+        currentTeamId={currentTeamId}
+        gameId={gameId || ""}
+        currentUser={currentUser}
+        onTeamJoined={async (teamId, teamName) => {
+          setJoinedTeamIds(prev => [...prev, teamId]);
+          setIsPlayingAgainstComputer(false);
+          // Add team to teams list
+          const { teamsAPI } = await import('@/lib/api-utils');
+          const result = await teamsAPI.getTeams();
+          if (result.success && result.teams) {
+            const team = result.teams.find((t: any) => t.id === teamId);
+            if (team) {
+              const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
+              const newTeam: Team = {
+                id: `team_${team.id}`,
+                name: team.name,
+                color: availableColor,
+                score: 0
+              };
+              setTeams(prev => [...prev, newTeam]);
+            }
+          }
+        }}
+        onStartGame={() => {
+          setPhase("setup");
+        }}
+        onPlayAgainstComputer={() => {
+          setIsPlayingAgainstComputer(true);
+          setPhase("setup");
+        }}
+        minPlayers={2}
+        maxPlayers={6}
+        waitTime={30}
+        showAvailableGames={true}
+      />
+    );
+  }
 
   // SETUP PHASE
   if (phase === "setup") {
