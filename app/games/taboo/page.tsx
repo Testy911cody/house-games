@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, X, Users, Plus, Trash2, Play, Crown, RotateCcw, Zap } from "lucide-react";
 import Link from "next/link";
+import WaitingRoom from "@/app/components/WaitingRoom";
 
 // Difficulty-based word lists
 const TABOO_WORDS_EASY = [
@@ -53,7 +54,7 @@ interface Team {
   score: number;
 }
 
-type GamePhase = "setup" | "playing" | "roundEnd" | "gameOver";
+type GamePhase = "waiting" | "setup" | "playing" | "roundEnd" | "gameOver";
 type PlayerRole = "describer" | "guesser";
 
 export default function TabooPage() {
@@ -61,7 +62,9 @@ export default function TabooPage() {
   const [currentUser, setCurrentUser] = useState<any>(null);
   const guessInputRef = useRef<HTMLInputElement>(null);
   
-  const [phase, setPhase] = useState<GamePhase>("setup");
+  const [phase, setPhase] = useState<GamePhase>("waiting");
+  const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
+  const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
@@ -96,9 +99,19 @@ export default function TabooPage() {
     
     // Create game ID
     const currentTeam = localStorage.getItem("currentTeam");
-    const { gameStateAPI } = require('@/lib/api-utils');
+    const { gameStateAPI, teamsAPI } = require('@/lib/api-utils');
     const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'taboo');
     setGameId(id);
+    
+    // Update team's last game access if team exists
+    if (currentTeam) {
+      try {
+        const team = JSON.parse(currentTeam);
+        teamsAPI.updateTeamGameAccess(team.id);
+      } catch (e) {
+        console.error("Error updating team game access:", e);
+      }
+    }
   }, [router]);
 
   // Separate effect to initialize team from currentTeam
@@ -191,7 +204,7 @@ export default function TabooPage() {
         setLastSyncedState(stateString);
       } catch (error) {
         console.error('Error saving game state:', error);
-      }
+          }
     };
     
     // Debounce saves
@@ -422,7 +435,7 @@ export default function TabooPage() {
   };
 
   const resetGame = () => {
-    setPhase("setup");
+    setPhase("waiting");
     setTeams([]);
     setCurrentTeamIndex(0);
     setRoundsPlayed({});
@@ -436,6 +449,8 @@ export default function TabooPage() {
     setRoundScore({ correct: 0, skipped: 0 });
     setGuess("");
     setGuessHistory([]);
+    setJoinedTeamIds([]);
+    setIsPlayingAgainstComputer(true);
     localStorage.removeItem("taboo_game_state");
     localStorage.removeItem("taboo_guesses");
     // Keep difficulty setting
@@ -444,6 +459,66 @@ export default function TabooPage() {
   if (!currentUser) return null;
 
   const currentTeam = teams[currentTeamIndex];
+  
+  // Get current team info
+  const currentTeamData = localStorage.getItem("currentTeam");
+  let teamInfo = null;
+  if (currentTeamData) {
+    try {
+      teamInfo = JSON.parse(currentTeamData);
+    } catch (e) {
+      // Ignore parse errors
+    }
+  }
+  
+  const currentTeamName = teamInfo?.name || "Solo Player";
+  const currentTeamId = teamInfo?.id || null;
+
+  // WAITING ROOM PHASE
+  if (phase === "waiting") {
+    return (
+      <WaitingRoom
+        gameType="taboo"
+        gameName="TABOO"
+        gameIcon="🚫"
+        currentTeamName={currentTeamName}
+        currentTeamId={currentTeamId}
+        gameId={gameId || ""}
+        currentUser={currentUser}
+        onTeamJoined={async (teamId, teamName) => {
+          setJoinedTeamIds(prev => [...prev, teamId]);
+          setIsPlayingAgainstComputer(false);
+          // Add team to teams list
+          const { teamsAPI } = await import('@/lib/api-utils');
+          const result = await teamsAPI.getTeams();
+          if (result.success && result.teams) {
+            const team = result.teams.find((t: any) => t.id === teamId);
+            if (team) {
+              const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
+              const newTeam: Team = {
+                id: `team_${team.id}`,
+                name: team.name,
+                color: availableColor,
+                score: 0
+              };
+              setTeams(prev => [...prev, newTeam]);
+            }
+          }
+        }}
+        onStartGame={() => {
+          setPhase("setup");
+        }}
+        onPlayAgainstComputer={() => {
+          setIsPlayingAgainstComputer(true);
+          setPhase("setup");
+        }}
+        minPlayers={2}
+        maxPlayers={6}
+        waitTime={30}
+        showAvailableGames={true}
+      />
+    );
+  }
 
   // SETUP PHASE
   if (phase === "setup") {

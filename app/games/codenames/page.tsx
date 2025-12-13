@@ -181,7 +181,7 @@ const CODEWORDS = [...CODEWORDS_EASY, ...CODEWORDS_MEDIUM, ...CODEWORDS_HARD];
 type Difficulty = "easy" | "medium" | "hard";
 
 type CardType = "red" | "blue" | "neutral" | "assassin";
-type GamePhase = "setup" | "playing" | "gameOver";
+type GamePhase = "waiting" | "setup" | "playing" | "gameOver";
 type PlayerRole = "spymaster" | "operative";
 
 interface Card {
@@ -222,11 +222,19 @@ interface Team {
   cardsRemaining: number;
 }
 
+interface AvailableTeam {
+  id: string;
+  name: string;
+  code: string;
+  memberCount: number;
+  adminName: string;
+}
+
 export default function CodenamesPage() {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
   
-  const [phase, setPhase] = useState<GamePhase>("setup");
+  const [phase, setPhase] = useState<GamePhase>("waiting");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [redTeamName, setRedTeamName] = useState("RED TEAM");
   const [blueTeamName, setBlueTeamName] = useState("BLUE TEAM");
@@ -239,6 +247,13 @@ export default function CodenamesPage() {
   const [gameOverReason, setGameOverReason] = useState<string>("");
   const [players, setPlayers] = useState<Player[]>([]);
   const [gameLog, setGameLog] = useState<GameLogEntry[]>([]);
+  
+  // Waiting room state
+  const [availableTeams, setAvailableTeams] = useState<AvailableTeam[]>([]);
+  const [blueTeamId, setBlueTeamId] = useState<string | null>(null);
+  const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [waitingRoomStartTime, setWaitingRoomStartTime] = useState<number | null>(null);
 
   const redTeam: Team = {
     id: "red",
@@ -287,9 +302,11 @@ export default function CodenamesPage() {
         const team = JSON.parse(currentTeam);
         setRedTeamName(team.name);
         // Create game ID from team
-        const { gameStateAPI } = require('@/lib/api-utils');
+        const { gameStateAPI, teamsAPI } = require('@/lib/api-utils');
         const id = gameStateAPI.createGameId(team.id, 'codenames');
         setGameId(id);
+        // Update team's last game access
+        teamsAPI.updateTeamGameAccess(team.id);
       } catch (e) {
         console.error("Error loading team:", e);
       }
@@ -299,11 +316,198 @@ export default function CodenamesPage() {
       const id = gameStateAPI.createGameId(null, 'codenames');
       setGameId(id);
     }
+    
+    // Initialize waiting room
+    setWaitingRoomStartTime(Date.now());
+    loadAvailableTeams();
   }, [router]);
+  
+  // Load available teams for waiting room
+  const loadAvailableTeams = async () => {
+    try {
+      const { teamsAPI } = await import('@/lib/api-utils');
+      const result = await teamsAPI.getTeams();
+      
+      if (result.success && result.teams) {
+        // Filter to only show teams that are online and not already in this game
+        const currentTeamData = localStorage.getItem("currentTeam");
+        const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
+        
+        const onlineTeams = result.teams
+          .filter((team: any) => {
+            // Don't show the current user's team
+            if (team.id === currentTeamId) return false;
+            
+            // Check if team has online members
+            const adminOnline = teamsAPI.isUserOnline(team.adminId);
+            const membersOnline = team.members?.some((member: any) => 
+              teamsAPI.isUserOnline(member.id)
+            ) || false;
+            
+            // Also show new teams (created in last 10 minutes)
+            const teamAge = Date.now() - new Date(team.createdAt).getTime();
+            const isNewTeam = teamAge < 10 * 60 * 1000;
+            
+            return adminOnline || membersOnline || isNewTeam;
+          })
+          .map((team: any) => ({
+            id: team.id,
+            name: team.name,
+            code: team.code,
+            memberCount: (team.members?.length || 0) + 1,
+            adminName: team.adminName,
+          }));
+        
+        setAvailableTeams(onlineTeams);
+      }
+    } catch (error) {
+      console.error('Error loading available teams:', error);
+      setAvailableTeams([]);
+    }
+  };
+  
+  // Auto-refresh available teams in waiting room
+  useEffect(() => {
+    if (phase !== "waiting" || !currentUser) return;
+    
+    const interval = setInterval(() => {
+      loadAvailableTeams();
+    }, 2000);
+    
+    return () => clearInterval(interval);
+  }, [phase, currentUser]);
+  
+  // Function to proceed to setup phase
+  const proceedToSetup = () => {
+    setPhase("setup");
+    setCountdown(null);
+  };
+  
+  // Countdown timer for waiting room
+  useEffect(() => {
+    if (phase !== "waiting" || !waitingRoomStartTime) return;
+    
+    const WAIT_TIME = 30; // 30 seconds to wait for teams
+    const elapsed = Math.floor((Date.now() - waitingRoomStartTime) / 1000);
+    const remaining = Math.max(0, WAIT_TIME - elapsed);
+    
+    if (remaining > 0) {
+      setCountdown(remaining);
+      const timer = setInterval(() => {
+        const newElapsed = Math.floor((Date.now() - waitingRoomStartTime) / 1000);
+        const newRemaining = Math.max(0, WAIT_TIME - newElapsed);
+        setCountdown(newRemaining);
+        
+        if (newRemaining === 0 && isPlayingAgainstComputer) {
+          // Auto-start if no team joined
+          proceedToSetup();
+        }
+      }, 1000);
+      
+      return () => clearInterval(timer);
+    } else {
+      if (isPlayingAgainstComputer) {
+        proceedToSetup();
+      }
+    }
+  }, [phase, waitingRoomStartTime, isPlayingAgainstComputer]);
+  
+  // Function to join as blue team
+  const joinAsBlueTeam = async (teamId: string) => {
+    try {
+      const { teamsAPI } = await import('@/lib/api-utils');
+      const result = await teamsAPI.getTeams();
+      
+      if (result.success && result.teams) {
+        const team = result.teams.find((t: any) => t.id === teamId);
+        if (team) {
+          setBlueTeamId(teamId);
+          setBlueTeamName(team.name);
+          setIsPlayingAgainstComputer(false);
+          
+          // Update game state to reflect blue team joined
+          if (gameId && currentUser) {
+            const { gameStateAPI } = await import('@/lib/api-utils');
+            await gameStateAPI.saveGameState({
+              id: gameId,
+              gameType: 'codenames',
+              teamId: (() => {
+                const team = localStorage.getItem("currentTeam");
+                if (team) {
+                  try {
+                    return JSON.parse(team).id;
+                  } catch (e) {
+                    return undefined;
+                  }
+                }
+                return undefined;
+              })(),
+              state: {
+                phase: "waiting",
+                redTeamName,
+                blueTeamId: teamId,
+                blueTeamName: team.name,
+                isPlayingAgainstComputer: false,
+                waitingRoomStartTime,
+              },
+              lastUpdated: new Date().toISOString(),
+              updatedBy: currentUser.id,
+            });
+          }
+          
+          // Reload available teams
+          loadAvailableTeams();
+        }
+      }
+    } catch (error) {
+      console.error('Error joining as blue team:', error);
+    }
+  };
 
   // Save game state to Supabase whenever it changes
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup") return;
+    if (!currentUser || !gameId) return;
+    
+    // Save waiting room state
+    if (phase === "waiting") {
+      const saveWaitingState = async () => {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          await gameStateAPI.saveGameState({
+            id: gameId,
+            gameType: 'codenames',
+            teamId: (() => {
+              const team = localStorage.getItem("currentTeam");
+              if (team) {
+                try {
+                  return JSON.parse(team).id;
+                } catch (e) {
+                  return undefined;
+                }
+              }
+              return undefined;
+            })(),
+            state: {
+              phase: "waiting",
+              redTeamName,
+              blueTeamName,
+              blueTeamId,
+              isPlayingAgainstComputer,
+              waitingRoomStartTime,
+            },
+            lastUpdated: new Date().toISOString(),
+            updatedBy: currentUser.id,
+          });
+        } catch (error) {
+          console.error('Error saving waiting room state:', error);
+        }
+      };
+      
+      const timeoutId = setTimeout(saveWaitingState, 500);
+      return () => clearTimeout(timeoutId);
+    }
+    
+    if (phase === "setup") return;
     
     const saveState = async () => {
       try {
@@ -360,7 +564,47 @@ export default function CodenamesPage() {
 
   // Poll for game state updates from other devices
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup") return;
+    if (!currentUser || !gameId) return;
+    
+    // Poll waiting room state
+    if (phase === "waiting") {
+      const pollWaitingState = async () => {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          const result = await gameStateAPI.getGameState(gameId);
+          
+          if (result.success && result.state) {
+            const remoteState = result.state.state;
+            
+            // Only update if state is different and from another user
+            if (result.state.updatedBy !== currentUser.id) {
+              if (remoteState.blueTeamId && remoteState.blueTeamId !== blueTeamId) {
+                setBlueTeamId(remoteState.blueTeamId);
+                setIsPlayingAgainstComputer(false);
+                if (remoteState.blueTeamName) {
+                  setBlueTeamName(remoteState.blueTeamName);
+                }
+              }
+              if (remoteState.phase && remoteState.phase !== "waiting") {
+                // Game started by another player
+                if (remoteState.phase === "setup" || remoteState.phase === "playing") {
+                  setPhase(remoteState.phase);
+                }
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error polling waiting room state:', error);
+        }
+      };
+      
+      const intervalId = setInterval(pollWaitingState, 1000);
+      pollWaitingState(); // Initial poll
+      
+      return () => clearInterval(intervalId);
+    }
+    
+    if (phase === "setup") return;
     
     const pollState = async () => {
       try {
@@ -711,7 +955,7 @@ export default function CodenamesPage() {
   };
 
   const resetGame = () => {
-    setPhase("setup");
+    setPhase("waiting");
     setRole(null);
     setSelectedTeam(null);
     setCards([]);
@@ -719,12 +963,214 @@ export default function CodenamesPage() {
     setClue({ word: "", number: 0 });
     setGuessesRemaining(0);
     setGameOverReason("");
+    setBlueTeamId(null);
+    setIsPlayingAgainstComputer(true);
+    setCountdown(null);
+    setWaitingRoomStartTime(Date.now());
+    loadAvailableTeams();
     // Keep difficulty setting
   };
 
   if (!currentUser) return null;
 
   const activeTeam = currentTeam === "red" ? redTeam : blueTeam;
+
+  // WAITING ROOM PHASE
+  if (phase === "waiting") {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo = null;
+    if (currentTeamData) {
+      try {
+        teamInfo = JSON.parse(currentTeamData);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+
+    return (
+      <div className="min-h-screen p-4 md:p-8">
+        <div className="max-w-4xl mx-auto">
+          <Link
+            href="/games"
+            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold"
+          >
+            <ArrowLeft className="w-5 h-5" />
+            BACK TO GAMES
+          </Link>
+
+          <div className="text-center mb-8">
+            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float">
+              🔍 CODENAMES
+            </h1>
+            <p className="text-cyan-300">
+              Waiting for teams to join...
+            </p>
+          </div>
+
+          {/* Current Team Info */}
+          {teamInfo && (
+            <div className="neon-card neon-box-purple p-4 mb-6 card-3d">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Users className="w-5 h-5 text-purple-400" />
+                  <div>
+                    <div className="text-purple-400 font-bold">You are playing as: {teamInfo.name}</div>
+                    <div className="text-red-400 font-semibold text-sm">
+                      RED TEAM
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Game Status */}
+          <div className="neon-card neon-box-cyan p-6 mb-6 card-3d">
+            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-4 text-center">
+              🎮 GAME STATUS
+            </h2>
+            
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="bg-red-900/30 rounded-xl p-4 border-2 border-red-500 neon-box-pink">
+                <div className="text-red-400 font-bold text-sm mb-2">RED TEAM</div>
+                <div className="text-white font-semibold text-lg">{redTeamName}</div>
+                {teamInfo && (
+                  <div className="text-red-300/70 text-xs mt-1">
+                    {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""}
+                  </div>
+                )}
+              </div>
+              
+              <div className={`rounded-xl p-4 border-2 ${blueTeamId ? "bg-blue-900/30 border-blue-500 neon-box-cyan" : "bg-gray-800/50 border-gray-600"}`}>
+                <div className={`font-bold text-sm mb-2 ${blueTeamId ? "text-blue-400" : "text-gray-400"}`}>
+                  BLUE TEAM
+                </div>
+                {blueTeamId ? (
+                  <>
+                    <div className="text-white font-semibold text-lg">{blueTeamName}</div>
+                    <div className="text-blue-300/70 text-xs mt-1">Team joined!</div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-gray-400 font-semibold text-lg">
+                      {isPlayingAgainstComputer ? "🤖 COMPUTER" : "WAITING..."}
+                    </div>
+                    <div className="text-gray-500 text-xs mt-1">
+                      {isPlayingAgainstComputer ? "Playing against AI" : "No team joined yet"}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Countdown Timer */}
+            {countdown !== null && countdown > 0 && (
+              <div className="text-center mb-4">
+                <div className="text-yellow-400 font-bold text-2xl mb-2">
+                  {isPlayingAgainstComputer ? `Starting in ${countdown} seconds...` : "Waiting for teams..."}
+                </div>
+                {isPlayingAgainstComputer && (
+                  <p className="text-cyan-300/70 text-sm">
+                    Game will start automatically against computer if no team joins
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Available Teams */}
+            <div className="mb-6">
+              <h3 className="text-lg font-bold text-cyan-400 mb-3 flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                AVAILABLE TEAMS TO JOIN AS BLUE TEAM
+              </h3>
+              
+              {availableTeams.length === 0 ? (
+                <div className="bg-gray-800/30 rounded-xl p-6 border-2 border-gray-600 text-center">
+                  <div className="text-gray-400 mb-2">No other teams online</div>
+                  <div className="text-gray-500 text-sm">
+                    {isPlayingAgainstComputer 
+                      ? "You'll play against the computer"
+                      : "Waiting for teams to come online..."}
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {availableTeams.map((team) => (
+                    <div
+                      key={team.id}
+                      className="bg-gray-800/50 rounded-xl p-4 border-2 border-gray-600 hover:border-blue-500 transition-all flex items-center justify-between"
+                    >
+                      <div className="flex-1">
+                        <div className="text-white font-semibold">{team.name}</div>
+                        <div className="text-gray-400 text-sm">
+                          {team.memberCount} member{team.memberCount !== 1 ? "s" : ""} • Admin: {team.adminName}
+                        </div>
+                        <div className="text-cyan-400 text-xs font-mono mt-1">Code: {team.code}</div>
+                      </div>
+                      {blueTeamId === team.id ? (
+                        <div className="px-4 py-2 bg-green-500/20 border border-green-500 rounded text-green-400 font-bold text-sm">
+                          JOINED ✓
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => joinAsBlueTeam(team.id)}
+                          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded transition-all hover:scale-105"
+                        >
+                          JOIN AS BLUE
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-4">
+              {blueTeamId && (
+                <button
+                  onClick={proceedToSetup}
+                  className="flex-1 neon-btn neon-btn-green py-4 text-lg font-bold"
+                >
+                  START GAME WITH {blueTeamName.toUpperCase()}
+                </button>
+              )}
+              {isPlayingAgainstComputer && (
+                <button
+                  onClick={proceedToSetup}
+                  className="flex-1 neon-btn neon-btn-yellow py-4 text-lg font-bold"
+                >
+                  START GAME VS COMPUTER
+                </button>
+              )}
+              {!blueTeamId && !isPlayingAgainstComputer && countdown !== null && countdown > 0 && (
+                <button
+                  onClick={() => {
+                    setIsPlayingAgainstComputer(true);
+                    setCountdown(5); // Short countdown when manually starting
+                  }}
+                  className="flex-1 neon-btn neon-btn-yellow py-4 text-lg font-bold"
+                >
+                  PLAY VS COMPUTER INSTEAD
+                </button>
+              )}
+            </div>
+
+            {/* Info Box */}
+            <div className="mt-6 p-4 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
+              <h3 className="font-bold text-blue-400 mb-2">ℹ️ HOW IT WORKS</h3>
+              <ul className="text-blue-300/80 space-y-1 text-sm">
+                <li>• You are automatically on the <span className="text-red-400 font-bold">RED TEAM</span></li>
+                <li>• Other online teams can join as the <span className="text-blue-400 font-bold">BLUE TEAM</span></li>
+                <li>• If no team joins, you'll play against the <span className="text-yellow-400 font-bold">COMPUTER</span></li>
+                <li>• Game will start automatically after {countdown !== null ? countdown : 30} seconds, or click to start early</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // SETUP PHASE
   if (phase === "setup") {

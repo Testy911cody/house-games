@@ -118,9 +118,9 @@ export default function DrawGuessPage() {
         
         const stateToSave = {
           phase,
-          currentWord,
-          timeLeft,
-          guesses,
+        currentWord,
+        timeLeft,
+        guesses,
           players,
           currentDrawerIndex,
           round,
@@ -252,18 +252,18 @@ export default function DrawGuessPage() {
         }
         
         // Fallback to localStorage
-        const savedDrawing = localStorage.getItem("drawguess_drawing");
-        if (savedDrawing) {
-          const img = new Image();
-          img.onload = () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0);
-          };
-          img.src = savedDrawing;
-        } else {
-          ctx.fillStyle = "#1a1a2e";
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
+      const savedDrawing = localStorage.getItem("drawguess_drawing");
+      if (savedDrawing) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+        };
+        img.src = savedDrawing;
+      } else {
+        ctx.fillStyle = "#1a1a2e";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
       };
       
       loadDrawing();
@@ -464,9 +464,9 @@ export default function DrawGuessPage() {
             })(),
             state: {
               phase: "roundEnd",
-              currentWord,
-              timeLeft,
-              guesses: updatedGuesses,
+      currentWord,
+      timeLeft,
+      guesses: updatedGuesses,
               players: updatedPlayers,
               currentDrawerIndex,
               round,

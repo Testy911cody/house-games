@@ -254,3 +254,8 @@ A: Personal files like resumes (not needed for the project).
 **This structure keeps everything organized and easy to find!** 🎉
 
 
+
+
+
+
+

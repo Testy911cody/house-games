@@ -320,6 +320,7 @@ export interface Team {
   members: any[];
   createdAt: string;
   description?: string;
+  lastGameAccess?: string; // ISO timestamp of last game access
 }
 
 // Fallback in-memory storage (only used if Supabase is not configured)
@@ -355,6 +356,7 @@ async function getTeamsFromDB(): Promise<Team[]> {
         members: team.members || [],
         createdAt: team.created_at,
         description: team.description,
+        lastGameAccess: team.last_game_access || null,
       }));
     } catch (error: any) {
       console.error('❌ Supabase error getting teams:', error);
@@ -399,6 +401,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           members: team.members,
           description: team.description,
           created_at: team.createdAt,
+          last_game_access: team.lastGameAccess || null,
         }], {
           onConflict: 'id'
         })
@@ -439,6 +442,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         members: data.members || [],
         createdAt: data.created_at,
         description: data.description,
+        lastGameAccess: data.last_game_access || null,
       };
     } catch (error: any) {
       console.error('❌ Supabase error saving team:', error);
@@ -463,6 +467,7 @@ async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<T
       if (updates.name !== undefined) updateData.name = updates.name;
       if (updates.members !== undefined) updateData.members = updates.members;
       if (updates.description !== undefined) updateData.description = updates.description;
+      if (updates.lastGameAccess !== undefined) updateData.last_game_access = updates.lastGameAccess;
       
       const { data, error } = await supabase
         .from('teams')
@@ -483,6 +488,7 @@ async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<T
         members: data.members || [],
         createdAt: data.created_at,
         description: data.description,
+        lastGameAccess: data.last_game_access || null,
       };
     } catch (error) {
       console.error('Supabase error:', error);
@@ -543,19 +549,27 @@ function isUserOnline(userId: string): boolean {
   return (now - lastActivityTime) < USER_ACTIVITY_TIMEOUT;
 }
 
+/**
+ * Update team's last game access timestamp
+ */
+async function updateTeamGameAccess(teamId: string): Promise<void> {
+  try {
+    const teams = await getTeamsFromDB();
+    const team = teams.find(t => t.id === teamId);
+    
+    if (team) {
+      const updatedTeam: Team = {
+        ...team,
+        lastGameAccess: new Date().toISOString(),
+      };
+      await saveTeamToDB(updatedTeam);
+    }
+  } catch (error) {
+    console.error('Error updating team game access:', error);
+  }
+}
+
 async function cleanupInactiveTeams(): Promise<void> {
-  // DISABLED: This function uses localStorage to check if users are online,
-  // but localStorage is device-specific. When checking from another device,
-  // it can't see the activity from the original device, causing teams to be
-  // incorrectly deleted. This breaks cross-device multiplayer functionality.
-  // 
-  // TODO: Implement proper cross-device activity tracking using Supabase
-  // before re-enabling this feature.
-  
-  console.log('⚠️ cleanupInactiveTeams is disabled to prevent incorrect team deletion');
-  return;
-  
-  /* DISABLED CODE - DO NOT USE
   try {
     // Get teams directly without circular import
     const teams = await getTeamsFromDB();
@@ -565,19 +579,31 @@ async function cleanupInactiveTeams(): Promise<void> {
     }
 
     const teamsToDelete: string[] = [];
+    const now = Date.now();
+    const TEN_MINUTES = 10 * 60 * 1000; // 10 minutes in milliseconds
 
     for (const team of teams) {
       // Check if admin is online
       const adminOnline = isUserOnline(team.adminId);
       
-      // Check if any members are online
-      const membersOnline = team.members.some((member: any) => 
-        isUserOnline(member.id)
-      );
-
-      // Delete team if admin is offline AND no members are online
-      if (!adminOnline && !membersOnline) {
-        teamsToDelete.push(team.id);
+      // If admin is offline, check last game access
+      if (!adminOnline) {
+        const lastGameAccess = team.lastGameAccess ? new Date(team.lastGameAccess).getTime() : 0;
+        const timeSinceLastGame = now - lastGameAccess;
+        
+        // Delete team if:
+        // 1. Admin is offline
+        // 2. Team hasn't accessed a game in the last 10 minutes
+        // 3. OR team was never in a game (no lastGameAccess) and team is older than 10 minutes
+        const teamAge = now - new Date(team.createdAt).getTime();
+        const shouldDelete = 
+          (lastGameAccess > 0 && timeSinceLastGame > TEN_MINUTES) ||
+          (lastGameAccess === 0 && teamAge > TEN_MINUTES);
+        
+        if (shouldDelete) {
+          teamsToDelete.push(team.id);
+          console.log(`🗑️ Marking team for deletion: ${team.name} (Admin offline, no game access for ${Math.floor(timeSinceLastGame / 1000 / 60)} minutes)`);
+        }
       }
     }
 
@@ -585,7 +611,7 @@ async function cleanupInactiveTeams(): Promise<void> {
     for (const teamId of teamsToDelete) {
       try {
         await deleteTeamFromDB(teamId);
-        console.log(`Auto-deleted inactive team: ${teamId}`);
+        console.log(`✅ Auto-deleted inactive team: ${teamId}`);
         
         // Also remove from localStorage
         if (typeof window !== 'undefined') {
@@ -597,10 +623,13 @@ async function cleanupInactiveTeams(): Promise<void> {
         console.error(`Error deleting team ${teamId}:`, error);
       }
     }
+    
+    if (teamsToDelete.length > 0) {
+      console.log(`🧹 Cleanup complete: Deleted ${teamsToDelete.length} inactive team(s)`);
+    }
   } catch (error) {
     console.error('Error cleaning up inactive teams:', error);
   }
-  */
 }
 
 export const teamsAPI = {
@@ -666,6 +695,9 @@ export const teamsAPI = {
 
   // Clean up inactive teams
   cleanupInactiveTeams,
+  
+  // Update team game access timestamp
+  updateTeamGameAccess,
 };
 
 /**
@@ -855,6 +887,55 @@ export const gameStateAPI = {
       }
     }
     return `${gameType}_${Date.now()}`;
+  },
+  
+  /**
+   * Get all waiting games (games in "waiting" phase that need players)
+   */
+  async getWaitingGames(gameType?: string): Promise<{ success: boolean; games?: any[]; error?: string }> {
+    try {
+      if (isSupabaseConfigured() && supabase) {
+        let query = supabase
+          .from('game_states')
+          .select('*')
+          .order('last_updated', { ascending: false });
+        
+        if (gameType) {
+          query = query.eq('game_type', gameType);
+        }
+        
+        const { data, error } = await query;
+        
+        if (error) throw error;
+        
+        // Filter to only games in "waiting" phase
+        const waitingGames = (data || [])
+          .filter((game: any) => {
+            try {
+              const state = game.state;
+              return state && state.phase === "waiting";
+            } catch (e) {
+              return false;
+            }
+          })
+          .map((game: any) => ({
+            id: game.id,
+            gameType: game.game_type,
+            teamId: game.team_id,
+            state: game.state,
+            lastUpdated: game.last_updated,
+            updatedBy: game.updated_by,
+          }));
+        
+        return { success: true, games: waitingGames };
+      }
+      
+      // Fallback: return empty array
+      return { success: true, games: [] };
+    } catch (error: any) {
+      console.error('Error fetching waiting games:', error);
+      return { success: false, error: error.message || 'Failed to fetch waiting games' };
+    }
   },
 };
 
