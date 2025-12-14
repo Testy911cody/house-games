@@ -1331,32 +1331,43 @@ export default function CodenamesPage() {
                 </div>
               ) : (
                 <div className="space-y-3 max-h-64 overflow-y-auto">
-                  {availableTeams.map((team) => (
-                    <div
-                      key={team.id}
-                      className="bg-gray-800/50 rounded-xl p-4 border-2 border-gray-600 hover:border-blue-500 transition-all flex items-center justify-between"
-                    >
-                      <div className="flex-1">
-                        <div className="text-white font-semibold">{team.name}</div>
-                        <div className="text-gray-400 text-sm">
-                          {team.memberCount} member{team.memberCount !== 1 ? "s" : ""} • Admin: {team.adminName}
+                  {availableTeams.map((team) => {
+                    // Get current team ID to check if this is the user's team
+                    const currentTeamData = localStorage.getItem("currentTeam");
+                    const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
+                    const isCurrentTeam = currentTeamId === team.id;
+                    
+                    return (
+                      <div
+                        key={team.id}
+                        className="bg-gray-800/50 rounded-xl p-4 border-2 border-gray-600 hover:border-blue-500 transition-all flex items-center justify-between"
+                      >
+                        <div className="flex-1">
+                          <div className="text-white font-semibold">{team.name}</div>
+                          <div className="text-gray-400 text-sm">
+                            {team.memberCount} member{team.memberCount !== 1 ? "s" : ""} • Admin: {team.adminName}
+                          </div>
+                          <div className="text-cyan-400 text-xs font-mono mt-1">Code: {team.code}</div>
                         </div>
-                        <div className="text-cyan-400 text-xs font-mono mt-1">Code: {team.code}</div>
+                        {blueTeamId === team.id ? (
+                          <div className="px-4 py-2 bg-green-500/20 border border-green-500 rounded text-green-400 font-bold text-sm">
+                            JOINED ✓
+                          </div>
+                        ) : isCurrentTeam ? (
+                          <div className="px-4 py-2 bg-gray-700 text-gray-500 font-bold text-sm rounded">
+                            YOUR TEAM
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => joinAsBlueTeam(team.id)}
+                            className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded transition-all hover:scale-105"
+                          >
+                            JOIN AS BLUE
+                          </button>
+                        )}
                       </div>
-                      {blueTeamId === team.id ? (
-                        <div className="px-4 py-2 bg-green-500/20 border border-green-500 rounded text-green-400 font-bold text-sm">
-                          JOINED ✓
-                        </div>
-                      ) : (
-                        <button
-                          onClick={() => joinAsBlueTeam(team.id)}
-                          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded transition-all hover:scale-105"
-                        >
-                          JOIN AS BLUE
-                        </button>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
