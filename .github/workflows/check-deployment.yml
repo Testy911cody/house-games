@@ -1,0 +1,281 @@
+name: Check Deployment Status
+
+on:
+  workflow_run:
+    workflows: ["Deploy to GitHub Pages"]
+    types:
+      - completed
+  schedule:
+    # Check deployment status every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch: # Allow manual trigger
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+jobs:
+  check-deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Get deployment status
+        id: deployment-status
+        run: |
+          echo "🔍 Checking deployment status..."
+          
+          # Get the latest deployment status
+          DEPLOYMENT_STATUS=$(gh api repos/${{ github.repository }}/pages/deployments --jq '.[0].status' 2>/dev/null || echo "unknown")
+          DEPLOYMENT_URL=$(gh api repos/${{ github.repository }}/pages/deployments --jq '.[0].page_url' 2>/dev/null || echo "")
+          
+          echo "status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
+          echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          
+          echo "📊 Deployment Status: $DEPLOYMENT_STATUS"
+          echo "🌐 Deployment URL: $DEPLOYMENT_URL"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check GitHub Pages settings
+        id: pages-settings
+        run: |
+          echo "🔧 Checking GitHub Pages configuration..."
+          
+          # Check if Pages is enabled and configured correctly
+          PAGES_ENABLED=$(gh api repos/${{ github.repository }}/pages --jq '.source.branch // .source.path // "not_configured"' 2>/dev/null || echo "error")
+          
+          echo "pages_config=$PAGES_ENABLED" >> $GITHUB_OUTPUT
+          echo "📋 Pages Configuration: $PAGES_ENABLED"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Test website accessibility
+        id: health-check
+        run: |
+          echo "🏥 Running health check on website..."
+          
+          # Try to determine the website URL
+          # First check if custom domain is configured
+          CUSTOM_DOMAIN=""
+          if [ -f "public/CNAME" ]; then
+            CUSTOM_DOMAIN=$(cat public/CNAME | tr -d '\n\r' | xargs)
+            echo "📝 Found custom domain: $CUSTOM_DOMAIN"
+          fi
+          
+          # Get repository name for GitHub Pages URL
+          REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+          USERNAME=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+          GITHUB_PAGES_URL="https://${USERNAME}.github.io/${REPO_NAME}/"
+          
+          # Determine which URL to check
+          if [ -n "$CUSTOM_DOMAIN" ]; then
+            TEST_URL="https://${CUSTOM_DOMAIN}/"
+            echo "🌐 Testing custom domain: $TEST_URL"
+          else
+            TEST_URL="$GITHUB_PAGES_URL"
+            echo "🌐 Testing GitHub Pages URL: $TEST_URL"
+          fi
+          
+          # Wait a bit for deployment to propagate
+          echo "⏳ Waiting 10 seconds for deployment to propagate..."
+          sleep 10
+          
+          # Test the website
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 --retry 3 "$TEST_URL" || echo "000")
+          echo "📡 HTTP Status Code: $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✅ Website is accessible!"
+            echo "accessible=true" >> $GITHUB_OUTPUT
+            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "❌ Website returned 404 - deployment may not be complete"
+            echo "accessible=false" >> $GITHUB_OUTPUT
+            echo "error=404_not_found" >> $GITHUB_OUTPUT
+            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
+          elif [ "$HTTP_CODE" = "000" ]; then
+            echo "⚠️ Could not connect to website (timeout or DNS issue)"
+            echo "accessible=false" >> $GITHUB_OUTPUT
+            echo "error=connection_failed" >> $GITHUB_OUTPUT
+            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Website returned HTTP $HTTP_CODE"
+            echo "accessible=false" >> $GITHUB_OUTPUT
+            echo "error=http_${HTTP_CODE}" >> $GITHUB_OUTPUT
+            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Check workflow run status
+        id: workflow-status
+        run: |
+          echo "🔍 Checking latest workflow run status..."
+          
+          # Get the latest workflow run for deploy-pages
+          WORKFLOW_RUN=$(gh run list --workflow=deploy-pages.yml --limit 1 --json conclusion,status,url --jq '.[0]' 2>/dev/null || echo '{"conclusion":"unknown","status":"unknown"}')
+          
+          CONCLUSION=$(echo "$WORKFLOW_RUN" | jq -r '.conclusion // "unknown"')
+          STATUS=$(echo "$WORKFLOW_RUN" | jq -r '.status // "unknown"')
+          URL=$(echo "$WORKFLOW_RUN" | jq -r '.url // ""')
+          
+          echo "conclusion=$CONCLUSION" >> $GITHUB_OUTPUT
+          echo "status=$STATUS" >> $GITHUB_OUTPUT
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          
+          echo "📊 Workflow Conclusion: $CONCLUSION"
+          echo "📊 Workflow Status: $STATUS"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-fix common issues
+        id: auto-fix
+        if: steps.workflow-status.outputs.conclusion == 'failure' || steps.health-check.outputs.accessible == 'false'
+        run: |
+          echo "🔧 Attempting to auto-fix deployment issues..."
+          
+          FIXED=false
+          ERROR_TYPE="${{ steps.health-check.outputs.error }}"
+          WORKFLOW_CONCLUSION="${{ steps.workflow-status.outputs.conclusion }}"
+          
+          # If workflow failed, try to re-run it
+          if [ "$WORKFLOW_CONCLUSION" = "failure" ]; then
+            echo "🔄 Workflow failed - attempting to re-trigger deployment..."
+            if gh workflow run deploy-pages.yml 2>/dev/null; then
+              echo "✅ Re-triggered deployment workflow"
+              FIXED=true
+              echo "fix_applied=retrigger_workflow" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ Could not re-trigger workflow automatically"
+              echo "fix_applied=retrigger_failed" >> $GITHUB_OUTPUT
+            fi
+          elif [ "$ERROR_TYPE" = "404_not_found" ]; then
+            echo "⚠️ 404 error detected - this might be a propagation delay"
+            echo "💡 Waiting 60 seconds and checking again..."
+            sleep 60
+            
+            # Re-check
+            if [ -f "public/CNAME" ]; then
+              CUSTOM_DOMAIN=$(cat public/CNAME | tr -d '\n\r' | xargs)
+              TEST_URL="https://${CUSTOM_DOMAIN}/"
+            else
+              REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
+              USERNAME=$(echo "${{ github.repository }}" | cut -d'/' -f1)
+              TEST_URL="https://${USERNAME}.github.io/${REPO_NAME}/"
+            fi
+            
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 --retry 2 "$TEST_URL" || echo "000")
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Website is now accessible after waiting!"
+              FIXED=true
+              echo "fix_applied=wait_and_retry" >> $GITHUB_OUTPUT
+            else
+              echo "⚠️ Still getting $HTTP_CODE - may need manual intervention"
+              echo "💡 This could be a DNS propagation issue or deployment still in progress"
+              echo "fix_applied=wait_failed" >> $GITHUB_OUTPUT
+            fi
+          elif [ "$ERROR_TYPE" = "connection_failed" ]; then
+            echo "⚠️ Connection failed - could be DNS or network issue"
+            echo "💡 This might resolve itself - deployment may still be propagating"
+            echo "fix_applied=connection_issue_detected" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Issue detected but no automatic fix available"
+            echo "fix_applied=none" >> $GITHUB_OUTPUT
+          fi
+          
+          echo "fixed=$FIXED" >> $GITHUB_OUTPUT
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create status report
+        run: |
+          echo "📊 Creating deployment status report..."
+          
+          cat << EOF >> deployment-status.md
+          # 🚀 Deployment Status Report
+          
+          **Generated:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          ## 📋 Summary
+          
+          - **Deployment Status:** ${{ steps.deployment-status.outputs.status }}
+          - **Website Accessible:** ${{ steps.health-check.outputs.accessible == 'true' && '✅ Yes' || '❌ No' }}
+          - **Workflow Status:** ${{ steps.workflow-status.outputs.conclusion }}
+          - **Test URL:** ${{ steps.health-check.outputs.test_url }}
+          
+          ## 🔍 Details
+          
+          ### Deployment Information
+          - **Status:** \`${{ steps.deployment-status.outputs.status || 'Unknown' }}\`\`
+          - **URL:** ${{ steps.deployment-status.outputs.url || 'N/A' }}
+          
+          ### GitHub Pages Configuration
+          - **Config:** \`${{ steps.pages-settings.outputs.pages_config }}\`
+          
+          ### Health Check
+          - **HTTP Status:** ${{ steps.health-check.outputs.error || '200 OK' }}
+          - **Accessible:** ${{ steps.health-check.outputs.accessible == 'true' && '✅' || '❌' }}
+          
+          ### Workflow Status
+          - **Conclusion:** \`${{ steps.workflow-status.outputs.conclusion }}\`
+          - **Status:** \`${{ steps.workflow-status.outputs.status }}\`
+          - **Details:** ${{ steps.workflow-status.outputs.url }}
+          
+          ### Auto-Fix Attempts
+          - **Fix Applied:** ${{ steps.auto-fix.outputs.fix_applied || 'None' }}
+          - **Fixed:** ${{ steps.auto-fix.outputs.fixed == 'true' && '✅' || '❌' }}
+          
+          ## ✅ Next Steps
+          
+          $([ "${{ steps.health-check.outputs.accessible }}" = "true" ] && echo "✅ **Deployment successful!** Your website is live and accessible." || echo "❌ **Deployment issue detected.** Please check the workflow logs for details.")
+          
+          $([ "${{ steps.workflow-status.outputs.conclusion }}" = "failure" ] && echo "⚠️ **Workflow failed.** Check the Actions tab for error details." || echo "")
+          
+          EOF
+          
+          cat deployment-status.md
+
+      - name: Comment on PR or create issue (if failed)
+        if: steps.health-check.outputs.accessible == 'false' && steps.auto-fix.outputs.fixed != 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const statusReport = fs.readFileSync('deployment-status.md', 'utf8');
+            
+            // Try to find associated PR
+            const prs = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              head: `${context.repo.owner}:${context.ref.replace('refs/heads/', '')}`
+            });
+            
+            if (prs.data.length > 0) {
+              // Comment on PR
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prs.data[0].number,
+                body: `## ⚠️ Deployment Check Failed\n\n${statusReport}\n\nThis is an automated check. Please review the deployment status.`
+              });
+            } else {
+              // Create an issue if no PR found
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `🚨 Deployment Check Failed - ${new Date().toISOString().split('T')[0]}`,
+                body: `## ⚠️ Deployment Check Failed\n\n${statusReport}\n\nThis is an automated check. Please review the deployment status.`,
+                labels: ['deployment', 'automated']
+              });
+            }
+
+      - name: Upload status report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: deployment-status-report
+          path: deployment-status.md
+          retention-days: 7
