@@ -339,27 +339,70 @@ export default function CodenamesPage() {
         const id = gameStateAPI.createGameId(team.id, 'codenames');
         setGameId(id);
         
-        // Check if there's an existing game state (meaning we might be joining an existing game)
-        // If so, load the correct team names
+        // Check if there's an existing game state for our own game
         gameStateAPI.getGameState(id).then((result: any) => {
           if (result.success && result.state) {
             const savedState = result.state.state;
-            // If there's a redTeamName in the game state and it's different from our team name,
-            // it means we're joining an existing game, so use the host's team name
-            if (savedState.redTeamName && savedState.redTeamName !== team.name) {
-              setRedTeamName(savedState.redTeamName);
-            }
-            // If there's a blueTeamId, check if we're the blue team
-            if (savedState.blueTeamId) {
+            // If there's a blueTeamId but it's not us, we're the host (red team) and someone joined
+            if (savedState.blueTeamId && savedState.blueTeamId !== team.id) {
               setBlueTeamId(savedState.blueTeamId);
               if (savedState.blueTeamName) {
                 setBlueTeamName(savedState.blueTeamName);
               }
               setIsPlayingAgainstComputer(false);
             }
+            // If there's a redTeamName, use it
+            if (savedState.redTeamName) {
+              setRedTeamName(savedState.redTeamName);
+            }
+            if (savedState.waitingRoomStartTime) {
+              setWaitingRoomStartTime(savedState.waitingRoomStartTime);
+            }
           }
         }).catch((e: any) => {
           // No existing game state, that's fine
+        });
+        
+        // Check if we're listed as blue team in any other team's game
+        // This handles the case where we previously joined someone else's game
+        teamsAPI.getTeams().then((teamsResult: any) => {
+          if (teamsResult.success && teamsResult.teams) {
+            // Check each team's game to see if we're the blue team
+            const checkPromises = teamsResult.teams
+              .filter((otherTeam: any) => otherTeam.id !== team.id)
+              .map((otherTeam: any) => {
+                const otherGameId = gameStateAPI.createGameId(otherTeam.id, 'codenames');
+                return gameStateAPI.getGameState(otherGameId).then((otherResult: any) => {
+                  if (otherResult.success && otherResult.state) {
+                    const otherState = otherResult.state.state;
+                    // If we're the blue team in this other game, switch to that gameId
+                    if (otherState.blueTeamId === team.id) {
+                      setGameId(otherGameId);
+                      setBlueTeamId(team.id);
+                      if (otherState.blueTeamName) {
+                        setBlueTeamName(otherState.blueTeamName);
+                      }
+                      if (otherState.redTeamName) {
+                        setRedTeamName(otherState.redTeamName);
+                      }
+                      if (otherState.waitingRoomStartTime) {
+                        setWaitingRoomStartTime(otherState.waitingRoomStartTime);
+                      }
+                      setIsPlayingAgainstComputer(false);
+                      return true; // Found our game
+                    }
+                  }
+                  return false;
+                }).catch(() => false);
+              });
+            
+            // Wait for all checks to complete
+            Promise.all(checkPromises).catch(() => {
+              // Some checks failed, that's fine
+            });
+          }
+        }).catch(() => {
+          // Couldn't load teams, that's fine
         });
         
         // Update team's last game access
@@ -507,45 +550,58 @@ export default function CodenamesPage() {
       if (result.success && result.teams) {
         const team = result.teams.find((t: any) => t.id === teamId);
         if (team) {
-          // Load existing game state to get the correct redTeamName (host's team name)
-          if (gameId) {
-            const gameStateResult = await gameStateAPI.getGameState(gameId);
-            if (gameStateResult.success && gameStateResult.state) {
-              const remoteState = gameStateResult.state.state;
-              // Update redTeamName from game state (host's team name)
-              if (remoteState.redTeamName && remoteState.redTeamName !== "RED TEAM") {
-                setRedTeamName(remoteState.redTeamName);
-              }
+          // Switch to the host's gameId (the team we're joining)
+          const hostGameId = gameStateAPI.createGameId(teamId, 'codenames');
+          setGameId(hostGameId);
+          
+          // Load existing game state from the host's game to get the correct team names
+          const gameStateResult = await gameStateAPI.getGameState(hostGameId);
+          if (gameStateResult.success && gameStateResult.state) {
+            const remoteState = gameStateResult.state.state;
+            // Update redTeamName from game state (host's team name)
+            if (remoteState.redTeamName && remoteState.redTeamName !== "RED TEAM") {
+              setRedTeamName(remoteState.redTeamName);
+            }
+            // Use the host's waiting room start time to sync countdown
+            if (remoteState.waitingRoomStartTime) {
+              setWaitingRoomStartTime(remoteState.waitingRoomStartTime);
+            }
+          } else {
+            // If no game state exists, set redTeamName to the host's team name
+            setRedTeamName(team.name);
+          }
+          
+          // Set blueTeamId to OUR team ID (we're the joiner)
+          const currentTeam = localStorage.getItem("currentTeam");
+          let ourTeamId: string | undefined;
+          let ourTeamName: string | undefined;
+          if (currentTeam) {
+            try {
+              const teamData = JSON.parse(currentTeam);
+              ourTeamId = teamData.id;
+              ourTeamName = teamData.name;
+            } catch (e) {
+              // Ignore
             }
           }
           
-          setBlueTeamId(teamId);
-          setBlueTeamName(team.name);
+          setBlueTeamId(ourTeamId || teamId); // Our team ID (the joiner)
+          setBlueTeamName(ourTeamName || team.name); // Our team name (the joiner)
           setIsPlayingAgainstComputer(false);
           
-          // Update game state to reflect blue team joined
-          if (gameId && currentUser) {
+          // Update the host's game state to reflect blue team joined
+          if (currentUser && ourTeamId) {
             await gameStateAPI.saveGameState({
-              id: gameId,
+              id: hostGameId, // Use host's gameId, not our own
               gameType: 'codenames',
-              teamId: (() => {
-                const team = localStorage.getItem("currentTeam");
-                if (team) {
-                  try {
-                    return JSON.parse(team).id;
-                  } catch (e) {
-                    return undefined;
-                  }
-                }
-                return undefined;
-              })(),
+              teamId: teamId, // Host's team ID
               state: {
                 phase: "waiting",
-                redTeamName, // This should now be the host's team name
-                blueTeamId: teamId,
-                blueTeamName: team.name,
+                redTeamName, // Host's team name
+                blueTeamId: ourTeamId, // Our team ID (the joiner)
+                blueTeamName: ourTeamName, // Our team name (the joiner)
                 isPlayingAgainstComputer: false,
-                waitingRoomStartTime,
+                waitingRoomStartTime: waitingRoomStartTime || Date.now(),
               },
               lastUpdated: new Date().toISOString(),
               updatedBy: currentUser.id,
