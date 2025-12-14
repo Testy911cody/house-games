@@ -286,6 +286,24 @@ export default function CodenamesPage() {
   const [gameId, setGameId] = useState<string | null>(null);
   const [lastSyncedState, setLastSyncedState] = useState<string>("");
 
+  // Helper function to determine which team the current user is on
+  const getUserTeam = (): "red" | "blue" | null => {
+    if (!currentUser) return null;
+    const currentTeamData = localStorage.getItem("currentTeam");
+    if (!currentTeamData) return "red"; // Host is red by default
+    try {
+      const currentTeamId = JSON.parse(currentTeamData).id;
+      // If blueTeamId matches current user's team, they're on blue team
+      // Otherwise, they're on red team (the host)
+      if (blueTeamId && currentTeamId === blueTeamId) {
+        return "blue";
+      }
+      return "red";
+    } catch (e) {
+      return "red"; // Default to red if error
+    }
+  };
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
@@ -701,12 +719,15 @@ export default function CodenamesPage() {
             
             // Only update if state is different and from another user
             if (result.state.updatedBy !== currentUser.id) {
+              const userTeam = getUserTeam();
+              
               // Update blue team if it changed
               if (remoteState.blueTeamId) {
                 if (remoteState.blueTeamId !== blueTeamId) {
                   setBlueTeamId(remoteState.blueTeamId);
                   setIsPlayingAgainstComputer(false);
-                  if (remoteState.blueTeamName) {
+                  // Only update blue team name if we're on red team (opposing team)
+                  if (remoteState.blueTeamName && userTeam === "red") {
                     setBlueTeamName(remoteState.blueTeamName);
                   }
                 }
@@ -721,8 +742,8 @@ export default function CodenamesPage() {
                 setIsPlayingAgainstComputer(remoteState.isPlayingAgainstComputer);
               }
               
-              // Update red team name if it changed
-              if (remoteState.redTeamName && remoteState.redTeamName !== redTeamName) {
+              // Only update red team name if we're on blue team (opposing team)
+              if (remoteState.redTeamName && remoteState.redTeamName !== redTeamName && userTeam === "blue") {
                 setRedTeamName(remoteState.redTeamName);
               }
               
@@ -758,11 +779,21 @@ export default function CodenamesPage() {
           
           // Only update if state is different and from another user
           if (remoteStateString !== lastSyncedState && result.state.updatedBy !== currentUser.id) {
+            const userTeam = getUserTeam();
+            
             // Merge remote state
             if (remoteState.phase) setPhase(remoteState.phase);
             if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
-            if (remoteState.redTeamName) setRedTeamName(remoteState.redTeamName);
-            if (remoteState.blueTeamName) setBlueTeamName(remoteState.blueTeamName);
+            
+            // Only update team names from opposing team
+            // Red team name should only be updated if we're on blue team
+            if (remoteState.redTeamName && userTeam === "blue") {
+              setRedTeamName(remoteState.redTeamName);
+            }
+            // Blue team name should only be updated if we're on red team
+            if (remoteState.blueTeamName && userTeam === "red") {
+              setBlueTeamName(remoteState.blueTeamName);
+            }
             if (remoteState.cards) setCards(remoteState.cards);
             if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
             if (remoteState.clue) setClue(remoteState.clue);
@@ -860,8 +891,14 @@ export default function CodenamesPage() {
           const savedState = result.state.state;
           setPhase(savedState.phase || "playing");
           setDifficulty(savedState.difficulty || difficulty);
-          setRedTeamName(savedState.redTeamName || redTeamName);
-          setBlueTeamName(savedState.blueTeamName || blueTeamName);
+          // When loading a game in progress, restore both team names (they're locked at this point)
+          // But only if we don't already have them set (to avoid overwriting user's own team name)
+          if (savedState.redTeamName && (!redTeamName || redTeamName === "RED TEAM")) {
+            setRedTeamName(savedState.redTeamName);
+          }
+          if (savedState.blueTeamName && (!blueTeamName || blueTeamName === "BLUE TEAM")) {
+            setBlueTeamName(savedState.blueTeamName);
+          }
           setCards(savedState.cards || []);
           setCurrentTeam(savedState.currentTeam || "red");
           setClue(savedState.clue || { word: "", number: 0 });
@@ -1458,10 +1495,24 @@ export default function CodenamesPage() {
                 <input
                   type="text"
                   value={redTeamName}
-                  onChange={(e) => setRedTeamName(e.target.value.toUpperCase())}
-                  className="w-full px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-red-400"
+                  onChange={(e) => {
+                    const userTeam = getUserTeam();
+                    // Only allow red team (host) to edit red team name
+                    if (userTeam === "red") {
+                      setRedTeamName(e.target.value.toUpperCase());
+                    }
+                  }}
+                  disabled={getUserTeam() !== "red"}
+                  className={`w-full px-4 py-2 rounded-lg bg-black/50 border-2 text-white font-semibold focus:outline-none ${
+                    getUserTeam() === "red" 
+                      ? "border-gray-600 focus:border-red-400 cursor-text" 
+                      : "border-gray-700 text-gray-500 cursor-not-allowed"
+                  }`}
                   maxLength={20}
                 />
+                {getUserTeam() !== "red" && (
+                  <div className="text-xs text-gray-400 mt-1">Only the red team can edit this name</div>
+                )}
               </div>
 
               <div className="bg-blue-900/30 rounded-xl p-4 border-2 border-blue-500 neon-box-cyan">
@@ -1469,10 +1520,26 @@ export default function CodenamesPage() {
                 <input
                   type="text"
                   value={blueTeamName}
-                  onChange={(e) => setBlueTeamName(e.target.value.toUpperCase())}
-                  className="w-full px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-blue-400"
+                  onChange={(e) => {
+                    const userTeam = getUserTeam();
+                    // Only allow blue team to edit blue team name
+                    if (userTeam === "blue") {
+                      setBlueTeamName(e.target.value.toUpperCase());
+                    }
+                  }}
+                  disabled={getUserTeam() !== "blue" || !blueTeamId}
+                  className={`w-full px-4 py-2 rounded-lg bg-black/50 border-2 text-white font-semibold focus:outline-none ${
+                    getUserTeam() === "blue" && blueTeamId
+                      ? "border-gray-600 focus:border-blue-400 cursor-text" 
+                      : "border-gray-700 text-gray-500 cursor-not-allowed"
+                  }`}
                   maxLength={20}
                 />
+                {getUserTeam() !== "blue" && (
+                  <div className="text-xs text-gray-400 mt-1">
+                    {blueTeamId ? "Only the blue team can edit this name" : "Blue team name will be set when a team joins"}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -1966,12 +2033,12 @@ export default function CodenamesPage() {
           <div className="mt-6 p-4 bg-black/30 rounded-xl border-2 border-gray-700">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-red-900/50 border border-red-500"></div>
-                <span className="text-red-400">Your Team</span>
+                <div className={`w-4 h-4 ${playerTeam.color.bg}/50 border ${playerTeam.color.border}`}></div>
+                <span className={playerTeam.color.text}>{playerTeam.name}</span>
               </div>
               <div className="flex items-center gap-2">
-                <div className="w-4 h-4 bg-blue-900/50 border border-blue-500"></div>
-                <span className="text-blue-400">Opponent</span>
+                <div className={`w-4 h-4 ${opponentTeam.color.bg}/50 border ${opponentTeam.color.border}`}></div>
+                <span className={opponentTeam.color.text}>{opponentTeam.name}</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="w-4 h-4 bg-yellow-900/30 border border-yellow-600"></div>
