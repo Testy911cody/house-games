@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, Check, X, Users, Plus, Trash2, Play, Crown, RotateCcw, Zap } from "lucide-react";
 import Link from "next/link";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 // Difficulty-based word lists
 const TABOO_WORDS_EASY = [
@@ -87,6 +88,19 @@ export default function TabooPage() {
 
   const [gameId, setGameId] = useState<string | null>(null);
   const [lastSyncedState, setLastSyncedState] = useState<string>("");
+  // Device/session ID to track which device made the update (for multi-device same-user sync)
+  const getDeviceId = (): string => {
+    if (typeof window !== 'undefined') {
+      let deviceId = sessionStorage.getItem('deviceId');
+      if (!deviceId) {
+        deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        sessionStorage.setItem('deviceId', deviceId);
+      }
+      return deviceId;
+    }
+    return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  };
+  const deviceIdRef = useRef<string>(getDeviceId());
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -199,6 +213,7 @@ export default function TabooPage() {
           state: stateToSave,
           lastUpdated: new Date().toISOString(),
           updatedBy: currentUser.id,
+          deviceId: deviceIdRef.current,
         });
         
         setLastSyncedState(stateString);
@@ -212,51 +227,159 @@ export default function TabooPage() {
     return () => clearTimeout(timeoutId);
   }, [phase, difficulty, teams, currentTeamIndex, roundsPerTeam, roundsPlayed, selectedTeam, role, words, currentWord, usedWords, timeLeft, isPlaying, roundScore, guessHistory, currentUser, gameId, lastSyncedState]);
 
-  // Poll for game state updates from other devices
+  // Use Supabase realtime subscription for instant updates, fallback to polling
   useEffect(() => {
     if (!currentUser || !gameId || phase === "setup" || !isPlaying) return;
     
-    const pollState = async () => {
-      try {
-        const { gameStateAPI } = await import('@/lib/api-utils');
-        const result = await gameStateAPI.getGameState(gameId);
-        
-        if (result.success && result.state) {
-          const remoteState = result.state.state;
-          const remoteStateString = JSON.stringify(remoteState);
-          
-          // Only update if state is different and from another user
-          if (remoteStateString !== lastSyncedState && result.state.updatedBy !== currentUser.id) {
-            // Merge remote state
-            if (remoteState.phase) setPhase(remoteState.phase);
-            if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
-            if (remoteState.teams) setTeams(remoteState.teams);
-            if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
-            if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
-            if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
-            if (remoteState.selectedTeam) setSelectedTeam(remoteState.selectedTeam);
-            if (remoteState.role) setRole(remoteState.role);
-            if (remoteState.words) setWords(remoteState.words);
-            if (remoteState.currentWord !== undefined) setCurrentWord(remoteState.currentWord);
-            if (remoteState.usedWords) setUsedWords(remoteState.usedWords);
-            if (remoteState.timeLeft !== undefined) setTimeLeft(remoteState.timeLeft);
-            if (remoteState.isPlaying !== undefined) setIsPlaying(remoteState.isPlaying);
-            if (remoteState.roundScore) setRoundScore(remoteState.roundScore);
-            if (remoteState.guessHistory) setGuessHistory(remoteState.guessHistory);
-            
-            setLastSyncedState(remoteStateString);
+    if (isSupabaseConfigured() && supabase) {
+      // Set up realtime subscription for instant updates
+      const channel = supabase
+        .channel(`game_state_${gameId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'game_states',
+            filter: `id=eq.${gameId}`,
+          },
+          async (payload) => {
+            try {
+              const { gameStateAPI } = await import('@/lib/api-utils');
+              const result = await gameStateAPI.getGameState(gameId);
+              
+              if (result.success && result.state) {
+                const remoteState = result.state.state;
+                const remoteStateString = JSON.stringify(remoteState);
+                
+                // Update if state is different and not from this device
+                const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+                
+                if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
+                  // Merge remote state
+                  if (remoteState.phase) setPhase(remoteState.phase);
+                  if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+                  if (remoteState.teams) setTeams(remoteState.teams);
+                  if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
+                  if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
+                  if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
+                  if (remoteState.selectedTeam) setSelectedTeam(remoteState.selectedTeam);
+                  if (remoteState.role) setRole(remoteState.role);
+                  if (remoteState.words) setWords(remoteState.words);
+                  if (remoteState.currentWord !== undefined) setCurrentWord(remoteState.currentWord);
+                  if (remoteState.usedWords) setUsedWords(remoteState.usedWords);
+                  if (remoteState.timeLeft !== undefined) setTimeLeft(remoteState.timeLeft);
+                  if (remoteState.isPlaying !== undefined) setIsPlaying(remoteState.isPlaying);
+                  if (remoteState.roundScore) setRoundScore(remoteState.roundScore);
+                  if (remoteState.guessHistory) setGuessHistory(remoteState.guessHistory);
+                  
+                  setLastSyncedState(remoteStateString);
+                }
+              }
+            } catch (error) {
+              console.error('Error handling realtime update:', error);
+            }
           }
+        )
+        .subscribe();
+      
+      // Also poll initially and as fallback
+      const pollState = async () => {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          const result = await gameStateAPI.getGameState(gameId);
+          
+          if (result.success && result.state) {
+            const remoteState = result.state.state;
+            const remoteStateString = JSON.stringify(remoteState);
+            
+            // Update if state is different and not from this device
+            const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+            
+            if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
+              // Merge remote state
+              if (remoteState.phase) setPhase(remoteState.phase);
+              if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+              if (remoteState.teams) setTeams(remoteState.teams);
+              if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
+              if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
+              if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
+              if (remoteState.selectedTeam) setSelectedTeam(remoteState.selectedTeam);
+              if (remoteState.role) setRole(remoteState.role);
+              if (remoteState.words) setWords(remoteState.words);
+              if (remoteState.currentWord !== undefined) setCurrentWord(remoteState.currentWord);
+              if (remoteState.usedWords) setUsedWords(remoteState.usedWords);
+              if (remoteState.timeLeft !== undefined) setTimeLeft(remoteState.timeLeft);
+              if (remoteState.isPlaying !== undefined) setIsPlaying(remoteState.isPlaying);
+              if (remoteState.roundScore) setRoundScore(remoteState.roundScore);
+              if (remoteState.guessHistory) setGuessHistory(remoteState.guessHistory);
+              
+              setLastSyncedState(remoteStateString);
+            }
+          }
+        } catch (error) {
+          console.error('Error polling game state:', error);
         }
-      } catch (error) {
-        console.error('Error polling game state:', error);
-      }
-    };
-    
-    // Poll every 1 second for real-time updates
-    const intervalId = setInterval(pollState, 1000);
-    pollState(); // Initial poll
-    
-    return () => clearInterval(intervalId);
+      };
+      
+      // Initial poll
+      pollState();
+      // Fallback polling every 2 seconds (less frequent since we have realtime)
+      const intervalId = setInterval(pollState, 2000);
+      
+      return () => {
+        if (supabase) {
+          supabase.removeChannel(channel);
+        }
+        clearInterval(intervalId);
+      };
+    } else {
+      // Fallback to polling if Supabase not configured
+      const pollState = async () => {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          const result = await gameStateAPI.getGameState(gameId);
+          
+          if (result.success && result.state) {
+            const remoteState = result.state.state;
+            const remoteStateString = JSON.stringify(remoteState);
+            
+            // Update if state is different and from another user/device
+            const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+            const isFromOtherUser = result.state.updatedBy !== currentUser.id;
+            
+            if (remoteStateString !== lastSyncedState && (!isFromThisDevice || isFromOtherUser)) {
+              // Merge remote state
+              if (remoteState.phase) setPhase(remoteState.phase);
+              if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+              if (remoteState.teams) setTeams(remoteState.teams);
+              if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
+              if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
+              if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
+              if (remoteState.selectedTeam) setSelectedTeam(remoteState.selectedTeam);
+              if (remoteState.role) setRole(remoteState.role);
+              if (remoteState.words) setWords(remoteState.words);
+              if (remoteState.currentWord !== undefined) setCurrentWord(remoteState.currentWord);
+              if (remoteState.usedWords) setUsedWords(remoteState.usedWords);
+              if (remoteState.timeLeft !== undefined) setTimeLeft(remoteState.timeLeft);
+              if (remoteState.isPlaying !== undefined) setIsPlaying(remoteState.isPlaying);
+              if (remoteState.roundScore) setRoundScore(remoteState.roundScore);
+              if (remoteState.guessHistory) setGuessHistory(remoteState.guessHistory);
+              
+              setLastSyncedState(remoteStateString);
+            }
+          }
+        } catch (error) {
+          console.error('Error polling game state:', error);
+        }
+      };
+      
+      // Poll every 1 second for real-time updates
+      const intervalId = setInterval(pollState, 1000);
+      pollState(); // Initial poll
+      
+      return () => clearInterval(intervalId);
+    }
   }, [currentUser, gameId, phase, isPlaying, lastSyncedState]);
 
   useEffect(() => {

@@ -866,6 +866,7 @@ export interface GameState {
   state: any; // Game-specific state object
   lastUpdated: string; // ISO timestamp
   updatedBy: string; // User ID who last updated
+  deviceId?: string; // Device/session ID to track which device made the update (for multi-device sync)
 }
 
 async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
@@ -884,13 +885,23 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
       
       if (!data) return null;
       
+      // Extract deviceId from state metadata if present
+      const stateWithDeviceId = data.state as any;
+      const deviceId = stateWithDeviceId?._deviceId || stateWithDeviceId?.deviceId;
+      
+      // Remove deviceId from state before returning (clean state)
+      const cleanState = { ...data.state };
+      if (cleanState._deviceId) delete cleanState._deviceId;
+      if (cleanState.deviceId && !stateWithDeviceId._deviceId) delete cleanState.deviceId;
+      
       return {
         id: data.id,
         gameType: data.game_type,
         teamId: data.team_id,
-        state: data.state,
+        state: cleanState,
         lastUpdated: data.last_updated,
         updatedBy: data.updated_by,
+        deviceId: deviceId,
       };
     } catch (error) {
       console.error('Supabase error getting game state:', error);
@@ -922,7 +933,7 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
           id: gameState.id,
           game_type: gameState.gameType,
           team_id: gameState.teamId,
-          state: gameState.state,
+          state: gameState.deviceId ? { ...gameState.state, _deviceId: gameState.deviceId } : gameState.state,
           last_updated: new Date().toISOString(),
           updated_by: gameState.updatedBy,
         })
@@ -948,7 +959,7 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
           .update({
             game_type: gameState.gameType,
             team_id: gameState.teamId,
-            state: gameState.state,
+            state: gameState.deviceId ? { ...gameState.state, _deviceId: gameState.deviceId } : gameState.state,
             last_updated: new Date().toISOString(),
             updated_by: gameState.updatedBy,
           })
@@ -965,13 +976,23 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
           throw new Error('No data returned from Supabase after update');
         }
         
+        // Extract deviceId from state metadata if present
+        const stateWithDeviceId = updateData.state as any;
+        const deviceId = stateWithDeviceId?._deviceId || stateWithDeviceId?.deviceId;
+        
+        // Remove deviceId from state before returning (clean state)
+        const cleanState = { ...updateData.state };
+        if (cleanState._deviceId) delete cleanState._deviceId;
+        if (cleanState.deviceId && !stateWithDeviceId._deviceId) delete cleanState.deviceId;
+        
         return {
           id: updateData.id,
           gameType: updateData.game_type,
           teamId: updateData.team_id,
-          state: updateData.state,
+          state: cleanState,
           lastUpdated: updateData.last_updated,
           updatedBy: updateData.updated_by,
+          deviceId: deviceId,
         };
       }
       
@@ -987,6 +1008,10 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
         throw new Error('No data returned from Supabase after insert');
       }
       
+      // Extract deviceId from state metadata if present
+      const stateWithDeviceId = data.state as any;
+      const deviceId = stateWithDeviceId?._deviceId || stateWithDeviceId?.deviceId;
+      
       return {
         id: data.id,
         gameType: data.game_type,
@@ -994,6 +1019,7 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
         state: data.state,
         lastUpdated: data.last_updated,
         updatedBy: data.updated_by,
+        deviceId: deviceId,
       };
     } catch (error) {
       console.error('❌ Supabase error saving game state:', error);
@@ -1003,7 +1029,16 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
   
   // Fallback to localStorage
   if (typeof window !== 'undefined') {
-    localStorage.setItem(`game_state_${gameState.id}`, JSON.stringify(gameState));
+    // Store deviceId in state metadata for localStorage
+    const stateWithDeviceId = {
+      ...gameState.state,
+      _deviceId: gameState.deviceId,
+    };
+    const gameStateWithDeviceId = {
+      ...gameState,
+      state: stateWithDeviceId,
+    };
+    localStorage.setItem(`game_state_${gameState.id}`, JSON.stringify(gameStateWithDeviceId));
   }
   return gameState;
 }

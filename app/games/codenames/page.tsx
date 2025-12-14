@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Eye, EyeOff, RotateCcw, Crown, Users, AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 
 // Difficulty-based word lists
 const CODEWORDS_EASY = [
@@ -285,6 +286,19 @@ export default function CodenamesPage() {
 
   const [gameId, setGameId] = useState<string | null>(null);
   const [lastSyncedState, setLastSyncedState] = useState<string>("");
+  // Device/session ID to track which device made the update (for multi-device same-user sync)
+  const getDeviceId = (): string => {
+    if (typeof window !== 'undefined') {
+      let deviceId = sessionStorage.getItem('deviceId');
+      if (!deviceId) {
+        deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        sessionStorage.setItem('deviceId', deviceId);
+      }
+      return deviceId;
+    }
+    return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  };
+  const deviceIdRef = useRef<string>(getDeviceId());
 
   // Helper function to determine which team the current user is on
   const getUserTeam = (): "red" | "blue" | null => {
@@ -318,11 +332,36 @@ export default function CodenamesPage() {
     if (currentTeam) {
       try {
         const team = JSON.parse(currentTeam);
+        // Set initial redTeamName to current team name (will be updated if joining existing game)
         setRedTeamName(team.name);
         // Create game ID from team
         const { gameStateAPI, teamsAPI } = require('@/lib/api-utils');
         const id = gameStateAPI.createGameId(team.id, 'codenames');
         setGameId(id);
+        
+        // Check if there's an existing game state (meaning we might be joining an existing game)
+        // If so, load the correct team names
+        gameStateAPI.getGameState(id).then((result: any) => {
+          if (result.success && result.state) {
+            const savedState = result.state.state;
+            // If there's a redTeamName in the game state and it's different from our team name,
+            // it means we're joining an existing game, so use the host's team name
+            if (savedState.redTeamName && savedState.redTeamName !== team.name) {
+              setRedTeamName(savedState.redTeamName);
+            }
+            // If there's a blueTeamId, check if we're the blue team
+            if (savedState.blueTeamId) {
+              setBlueTeamId(savedState.blueTeamId);
+              if (savedState.blueTeamName) {
+                setBlueTeamName(savedState.blueTeamName);
+              }
+              setIsPlayingAgainstComputer(false);
+            }
+          }
+        }).catch((e: any) => {
+          // No existing game state, that's fine
+        });
+        
         // Update team's last game access
         teamsAPI.updateTeamGameAccess(team.id);
       } catch (e) {
@@ -462,19 +501,30 @@ export default function CodenamesPage() {
   // Function to join as blue team
   const joinAsBlueTeam = async (teamId: string) => {
     try {
-      const { teamsAPI } = await import('@/lib/api-utils');
+      const { teamsAPI, gameStateAPI } = await import('@/lib/api-utils');
       const result = await teamsAPI.getTeams();
       
       if (result.success && result.teams) {
         const team = result.teams.find((t: any) => t.id === teamId);
         if (team) {
+          // Load existing game state to get the correct redTeamName (host's team name)
+          if (gameId) {
+            const gameStateResult = await gameStateAPI.getGameState(gameId);
+            if (gameStateResult.success && gameStateResult.state) {
+              const remoteState = gameStateResult.state.state;
+              // Update redTeamName from game state (host's team name)
+              if (remoteState.redTeamName && remoteState.redTeamName !== "RED TEAM") {
+                setRedTeamName(remoteState.redTeamName);
+              }
+            }
+          }
+          
           setBlueTeamId(teamId);
           setBlueTeamName(team.name);
           setIsPlayingAgainstComputer(false);
           
           // Update game state to reflect blue team joined
           if (gameId && currentUser) {
-            const { gameStateAPI } = await import('@/lib/api-utils');
             await gameStateAPI.saveGameState({
               id: gameId,
               gameType: 'codenames',
@@ -491,7 +541,7 @@ export default function CodenamesPage() {
               })(),
               state: {
                 phase: "waiting",
-                redTeamName,
+                redTeamName, // This should now be the host's team name
                 blueTeamId: teamId,
                 blueTeamName: team.name,
                 isPlayingAgainstComputer: false,
@@ -499,6 +549,7 @@ export default function CodenamesPage() {
               },
               lastUpdated: new Date().toISOString(),
               updatedBy: currentUser.id,
+              deviceId: deviceIdRef.current,
             });
           }
           
@@ -544,6 +595,7 @@ export default function CodenamesPage() {
             },
             lastUpdated: new Date().toISOString(),
             updatedBy: currentUser.id,
+            deviceId: deviceIdRef.current,
           });
         } catch (error) {
           console.error('Error saving waiting room state:', error);
@@ -600,6 +652,7 @@ export default function CodenamesPage() {
           state: stateToSave,
           lastUpdated: new Date().toISOString(),
           updatedBy: currentUser.id,
+          deviceId: deviceIdRef.current, // Track which device made this update
         });
         
         setLastSyncedState(stateString);
@@ -680,6 +733,7 @@ export default function CodenamesPage() {
             },
             lastUpdated: new Date().toISOString(),
             updatedBy: currentUser.id,
+            deviceId: deviceIdRef.current,
           });
           setLastSyncedState(JSON.stringify({
             phase,
@@ -768,57 +822,183 @@ export default function CodenamesPage() {
     
     if (phase === "setup") return;
     
-    const pollState = async () => {
-      try {
-        const { gameStateAPI } = await import('@/lib/api-utils');
-        const result = await gameStateAPI.getGameState(gameId);
-        
-        if (result.success && result.state) {
-          const remoteState = result.state.state;
-          const remoteStateString = JSON.stringify(remoteState);
-          
-          // Only update if state is different and from another user
-          if (remoteStateString !== lastSyncedState && result.state.updatedBy !== currentUser.id) {
-            const userTeam = getUserTeam();
-            
-            // Merge remote state
-            if (remoteState.phase) setPhase(remoteState.phase);
-            if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
-            
-            // Only update team names from opposing team
-            // Red team name should only be updated if we're on blue team
-            if (remoteState.redTeamName && userTeam === "blue") {
-              setRedTeamName(remoteState.redTeamName);
+    // Use Supabase realtime subscription for instant updates, fallback to polling
+    if (isSupabaseConfigured() && supabase) {
+      // Set up realtime subscription for instant updates
+      const channel = supabase
+        .channel(`game_state_${gameId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'game_states',
+            filter: `id=eq.${gameId}`,
+          },
+          async (payload) => {
+            try {
+              const { gameStateAPI } = await import('@/lib/api-utils');
+              const result = await gameStateAPI.getGameState(gameId);
+              
+              if (result.success && result.state) {
+                const remoteState = result.state.state;
+                const remoteStateString = JSON.stringify(remoteState);
+                
+                // Update if state is different and not from this device
+                // Check deviceId if available, otherwise fallback to updatedBy check
+                const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+                
+                if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
+                  const userTeam = getUserTeam();
+                  
+                  // Merge remote state
+                  if (remoteState.phase) setPhase(remoteState.phase);
+                  if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+                  
+                  // Only update team names from opposing team
+                  // Red team name should only be updated if we're on blue team
+                  if (remoteState.redTeamName && userTeam === "blue") {
+                    setRedTeamName(remoteState.redTeamName);
+                  }
+                  // Blue team name should only be updated if we're on red team
+                  if (remoteState.blueTeamName && userTeam === "red") {
+                    setBlueTeamName(remoteState.blueTeamName);
+                  }
+                  if (remoteState.cards) setCards(remoteState.cards);
+                  if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
+                  if (remoteState.clue) setClue(remoteState.clue);
+                  if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
+                  if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
+                  if (remoteState.players) setPlayers(remoteState.players);
+                  if (remoteState.gameLog) {
+                    setGameLog(remoteState.gameLog.map((entry: any) => ({
+                      ...entry,
+                      timestamp: new Date(entry.timestamp)
+                    })));
+                  }
+                  setLastSyncedState(remoteStateString);
+                }
+              }
+            } catch (error) {
+              console.error('Error handling realtime update:', error);
             }
-            // Blue team name should only be updated if we're on red team
-            if (remoteState.blueTeamName && userTeam === "red") {
-              setBlueTeamName(remoteState.blueTeamName);
-            }
-            if (remoteState.cards) setCards(remoteState.cards);
-            if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
-            if (remoteState.clue) setClue(remoteState.clue);
-            if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
-            if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
-            if (remoteState.players) setPlayers(remoteState.players);
-            if (remoteState.gameLog) {
-              setGameLog(remoteState.gameLog.map((entry: any) => ({
-                ...entry,
-                timestamp: new Date(entry.timestamp)
-              })));
-            }
-            setLastSyncedState(remoteStateString);
           }
+        )
+        .subscribe();
+      
+      // Also poll initially and as fallback
+      const pollState = async () => {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          const result = await gameStateAPI.getGameState(gameId);
+          
+          if (result.success && result.state) {
+            const remoteState = result.state.state;
+            const remoteStateString = JSON.stringify(remoteState);
+            
+            // Update if state is different and not from this device
+            const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+            
+            if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
+              const userTeam = getUserTeam();
+              
+              // Merge remote state
+              if (remoteState.phase) setPhase(remoteState.phase);
+              if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+              
+              // Only update team names from opposing team
+              if (remoteState.redTeamName && userTeam === "blue") {
+                setRedTeamName(remoteState.redTeamName);
+              }
+              if (remoteState.blueTeamName && userTeam === "red") {
+                setBlueTeamName(remoteState.blueTeamName);
+              }
+              if (remoteState.cards) setCards(remoteState.cards);
+              if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
+              if (remoteState.clue) setClue(remoteState.clue);
+              if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
+              if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
+              if (remoteState.players) setPlayers(remoteState.players);
+              if (remoteState.gameLog) {
+                setGameLog(remoteState.gameLog.map((entry: any) => ({
+                  ...entry,
+                  timestamp: new Date(entry.timestamp)
+                })));
+              }
+              setLastSyncedState(remoteStateString);
+            }
+          }
+        } catch (error) {
+          console.error('Error polling game state:', error);
         }
-      } catch (error) {
-        console.error('Error polling game state:', error);
-      }
-    };
-    
-    // Poll every 1 second for real-time updates
-    const intervalId = setInterval(pollState, 1000);
-    pollState(); // Initial poll
-    
-    return () => clearInterval(intervalId);
+      };
+      
+      // Initial poll
+      pollState();
+      // Fallback polling every 2 seconds (less frequent since we have realtime)
+      const intervalId = setInterval(pollState, 2000);
+      
+      return () => {
+        if (supabase) {
+          supabase.removeChannel(channel);
+        }
+        clearInterval(intervalId);
+      };
+    } else {
+      // Fallback to polling if Supabase not configured
+      const pollState = async () => {
+        try {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          const result = await gameStateAPI.getGameState(gameId);
+          
+          if (result.success && result.state) {
+            const remoteState = result.state.state;
+            const remoteStateString = JSON.stringify(remoteState);
+            
+            // Only update if state is different and from another user/device
+            const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+            const isFromOtherUser = result.state.updatedBy !== currentUser.id;
+            
+            if (remoteStateString !== lastSyncedState && (!isFromThisDevice || isFromOtherUser)) {
+              const userTeam = getUserTeam();
+              
+              // Merge remote state
+              if (remoteState.phase) setPhase(remoteState.phase);
+              if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+              
+              // Only update team names from opposing team
+              if (remoteState.redTeamName && userTeam === "blue") {
+                setRedTeamName(remoteState.redTeamName);
+              }
+              if (remoteState.blueTeamName && userTeam === "red") {
+                setBlueTeamName(remoteState.blueTeamName);
+              }
+              if (remoteState.cards) setCards(remoteState.cards);
+              if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
+              if (remoteState.clue) setClue(remoteState.clue);
+              if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
+              if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
+              if (remoteState.players) setPlayers(remoteState.players);
+              if (remoteState.gameLog) {
+                setGameLog(remoteState.gameLog.map((entry: any) => ({
+                  ...entry,
+                  timestamp: new Date(entry.timestamp)
+                })));
+              }
+              setLastSyncedState(remoteStateString);
+            }
+          }
+        } catch (error) {
+          console.error('Error polling game state:', error);
+        }
+      };
+      
+      // Poll every 1 second for real-time updates
+      const intervalId = setInterval(pollState, 1000);
+      pollState(); // Initial poll
+      
+      return () => clearInterval(intervalId);
+    }
   }, [currentUser, gameId, phase, lastSyncedState]);
 
   const getPlayerInitials = (name: string) => {
@@ -1251,8 +1431,8 @@ export default function CodenamesPage() {
                   <Users className="w-5 h-5 text-purple-400" />
                   <div>
                     <div className="text-purple-400 font-bold">You are playing as: {teamInfo.name}</div>
-                    <div className="text-red-400 font-semibold text-sm">
-                      RED TEAM
+                    <div className={`font-semibold text-sm ${getUserTeam() === "blue" ? "text-blue-400" : "text-red-400"}`}>
+                      {getUserTeam() === "blue" ? "BLUE TEAM" : "RED TEAM"}
                     </div>
                   </div>
                 </div>
@@ -1270,7 +1450,7 @@ export default function CodenamesPage() {
               <div className="bg-red-900/30 rounded-xl p-4 border-2 border-red-500 neon-box-pink">
                 <div className="text-red-400 font-bold text-sm mb-2">RED TEAM</div>
                 <div className="text-white font-semibold text-lg">{redTeamName}</div>
-                {teamInfo && (
+                {teamInfo && getUserTeam() === "red" && (
                   <div className="text-red-300/70 text-xs mt-1">
                     {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""}
                   </div>
@@ -1284,7 +1464,14 @@ export default function CodenamesPage() {
                 {blueTeamId ? (
                   <>
                     <div className="text-white font-semibold text-lg">{blueTeamName}</div>
-                    <div className="text-blue-300/70 text-xs mt-1">Team joined!</div>
+                    {teamInfo && getUserTeam() === "blue" && (
+                      <div className="text-blue-300/70 text-xs mt-1">
+                        {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""}
+                      </div>
+                    )}
+                    {getUserTeam() !== "blue" && (
+                      <div className="text-blue-300/70 text-xs mt-1">Team joined!</div>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1682,6 +1869,7 @@ export default function CodenamesPage() {
                           },
                           lastUpdated: new Date().toISOString(),
                           updatedBy: currentUser.id,
+                          deviceId: deviceIdRef.current,
                         });
                       } catch (error) {
                         console.error('Error syncing role:', error);
