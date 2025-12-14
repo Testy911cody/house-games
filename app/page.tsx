@@ -164,13 +164,6 @@ export default function Home() {
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="text-center mt-4 sm:mt-8 animate-fade-in delay-700">
-          <p className="text-cyan-500/50 text-xs sm:text-sm animate-pulse">
-            ▸ INSERT COIN TO CONTINUE ◂
-          </p>
-        </div>
       </div>
 
       {/* Signature */}
