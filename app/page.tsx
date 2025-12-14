@@ -63,7 +63,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter relative" key={Date.now()}>
+    <>
+      <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter relative" key={Date.now()}>
       {/* Treehouse Logo */}
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: '1rem', textAlign: 'center', marginBottom: '1rem' }}>
         <svg 
@@ -295,6 +296,7 @@ export default function Home() {
             </div>
           )}
         </div>
+      </div>
       </div>
 
 
