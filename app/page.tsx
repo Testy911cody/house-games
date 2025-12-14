@@ -297,8 +297,6 @@ export default function Home() {
           )}
         </div>
       </div>
-      </div>
-
 
       {/* Africo Branding - Bottom Right */}
       <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 animate-fade-in delay-800 z-20 flex items-center gap-2">
@@ -411,6 +409,7 @@ export default function Home() {
             </text>
           </svg>
         </div>
+      </div>
       </div>
     </>
   );
