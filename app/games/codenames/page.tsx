@@ -554,22 +554,8 @@ export default function CodenamesPage() {
           const hostGameId = gameStateAPI.createGameId(teamId, 'codenames');
           setGameId(hostGameId);
           
-          // Load existing game state from the host's game to get the correct team names
+          // Load existing game state from the host's game to sync with current game
           const gameStateResult = await gameStateAPI.getGameState(hostGameId);
-          if (gameStateResult.success && gameStateResult.state) {
-            const remoteState = gameStateResult.state.state;
-            // Update redTeamName from game state (host's team name)
-            if (remoteState.redTeamName && remoteState.redTeamName !== "RED TEAM") {
-              setRedTeamName(remoteState.redTeamName);
-            }
-            // Use the host's waiting room start time to sync countdown
-            if (remoteState.waitingRoomStartTime) {
-              setWaitingRoomStartTime(remoteState.waitingRoomStartTime);
-            }
-          } else {
-            // If no game state exists, set redTeamName to the host's team name
-            setRedTeamName(team.name);
-          }
           
           // Set blueTeamId to OUR team ID (we're the joiner)
           const currentTeam = localStorage.getItem("currentTeam");
@@ -585,23 +571,79 @@ export default function CodenamesPage() {
             }
           }
           
+          if (gameStateResult.success && gameStateResult.state) {
+            const remoteState = gameStateResult.state.state;
+            
+            // Sync all game state to the joining player
+            if (remoteState.phase) {
+              setPhase(remoteState.phase); // Preserve current phase (setup, playing, etc.)
+            }
+            if (remoteState.difficulty) {
+              setDifficulty(remoteState.difficulty);
+            }
+            if (remoteState.redTeamName && remoteState.redTeamName !== "RED TEAM") {
+              setRedTeamName(remoteState.redTeamName);
+            }
+            if (remoteState.blueTeamName) {
+              setBlueTeamName(remoteState.blueTeamName);
+            }
+            if (remoteState.cards && Array.isArray(remoteState.cards)) {
+              setCards(remoteState.cards);
+            }
+            if (remoteState.currentTeam) {
+              setCurrentTeam(remoteState.currentTeam);
+            }
+            if (remoteState.clue) {
+              setClue(remoteState.clue);
+            }
+            if (remoteState.guessesRemaining !== undefined) {
+              setGuessesRemaining(remoteState.guessesRemaining);
+            }
+            if (remoteState.gameOverReason) {
+              setGameOverReason(remoteState.gameOverReason);
+            }
+            if (remoteState.players && Array.isArray(remoteState.players)) {
+              setPlayers(remoteState.players);
+            }
+            if (remoteState.gameLog && Array.isArray(remoteState.gameLog)) {
+              setGameLog(remoteState.gameLog.map((entry: any) => ({
+                ...entry,
+                timestamp: new Date(entry.timestamp)
+              })));
+            }
+            if (remoteState.waitingRoomStartTime) {
+              setWaitingRoomStartTime(remoteState.waitingRoomStartTime);
+            }
+          } else {
+            // If no game state exists, set redTeamName to the host's team name
+            setRedTeamName(team.name);
+          }
+          
           setBlueTeamId(ourTeamId || teamId); // Our team ID (the joiner)
-          setBlueTeamName(ourTeamName || team.name); // Our team name (the joiner)
+          if (!blueTeamName || blueTeamName === "BLUE TEAM") {
+            setBlueTeamName(ourTeamName || team.name); // Our team name (the joiner)
+          }
           setIsPlayingAgainstComputer(false);
           
           // Update the host's game state to reflect blue team joined
+          // Preserve the current phase and all game state
           if (currentUser && ourTeamId) {
+            const currentGameState = gameStateResult.success && gameStateResult.state 
+              ? gameStateResult.state.state 
+              : {};
+            
             await gameStateAPI.saveGameState({
               id: hostGameId, // Use host's gameId, not our own
               gameType: 'codenames',
               teamId: teamId, // Host's team ID
               state: {
-                phase: "waiting",
-                redTeamName, // Host's team name
+                ...currentGameState, // Preserve all existing game state
+                phase: currentGameState.phase || "waiting", // Preserve current phase
+                redTeamName: currentGameState.redTeamName || redTeamName, // Host's team name
                 blueTeamId: ourTeamId, // Our team ID (the joiner)
                 blueTeamName: ourTeamName, // Our team name (the joiner)
                 isPlayingAgainstComputer: false,
-                waitingRoomStartTime: waitingRoomStartTime || Date.now(),
+                waitingRoomStartTime: currentGameState.waitingRoomStartTime || waitingRoomStartTime || Date.now(),
               },
               lastUpdated: new Date().toISOString(),
               updatedBy: currentUser.id,
@@ -1702,11 +1744,55 @@ export default function CodenamesPage() {
                   <Users className="w-5 h-5 text-purple-400" />
                   <div>
                     <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
-                    <div className="text-cyan-300/70 text-sm">
-                      {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as RED TEAM
+                    <div className={`text-sm ${getUserTeam() === "blue" ? "text-blue-300/70" : "text-cyan-300/70"}`}>
+                      {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as {getUserTeam() === "blue" ? "BLUE" : "RED"} TEAM
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Available Teams to Join (if no blue team yet) */}
+          {!blueTeamId && availableTeams.length > 0 && (
+            <div className="neon-card neon-box-cyan p-6 mb-6 card-3d">
+              <h3 className="text-lg font-bold text-cyan-400 mb-3 flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                AVAILABLE TEAMS TO JOIN AS BLUE TEAM
+              </h3>
+              <div className="space-y-3 max-h-64 overflow-y-auto">
+                {availableTeams.map((team) => {
+                  const currentTeamData = localStorage.getItem("currentTeam");
+                  const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
+                  const isCurrentTeam = currentTeamId === team.id;
+                  
+                  return (
+                    <div
+                      key={team.id}
+                      className="bg-gray-800/50 rounded-xl p-4 border-2 border-gray-600 hover:border-blue-500 transition-all flex items-center justify-between"
+                    >
+                      <div className="flex-1">
+                        <div className="text-white font-semibold">{team.name}</div>
+                        <div className="text-gray-400 text-sm">
+                          {team.memberCount} member{team.memberCount !== 1 ? "s" : ""} • Admin: {team.adminName}
+                        </div>
+                        <div className="text-cyan-400 text-xs font-mono mt-1">Code: {team.code}</div>
+                      </div>
+                      {isCurrentTeam ? (
+                        <div className="px-4 py-2 bg-gray-700 text-gray-500 font-bold text-sm rounded">
+                          YOUR TEAM
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => joinAsBlueTeam(team.id)}
+                          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded transition-all hover:scale-105"
+                        >
+                          JOIN AS BLUE
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -1849,6 +1935,43 @@ export default function CodenamesPage() {
     return (
       <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
+          {/* Available Teams to Join (if no blue team yet) */}
+          {!blueTeamId && availableTeams.length > 0 && (
+            <div className="neon-card neon-box-cyan p-4 mb-6 card-3d">
+              <h3 className="text-sm font-bold text-cyan-400 mb-2 flex items-center gap-2">
+                <Users className="w-4 h-4" />
+                TEAMS CAN STILL JOIN AS BLUE TEAM
+              </h3>
+              <div className="space-y-2 max-h-32 overflow-y-auto">
+                {availableTeams.slice(0, 2).map((team) => {
+                  const currentTeamData = localStorage.getItem("currentTeam");
+                  const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
+                  const isCurrentTeam = currentTeamId === team.id;
+                  
+                  return (
+                    <div
+                      key={team.id}
+                      className="bg-gray-800/50 rounded-lg p-2 border border-gray-600 hover:border-blue-500 transition-all flex items-center justify-between text-xs"
+                    >
+                      <div className="flex-1">
+                        <div className="text-white font-semibold">{team.name}</div>
+                        <div className="text-gray-400 text-xs">Code: {team.code}</div>
+                      </div>
+                      {!isCurrentTeam && (
+                        <button
+                          onClick={() => joinAsBlueTeam(team.id)}
+                          className="px-3 py-1 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded text-xs transition-all hover:scale-105"
+                        >
+                          JOIN
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
           {/* Scoreboard */}
           <div className="mb-8 grid grid-cols-2 gap-4">
             <div className={`${redTeam.color.light} rounded-xl p-4 border-2 ${redTeam.color.border} ${currentTeam === "red" ? redTeam.color.glow : "opacity-70"} transition-all`}>
