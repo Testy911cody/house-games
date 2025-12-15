@@ -64,8 +64,14 @@ export default function Home() {
 
   return (
     <>
+      <h1 className="pixel-font text-2xl sm:text-4xl md:text-6xl font-bold text-cyan-400 neon-glow-cyan mb-4 sm:mb-6 animate-glow-pulse text-center">
+        HOUSE GAMES
+      </h1>
+      <p className="text-cyan-400/60 text-xs sm:text-sm pixel-font neon-glow-cyan text-center">
+        Created with ❤️ by Africo
+      </p>
       <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 page-enter relative" key={Date.now()}>
-      {/* Treehouse Logo */}
+        {/* Treehouse Logo */}
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: '1rem', textAlign: 'center', marginBottom: '1rem' }}>
         <svg 
           width="120" 
@@ -201,9 +207,6 @@ export default function Home() {
       <div className="max-w-4xl w-full">
         {/* Header */}
         <div className="text-center mb-6 sm:mb-12 animate-fade-in-down">
-          <p className="text-cyan-400/60 text-xs sm:text-sm pixel-font neon-glow-cyan">
-            Created with ❤️ by Africo
-          </p>
           <div className="flex justify-center gap-1 sm:gap-2 mt-2 sm:mt-4">
             {['🎮', '🕹️', '👾', '🎯', '🏆'].map((emoji, i) => (
               <span key={i} className="text-2xl sm:text-3xl float animate-bounce-in" style={{ animationDelay: `${i * 0.2}s` }}>
