@@ -735,30 +735,59 @@ async function cleanupInactiveTeams(): Promise<void> {
 
     const teamsToDelete: string[] = [];
     const now = Date.now();
-    const TEN_MINUTES = 10 * 60 * 1000; // 10 minutes in milliseconds
+    const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
+    const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
     for (const team of teams) {
+      const teamAge = now - new Date(team.createdAt).getTime();
+      const lastGameAccess = team.lastGameAccess ? new Date(team.lastGameAccess).getTime() : 0;
+      const timeSinceLastGame = lastGameAccess > 0 ? now - lastGameAccess : Infinity;
+      
       // Check if admin is online
       const adminOnline = isUserOnline(team.adminId);
       
-      // If admin is offline, check last game access
-      if (!adminOnline) {
-        const lastGameAccess = team.lastGameAccess ? new Date(team.lastGameAccess).getTime() : 0;
-        const timeSinceLastGame = now - lastGameAccess;
-        
-        // Delete team if:
-        // 1. Admin is offline
-        // 2. Team hasn't accessed a game in the last 10 minutes
-        // 3. OR team was never in a game (no lastGameAccess) and team is older than 10 minutes
-        const teamAge = now - new Date(team.createdAt).getTime();
-        const shouldDelete = 
-          (lastGameAccess > 0 && timeSinceLastGame > TEN_MINUTES) ||
-          (lastGameAccess === 0 && teamAge > TEN_MINUTES);
-        
-        if (shouldDelete) {
-          teamsToDelete.push(team.id);
-          console.log(`🗑️ Marking team for deletion: ${team.name} (Admin offline, no game access for ${Math.floor(timeSinceLastGame / 1000 / 60)} minutes)`);
+      // Check if any members are online
+      const membersOnline = team.members?.some((member: any) => 
+        isUserOnline(member.id)
+      ) || false;
+      
+      // Determine if team is active (admin or any member is online)
+      const hasActiveUsers = adminOnline || membersOnline;
+      
+      // Determine if team has recent game activity (within last hour)
+      const hasRecentGameAccess = timeSinceLastGame < ONE_HOUR;
+      
+      // Delete team if:
+      // 1. Team is 1+ days old AND has no active users AND no recent game access (regardless of past game access)
+      // 2. Team is less than 1 day old AND has no active users AND no game access ever AND is older than 1 hour
+      let shouldDelete = false;
+      let deleteReason = '';
+      
+      if (teamAge >= ONE_DAY) {
+        // For teams 1+ days old: delete if no active users and no recent game access
+        // This will clean up old teams even if they were used days ago
+        if (!hasActiveUsers && !hasRecentGameAccess) {
+          shouldDelete = true;
+          const daysOld = Math.floor(teamAge / ONE_DAY);
+          const hoursSinceLastGame = lastGameAccess > 0 ? Math.floor(timeSinceLastGame / ONE_HOUR) : null;
+          if (hoursSinceLastGame !== null) {
+            deleteReason = `Old team (${daysOld} days old), no active users, last game access ${hoursSinceLastGame} hours ago`;
+          } else {
+            deleteReason = `Old team (${daysOld} days old), no active users, never accessed a game`;
+          }
         }
+      } else {
+        // For newer teams (less than 1 day old), only delete if:
+        // - No active users AND no game access ever AND older than 1 hour
+        if (!hasActiveUsers && lastGameAccess === 0 && teamAge > ONE_HOUR) {
+          shouldDelete = true;
+          deleteReason = `New team (${Math.floor(teamAge / ONE_HOUR)} hours old), no active users, never accessed a game`;
+        }
+      }
+      
+      if (shouldDelete) {
+        teamsToDelete.push(team.id);
+        console.log(`🗑️ Marking team for deletion: ${team.name} (${deleteReason})`);
       }
     }
 
@@ -1182,5 +1211,708 @@ export const gameStateAPI = {
       return { success: false, error: error.message || 'Failed to fetch waiting games' };
     }
   },
+};
+
+/**
+ * Game Rooms API for multiplayer lobby system
+ * Manages game rooms/lobbies where players can join before starting a game
+ */
+
+export interface GameRoomPlayer {
+  id: string;
+  name: string;
+  team?: string;        // Team ID for team-based games
+  isReady: boolean;
+  isHost: boolean;
+  joinedAt: string;
+}
+
+export interface GameRoomTeam {
+  id: string;
+  name: string;
+  color: string;
+  players: { id: string; name: string }[];
+}
+
+export interface GameRoom {
+  id: string;
+  code: string;                  // 6-char room code (e.g., "ABC123")
+  gameType: string;              // "codenames", "ludo", etc.
+  hostId: string;                // User ID who created the room
+  hostName: string;              // Display name of the host
+  isPrivate: boolean;            // Private (code-only) vs public (visible in lobby)
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: GameRoomPlayer[];
+  settings: Record<string, any>; // Game-specific settings
+  teamMode: boolean;             // Whether this is a team-based game
+  teams: GameRoomTeam[];         // For team games
+  createdAt: string;
+  updatedAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+// Generate a random 6-character room code
+function generateRoomCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // Removed confusing chars (I, O, 0, 1)
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+// Fallback in-memory storage for rooms (only used if Supabase is not configured)
+let roomsStorage: GameRoom[] = [];
+
+async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('id', roomId)
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') return null; // Not found
+        throw error;
+      }
+      
+      if (!data) return null;
+      
+      return mapDBRoomToGameRoom(data);
+    } catch (error) {
+      console.error('Supabase error getting room:', error);
+      return null;
+    }
+  }
+  
+  // Fallback to local storage
+  return roomsStorage.find(r => r.id === roomId) || null;
+}
+
+async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('code', code.toUpperCase())
+        .single();
+      
+      if (error) {
+        if (error.code === 'PGRST116') return null; // Not found
+        throw error;
+      }
+      
+      if (!data) return null;
+      
+      return mapDBRoomToGameRoom(data);
+    } catch (error) {
+      console.error('Supabase error getting room by code:', error);
+      return null;
+    }
+  }
+  
+  // Fallback to local storage
+  return roomsStorage.find(r => r.code === code.toUpperCase()) || null;
+}
+
+async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      let query = supabase
+        .from('game_rooms')
+        .select('*')
+        .eq('is_private', false)
+        .eq('status', 'waiting')
+        .order('created_at', { ascending: false });
+      
+      if (gameType) {
+        query = query.eq('game_type', gameType);
+      }
+      
+      const { data, error } = await query;
+      
+      if (error) throw error;
+      
+      return (data || []).map(mapDBRoomToGameRoom);
+    } catch (error) {
+      console.error('Supabase error getting public rooms:', error);
+      return [];
+    }
+  }
+  
+  // Fallback to local storage
+  let rooms = roomsStorage.filter(r => !r.isPrivate && r.status === 'waiting');
+  if (gameType) {
+    rooms = rooms.filter(r => r.gameType === gameType);
+  }
+  return rooms;
+}
+
+async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const dbRoom = {
+        id: room.id,
+        code: room.code,
+        game_type: room.gameType,
+        host_id: room.hostId,
+        host_name: room.hostName,
+        is_private: room.isPrivate,
+        status: room.status,
+        max_players: room.maxPlayers,
+        min_players: room.minPlayers,
+        current_players: room.currentPlayers,
+        settings: room.settings,
+        team_mode: room.teamMode,
+        teams: room.teams,
+        created_at: room.createdAt,
+        updated_at: new Date().toISOString(),
+        started_at: room.startedAt,
+        finished_at: room.finishedAt,
+      };
+      
+      // Try insert first
+      let { data, error } = await supabase
+        .from('game_rooms')
+        .insert(dbRoom)
+        .select()
+        .single();
+      
+      // If conflict, update instead
+      if (error && (error.code === '23505' || error.message?.includes('duplicate'))) {
+        const { data: updateData, error: updateError } = await supabase
+          .from('game_rooms')
+          .update({
+            ...dbRoom,
+            id: undefined, // Don't update the ID
+          })
+          .eq('id', room.id)
+          .select()
+          .single();
+        
+        if (updateError) throw updateError;
+        data = updateData;
+      } else if (error) {
+        throw error;
+      }
+      
+      if (!data) throw new Error('No data returned from Supabase');
+      
+      return mapDBRoomToGameRoom(data);
+    } catch (error) {
+      console.error('Supabase error saving room:', error);
+      throw error;
+    }
+  }
+  
+  // Fallback to local storage
+  const index = roomsStorage.findIndex(r => r.id === room.id);
+  if (index >= 0) {
+    roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
+  } else {
+    roomsStorage.push(room);
+  }
+  return room;
+}
+
+async function deleteRoomFromDB(roomId: string): Promise<boolean> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { error } = await supabase
+        .from('game_rooms')
+        .delete()
+        .eq('id', roomId);
+      
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Supabase error deleting room:', error);
+      return false;
+    }
+  }
+  
+  // Fallback to local storage
+  roomsStorage = roomsStorage.filter(r => r.id !== roomId);
+  return true;
+}
+
+function mapDBRoomToGameRoom(dbRoom: any): GameRoom {
+  return {
+    id: dbRoom.id,
+    code: dbRoom.code,
+    gameType: dbRoom.game_type,
+    hostId: dbRoom.host_id,
+    hostName: dbRoom.host_name,
+    isPrivate: dbRoom.is_private,
+    status: dbRoom.status,
+    maxPlayers: dbRoom.max_players,
+    minPlayers: dbRoom.min_players,
+    currentPlayers: dbRoom.current_players || [],
+    settings: dbRoom.settings || {},
+    teamMode: dbRoom.team_mode,
+    teams: dbRoom.teams || [],
+    createdAt: dbRoom.created_at,
+    updatedAt: dbRoom.updated_at,
+    startedAt: dbRoom.started_at,
+    finishedAt: dbRoom.finished_at,
+  };
+}
+
+export const gameRoomsAPI = {
+  /**
+   * Create a new game room
+   */
+  async createRoom(options: {
+    gameType: string;
+    hostId: string;
+    hostName: string;
+    isPrivate?: boolean;
+    maxPlayers?: number;
+    minPlayers?: number;
+    settings?: Record<string, any>;
+    teamMode?: boolean;
+    teams?: GameRoomTeam[];
+  }): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      // Generate a unique room code
+      let code = generateRoomCode();
+      let attempts = 0;
+      while (await getRoomByCodeFromDB(code) && attempts < 10) {
+        code = generateRoomCode();
+        attempts++;
+      }
+      
+      const now = new Date().toISOString();
+      const room: GameRoom = {
+        id: `room_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        code,
+        gameType: options.gameType,
+        hostId: options.hostId,
+        hostName: options.hostName,
+        isPrivate: options.isPrivate ?? false,
+        status: 'waiting',
+        maxPlayers: options.maxPlayers ?? 4,
+        minPlayers: options.minPlayers ?? 2,
+        currentPlayers: [{
+          id: options.hostId,
+          name: options.hostName,
+          isReady: true,
+          isHost: true,
+          joinedAt: now,
+        }],
+        settings: options.settings ?? {},
+        teamMode: options.teamMode ?? false,
+        teams: options.teams ?? [],
+        createdAt: now,
+        updatedAt: now,
+      };
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error creating room:', error);
+      return { success: false, error: error.message || 'Failed to create room' };
+    }
+  },
+  
+  /**
+   * Join a room by code
+   */
+  async joinRoom(code: string, userId: string, userName: string): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomByCodeFromDB(code.toUpperCase());
+      
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      if (room.status !== 'waiting') {
+        return { success: false, error: 'Game has already started' };
+      }
+      
+      if (room.currentPlayers.length >= room.maxPlayers) {
+        return { success: false, error: 'Room is full' };
+      }
+      
+      // Check if user is already in the room
+      if (room.currentPlayers.some(p => p.id === userId)) {
+        return { success: true, room }; // Already in room, return success
+      }
+      
+      // Add player to room
+      room.currentPlayers.push({
+        id: userId,
+        name: userName,
+        isReady: false,
+        isHost: false,
+        joinedAt: new Date().toISOString(),
+      });
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error joining room:', error);
+      return { success: false, error: error.message || 'Failed to join room' };
+    }
+  },
+  
+  /**
+   * Leave a room
+   */
+  async leaveRoom(roomId: string, userId: string): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      // Remove player from room
+      room.currentPlayers = room.currentPlayers.filter(p => p.id !== userId);
+      
+      // Also remove from team if team mode
+      if (room.teamMode && room.teams) {
+        room.teams.forEach(team => {
+          team.players = team.players.filter(p => p.id !== userId);
+        });
+      }
+      
+      // If the host left, either assign new host or delete room
+      if (room.hostId === userId) {
+        if (room.currentPlayers.length > 0) {
+          // Assign new host
+          const newHost = room.currentPlayers[0];
+          room.hostId = newHost.id;
+          room.hostName = newHost.name;
+          newHost.isHost = true;
+        } else {
+          // Delete empty room
+          await deleteRoomFromDB(roomId);
+          return { success: true };
+        }
+      }
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error leaving room:', error);
+      return { success: false, error: error.message || 'Failed to leave room' };
+    }
+  },
+  
+  /**
+   * Leave a room by code
+   */
+  async leaveRoomByCode(code: string, userId: string): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomByCodeFromDB(code);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      return this.leaveRoom(room.id, userId);
+    } catch (error: any) {
+      console.error('Error leaving room by code:', error);
+      return { success: false, error: error.message || 'Failed to leave room' };
+    }
+  },
+  
+  /**
+   * Update player info in room
+   */
+  async updatePlayer(roomId: string, userId: string, updates: Partial<GameRoomPlayer>): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      const playerIndex = room.currentPlayers.findIndex(p => p.id === userId);
+      if (playerIndex === -1) {
+        return { success: false, error: 'Player not in room' };
+      }
+      
+      // Update player
+      room.currentPlayers[playerIndex] = {
+        ...room.currentPlayers[playerIndex],
+        ...updates,
+      };
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error updating player:', error);
+      return { success: false, error: error.message || 'Failed to update player' };
+    }
+  },
+  
+  /**
+   * Get room by ID
+   */
+  async getRoom(roomId: string): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      return { success: true, room };
+    } catch (error: any) {
+      console.error('Error getting room:', error);
+      return { success: false, error: error.message || 'Failed to get room' };
+    }
+  },
+  
+  /**
+   * Get room by code
+   */
+  async getRoomByCode(code: string): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomByCodeFromDB(code);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      return { success: true, room };
+    } catch (error: any) {
+      console.error('Error getting room by code:', error);
+      return { success: false, error: error.message || 'Failed to get room' };
+    }
+  },
+  
+  /**
+   * Get all public rooms (optionally filtered by game type)
+   */
+  async getPublicRooms(gameType?: string): Promise<{ success: boolean; rooms: GameRoom[]; error?: string }> {
+    try {
+      const rooms = await getPublicRoomsFromDB(gameType);
+      return { success: true, rooms };
+    } catch (error: any) {
+      console.error('Error getting public rooms:', error);
+      return { success: false, rooms: [], error: error.message || 'Failed to get public rooms' };
+    }
+  },
+  
+  /**
+   * Update room status
+   */
+  async updateRoomStatus(roomId: string, status: 'waiting' | 'playing' | 'finished'): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      room.status = status;
+      if (status === 'playing') {
+        room.startedAt = new Date().toISOString();
+      } else if (status === 'finished') {
+        room.finishedAt = new Date().toISOString();
+      }
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error updating room status:', error);
+      return { success: false, error: error.message || 'Failed to update room status' };
+    }
+  },
+  
+  /**
+   * Set player ready status
+   */
+  async setPlayerReady(roomId: string, userId: string, isReady: boolean): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      const player = room.currentPlayers.find(p => p.id === userId);
+      if (!player) {
+        return { success: false, error: 'Player not in room' };
+      }
+      
+      player.isReady = isReady;
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error setting player ready:', error);
+      return { success: false, error: error.message || 'Failed to set player ready' };
+    }
+  },
+  
+  /**
+   * Assign player to a team (for team-based games)
+   */
+  async assignPlayerToTeam(roomId: string, userId: string, teamId: string): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      const player = room.currentPlayers.find(p => p.id === userId);
+      if (!player) {
+        return { success: false, error: 'Player not in room' };
+      }
+      
+      // Remove player from current team if any
+      for (const team of room.teams) {
+        team.players = team.players.filter(p => p.id !== userId);
+      }
+      
+      // Add player to new team
+      const team = room.teams.find(t => t.id === teamId);
+      if (team) {
+        team.players.push({ id: userId, name: player.name });
+        player.team = teamId;
+      }
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error assigning player to team:', error);
+      return { success: false, error: error.message || 'Failed to assign player to team' };
+    }
+  },
+  
+  /**
+   * Update room settings
+   */
+  async updateRoomSettings(roomId: string, settings: Record<string, any>): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      room.settings = { ...room.settings, ...settings };
+      
+      const savedRoom = await saveRoomToDB(room);
+      return { success: true, room: savedRoom };
+    } catch (error: any) {
+      console.error('Error updating room settings:', error);
+      return { success: false, error: error.message || 'Failed to update room settings' };
+    }
+  },
+  
+  /**
+   * Quick match - join an available public room or create a new one
+   */
+  async quickMatch(options: {
+    gameType: string;
+    userId: string;
+    userName: string;
+    maxPlayers?: number;
+    minPlayers?: number;
+    settings?: Record<string, any>;
+  }): Promise<{ success: boolean; room?: GameRoom; isNew: boolean; error?: string }> {
+    try {
+      // Look for an available public room
+      const publicRooms = await getPublicRoomsFromDB(options.gameType);
+      
+      // Find a room that's not full
+      const availableRoom = publicRooms.find(r => 
+        r.currentPlayers.length < r.maxPlayers &&
+        !r.currentPlayers.some(p => p.id === options.userId)
+      );
+      
+      if (availableRoom) {
+        // Join existing room
+        const result = await this.joinRoom(availableRoom.code, options.userId, options.userName);
+        return { ...result, isNew: false };
+      }
+      
+      // No available room, create a new one
+      const result = await this.createRoom({
+        gameType: options.gameType,
+        hostId: options.userId,
+        hostName: options.userName,
+        isPrivate: false,
+        maxPlayers: options.maxPlayers,
+        minPlayers: options.minPlayers,
+        settings: options.settings,
+      });
+      
+      return { ...result, isNew: true };
+    } catch (error: any) {
+      console.error('Error in quick match:', error);
+      return { success: false, isNew: false, error: error.message || 'Failed to quick match' };
+    }
+  },
+  
+  /**
+   * Delete a room
+   */
+  async deleteRoom(roomId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const deleted = await deleteRoomFromDB(roomId);
+      return { success: deleted };
+    } catch (error: any) {
+      console.error('Error deleting room:', error);
+      return { success: false, error: error.message || 'Failed to delete room' };
+    }
+  },
+  
+  /**
+   * Clean up stale rooms (rooms that are old or abandoned)
+   */
+  async cleanupStaleRooms(): Promise<void> {
+    try {
+      if (isSupabaseConfigured() && supabase) {
+        // Delete rooms that are waiting for more than 24 hours
+        // or finished more than 1 hour ago
+        const { error } = await supabase.rpc('cleanup_stale_game_rooms');
+        if (error) {
+          console.error('Error cleaning up stale rooms:', error);
+        }
+      } else {
+        // Local cleanup
+        const now = Date.now();
+        const ONE_HOUR = 60 * 60 * 1000;
+        const ONE_DAY = 24 * 60 * 60 * 1000;
+        
+        roomsStorage = roomsStorage.filter(room => {
+          const createdAge = now - new Date(room.createdAt).getTime();
+          const finishedAge = room.finishedAt ? now - new Date(room.finishedAt).getTime() : 0;
+          
+          // Keep if waiting less than 24 hours
+          if (room.status === 'waiting' && createdAge < ONE_DAY) return true;
+          // Keep if playing less than 12 hours
+          if (room.status === 'playing' && createdAge < 12 * ONE_HOUR) return true;
+          // Keep if finished less than 1 hour ago
+          if (room.status === 'finished' && finishedAge < ONE_HOUR) return true;
+          
+          return false;
+        });
+      }
+    } catch (error) {
+      console.error('Error cleaning up stale rooms:', error);
+    }
+  },
+  
+  /**
+   * Get active player count for a game type
+   */
+  async getActivePlayerCount(gameType: string): Promise<{ success: boolean; count: number; error?: string }> {
+    try {
+      const rooms = await getPublicRoomsFromDB(gameType);
+      const count = rooms.reduce((total, room) => total + room.currentPlayers.length, 0);
+      return { success: true, count };
+    } catch (error: any) {
+      console.error('Error getting active player count:', error);
+      return { success: false, count: 0, error: error.message || 'Failed to get player count' };
+    }
+  },
+  
+  /**
+   * Generate a room code (utility function)
+   */
+  generateRoomCode,
 };
 

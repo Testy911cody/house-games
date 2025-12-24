@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Zap, Users, X, MessageSquare, Send, Check } from "lucide-react";
+import { ArrowLeft, Zap, Users, X, MessageSquare, Send, Check, Play, Globe } from "lucide-react";
+
+interface ActivePlayersCount {
+  [gameType: string]: number;
+}
 
 export default function GamesPage() {
   const router = useRouter();
@@ -11,6 +15,33 @@ export default function GamesPage() {
   const [currentTeam, setCurrentTeam] = useState<any>(null);
   const [suggestion, setSuggestion] = useState("");
   const [showSuccess, setShowSuccess] = useState(false);
+  const [activePlayers, setActivePlayers] = useState<ActivePlayersCount>({});
+  const [isLoadingPlayers, setIsLoadingPlayers] = useState(true);
+
+  // Load active player counts for each game
+  const loadActivePlayerCounts = useCallback(async () => {
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const gameTypes = ["codenames", "taboo", "jeopardy", "drawguess", "monopoly", "werewolf", "ludo"];
+      
+      const counts: ActivePlayersCount = {};
+      
+      await Promise.all(
+        gameTypes.map(async (gameType) => {
+          const result = await gameRoomsAPI.getActivePlayerCount(gameType);
+          if (result.success) {
+            counts[gameType] = result.count;
+          }
+        })
+      );
+      
+      setActivePlayers(counts);
+    } catch (error) {
+      console.error("Error loading active player counts:", error);
+    } finally {
+      setIsLoadingPlayers(false);
+    }
+  }, []);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -25,7 +56,14 @@ export default function GamesPage() {
     if (team) {
       setCurrentTeam(JSON.parse(team));
     }
-  }, [router]);
+    
+    // Load active player counts
+    loadActivePlayerCounts();
+    
+    // Refresh every 5 seconds
+    const interval = setInterval(loadActivePlayerCounts, 5000);
+    return () => clearInterval(interval);
+  }, [router, loadActivePlayerCounts]);
 
   const clearTeam = () => {
     localStorage.removeItem("currentTeam");
@@ -219,13 +257,24 @@ export default function GamesPage() {
             const colors = colorClasses[game.color] || colorClasses.pink;
             const delay = (index + 1) * 0.1;
             
+            const playerCount = activePlayers[game.id] || 0;
+            const hasActivePlayers = playerCount > 0;
+            
             return (
               <Link
                 key={game.id}
                 href={`/games/${game.id}`}
                 className="group relative block"
               >
-                <div className={`neon-card ${colors.box} p-4 sm:p-6 lg:p-8 h-full active:scale-95 transition-all duration-300 min-h-[200px] sm:min-h-[240px] game-card-3d grid-item-3d card-3d-enhanced card-enter hover:animate-pulse-glow`} style={{ animationDelay: `${delay}s` }}>
+                {/* Active Players Badge */}
+                {hasActivePlayers && (
+                  <div className="absolute -top-2 -right-2 z-10 bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg animate-pulse flex items-center gap-1">
+                    <Globe className="w-3 h-3" />
+                    {playerCount} waiting
+                  </div>
+                )}
+                
+                <div className={`neon-card ${colors.box} p-4 sm:p-6 lg:p-8 h-full active:scale-95 transition-all duration-300 min-h-[200px] sm:min-h-[240px] game-card-3d grid-item-3d card-3d-enhanced card-enter hover:animate-pulse-glow ${hasActivePlayers ? 'ring-2 ring-green-500/50' : ''}`} style={{ animationDelay: `${delay}s` }}>
                   <div className="text-center space-y-2 sm:space-y-4">
                     <div className="text-5xl sm:text-6xl lg:text-7xl mb-2 sm:mb-4 float-3d icon-3d animate-bounce-in">{game.icon}</div>
                     <h2 className={`text-lg sm:text-xl lg:text-2xl font-bold ${colors.text} pixel-font text-xs sm:text-sm ${colors.glow} text-3d animate-fade-in-up`}>
@@ -236,8 +285,15 @@ export default function GamesPage() {
                       <Zap className="w-3 h-3 sm:w-4 sm:h-4 animate-spin-pulse" />
                       {game.players}
                     </div>
-                    <div className="neon-btn neon-btn-green w-full mt-2 sm:mt-4 text-center min-h-[44px] text-xs sm:text-sm btn-3d hover:animate-button-press">
-                      PLAY NOW →
+                    <div className={`neon-btn ${hasActivePlayers ? 'neon-btn-green' : 'neon-btn-green'} w-full mt-2 sm:mt-4 text-center min-h-[44px] text-xs sm:text-sm btn-3d hover:animate-button-press flex items-center justify-center gap-2`}>
+                      {hasActivePlayers ? (
+                        <>
+                          <Play className="w-4 h-4" />
+                          JOIN NOW →
+                        </>
+                      ) : (
+                        "PLAY NOW →"
+                      )}
                     </div>
                   </div>
                 </div>

@@ -1,10 +1,38 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Eye, EyeOff, RotateCcw, Crown, Users, AlertTriangle } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Eye, EyeOff, RotateCcw, Crown, Users, AlertTriangle, Globe } from "lucide-react";
 import Link from "next/link";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import GameLobby from "@/app/components/GameLobby";
+import WaitingRoom from "@/app/components/WaitingRoom";
+
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 // Difficulty-based word lists
 const CODEWORDS_EASY = [
@@ -233,8 +261,11 @@ interface AvailableTeam {
 
 export default function CodenamesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
   
+  const [showLobby, setShowLobby] = useState(true);
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
   const [phase, setPhase] = useState<GamePhase>("waiting");
   const [difficulty, setDifficulty] = useState<Difficulty>("medium");
   const [redTeamName, setRedTeamName] = useState("RED TEAM");
@@ -255,6 +286,70 @@ export default function CodenamesPage() {
   const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [waitingRoomStartTime, setWaitingRoomStartTime] = useState<number | null>(null);
+
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      setShowLobby(false);
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setShowLobby(false);
+        setPhase("waiting"); // Ensure we're in waiting phase
+        setGameId(`codenames_${result.room.code}`); // Set game ID based on room
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setShowLobby(false);
+    setPhase("waiting"); // Ensure we're in waiting phase
+    // Set game ID based on room code
+    setGameId(`codenames_${room.code}`);
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setShowLobby(true);
+    router.push("/games/codenames");
+  };
+
+  // Update game ID when room changes
+  useEffect(() => {
+    if (gameRoom) {
+      setGameId(`codenames_${gameRoom.code}`);
+    }
+  }, [gameRoom]);
 
   const redTeam: Team = {
     id: "red",
@@ -1154,6 +1249,32 @@ export default function CodenamesPage() {
       revealed: false,
     }));
     
+    // Verify board setup (9 red, 8 blue, 7 neutral, 1 assassin)
+    const redCount = newCards.filter(c => c.type === "red").length;
+    const blueCount = newCards.filter(c => c.type === "blue").length;
+    const neutralCount = newCards.filter(c => c.type === "neutral").length;
+    const assassinCount = newCards.filter(c => c.type === "assassin").length;
+    
+    if (redCount !== 9 || blueCount !== 8 || neutralCount !== 7 || assassinCount !== 1) {
+      console.error("Board setup error! Red:", redCount, "Blue:", blueCount, "Neutral:", neutralCount, "Assassin:", assassinCount);
+      // Fix the board instead of regenerating (to avoid infinite recursion)
+      // This should never happen, but if it does, fix it manually
+      const fixedTypes: CardType[] = [
+        ...Array(9).fill("red" as CardType),
+        ...Array(8).fill("blue" as CardType),
+        ...Array(7).fill("neutral" as CardType),
+        "assassin" as CardType,
+      ];
+      const fixedShuffledTypes = [...fixedTypes].sort(() => Math.random() - 0.5);
+      const fixedCards: Card[] = selectedWords.map((word, idx) => ({
+        word,
+        type: fixedShuffledTypes[idx],
+        revealed: false,
+      }));
+      setCards(fixedCards);
+      return;
+    }
+    
     setCards(newCards);
   };
 
@@ -1218,7 +1339,7 @@ export default function CodenamesPage() {
   };
 
   const revealCard = async (index: number) => {
-    if (role !== "operative" || guessesRemaining === 0 || cards[index].revealed) return;
+    if (role !== "operative" || guessesRemaining === 0 || cards[index].revealed || phase !== "playing") return;
     
     const newCards = [...cards];
     newCards[index].revealed = true;
@@ -1238,37 +1359,49 @@ export default function CodenamesPage() {
     setGameLog(prev => [...prev, newLogEntry]);
     
     const card = newCards[index];
-    let newPhase = phase;
+    let newPhase: GamePhase = phase;
     let newCurrentTeam = currentTeam;
     let newClue = clue;
     let newGuessesRemainingAfter = newGuessesRemaining;
     let newGameOverReason = gameOverReason;
     
-    // Check for game over conditions
+    // Check for game over conditions (in order of priority)
     if (card.type === "assassin") {
-      // Current team loses
+      // Assassin hit - current team loses immediately
       newGameOverReason = `${currentTeam === "red" ? redTeamName : blueTeamName} hit the assassin! ${currentTeam === "red" ? blueTeamName : redTeamName} wins!`;
       newPhase = "gameOver";
-      setGameOverReason(newGameOverReason);
-      setPhase(newPhase);
-    } else if (card.type !== currentTeam) {
-      // Wrong team's card or neutral - switch teams
-      newCurrentTeam = currentTeam === "red" ? "blue" : "red";
-      newClue = { word: "", number: 0 };
       newGuessesRemainingAfter = 0;
-      setCurrentTeam(newCurrentTeam);
-      setClue(newClue);
-      setGuessesRemaining(newGuessesRemainingAfter);
-    } else {
-      // Check if team won
+      newClue = { word: "", number: 0 };
+    } else if (card.type === currentTeam) {
+      // Correct guess - check for win condition first
       const teamCards = newCards.filter(c => c.type === currentTeam);
       const allRevealed = teamCards.every(c => c.revealed);
       if (allRevealed) {
+        // Team found all their words - they win!
         newGameOverReason = `${currentTeam === "red" ? redTeamName : blueTeamName} found all their words!`;
         newPhase = "gameOver";
-        setGameOverReason(newGameOverReason);
-        setPhase(newPhase);
+        newGuessesRemainingAfter = 0;
+        newClue = { word: "", number: 0 };
       }
+      // If not all revealed, turn continues (guessesRemaining already decremented)
+    } else {
+      // Wrong team's card or neutral - end turn immediately and switch teams
+      newCurrentTeam = currentTeam === "red" ? "blue" : "red";
+      newClue = { word: "", number: 0 };
+      newGuessesRemainingAfter = 0;
+    }
+    
+    // Update state
+    if (newPhase === "gameOver") {
+      setGameOverReason(newGameOverReason);
+      setPhase(newPhase);
+    }
+    if (newCurrentTeam !== currentTeam) {
+      setCurrentTeam(newCurrentTeam);
+      setClue(newClue);
+      setGuessesRemaining(newGuessesRemainingAfter);
+    } else if (newGuessesRemainingAfter !== newGuessesRemaining) {
+      setGuessesRemaining(newGuessesRemainingAfter);
     }
     
     // Immediately sync card reveal to other devices
@@ -1328,9 +1461,12 @@ export default function CodenamesPage() {
   };
 
   const giveClue = async () => {
-    if (!clue.word.trim() || clue.number < 1 || clue.number > 9) return;
+    if (!clue.word.trim() || clue.number < 1 || clue.number > 9 || phase !== "playing") return;
+    if (role !== "spymaster" || selectedTeam !== currentTeam) return; // Only spymaster of current team can give clue
+    
     const newGuessesRemaining = clue.number + 1; // +1 for the bonus guess
     setGuessesRemaining(newGuessesRemaining);
+    
     // Add to game log
     const newLogEntry = {
       type: "clue" as const,
@@ -1341,6 +1477,9 @@ export default function CodenamesPage() {
       timestamp: new Date()
     };
     setGameLog(prev => [...prev, newLogEntry]);
+    
+    // Note: Don't clear the clue here - it should remain visible during the turn
+    // The clue will be cleared when the turn ends (wrong guess, pass, or guesses run out)
     
     // Immediately sync clue to other devices
     if (gameId && currentUser) {
@@ -1489,6 +1628,26 @@ export default function CodenamesPage() {
 
   const activeTeam = currentTeam === "red" ? redTeam : blueTeam;
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (showLobby && phase === "waiting") {
+    return (
+      <GameLobby
+        gameType="codenames"
+        gameName="CODENAMES"
+        gameIcon="🔍"
+        maxPlayers={8}
+        minPlayers={4}
+        teamMode={true}
+        defaultTeams={[
+          { id: "red", name: "Red Team", color: "#ef4444" },
+          { id: "blue", name: "Blue Team", color: "#3b82f6" },
+        ]}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
   // WAITING ROOM PHASE
   if (phase === "waiting") {
     const currentTeamData = localStorage.getItem("currentTeam");
@@ -1501,6 +1660,44 @@ export default function CodenamesPage() {
       }
     }
 
+    const currentTeamName = teamInfo?.name || "Solo Player";
+    const currentTeamId = teamInfo?.id || null;
+
+    // If using new room system, use WaitingRoom component
+    if (gameRoom) {
+      return (
+        <WaitingRoom
+          gameType="codenames"
+          gameName="CODENAMES"
+          gameIcon="🔍"
+          currentTeamName={currentTeamName}
+          currentTeamId={currentTeamId}
+          gameId={`codenames_${gameRoom.code}`}
+          currentUser={currentUser}
+          roomCode={gameRoom.code}
+          room={gameRoom}
+          onStartGame={() => {
+            setPhase("setup");
+          }}
+          onPlayAgainstComputer={() => {
+            setIsPlayingAgainstComputer(true);
+            setPhase("setup");
+          }}
+          onLeaveRoom={() => {
+            setGameRoom(null);
+            setShowLobby(true);
+            router.push("/games/codenames");
+          }}
+          minPlayers={4}
+          maxPlayers={8}
+          waitTime={30}
+          showAvailableGames={true}
+          showAvailableTeams={false}
+        />
+      );
+    }
+
+    // Legacy waiting room UI (for non-room games)
     return (
       <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">

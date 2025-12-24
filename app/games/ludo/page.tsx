@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, RotateCcw, Users, Trophy, Zap } from "lucide-react";
+import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, RotateCcw, Users, Trophy, Zap, Globe, Lock, Copy, Check } from "lucide-react";
+import GameLobby from "@/app/components/GameLobby";
+import WaitingRoom from "@/app/components/WaitingRoom";
 
 // Player colors - matching the image
 const PLAYER_COLORS = [
@@ -84,10 +86,49 @@ const DiceIcon = ({ value, isRolling }: { value: number; isRolling?: boolean }) 
   );
 };
 
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function LudoPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [gameState, setGameState] = useState<"setup" | "playing" | "ended">("setup");
+  const [gamePhase, setGamePhase] = useState<"lobby" | "waiting" | "setup" | "playing" | "ended">("lobby");
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
+  const [isOnlineGame, setIsOnlineGame] = useState(false);
+  const [myPlayerIndex, setMyPlayerIndex] = useState<number | null>(null);
+  
+  // Legacy gameState for compatibility
+  const gameState = gamePhase === "setup" ? "setup" : gamePhase === "playing" ? "playing" : gamePhase === "ended" ? "ended" : "setup";
+  const setGameState = (state: "setup" | "playing" | "ended") => {
+    if (state === "setup") setGamePhase("setup");
+    else if (state === "playing") setGamePhase("playing");
+    else if (state === "ended") setGamePhase("ended");
+  };
+  
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [diceValue, setDiceValue] = useState(0);
@@ -100,11 +141,44 @@ export default function LudoPage() {
   const [playerNames, setPlayerNames] = useState<string[]>(["Player 1", "Player 2", "Player 3", "Player 4"]);
   const [winner, setWinner] = useState<Player | null>(null);
   const [consecutiveSixes, setConsecutiveSixes] = useState(0);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
   
   // Animation states
   const [animatingToken, setAnimatingToken] = useState<{ playerId: number; tokenId: number } | null>(null);
   const [animatingFromPos, setAnimatingFromPos] = useState<{ x: number; y: number } | null>(null);
   const [animatingToPos, setAnimatingToPos] = useState<{ x: number; y: number } | null>(null);
+
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      // Join existing room
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setIsOnlineGame(true);
+        setGamePhase("waiting");
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -149,7 +223,128 @@ export default function LudoPage() {
     }
   }, [router]);
 
-  const initializeGame = () => {
+  // Sync game state for online multiplayer (works during playing AND setup phases)
+  useEffect(() => {
+    if (!isOnlineGame || !gameRoom) return;
+    if (gamePhase !== "playing" && gamePhase !== "setup") return;
+    
+    const syncGameState = async () => {
+      try {
+        const { gameStateAPI } = await import("@/lib/api-utils");
+        const gameId = `ludo_${gameRoom.code}`;
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state && result.state.lastUpdated !== lastSyncTime) {
+          const remoteState = result.state.state;
+          
+          // Only update if from another player
+          if (result.state.updatedBy !== currentUser?.id) {
+            if (remoteState.players) setPlayers(remoteState.players);
+            if (remoteState.currentPlayerIndex !== undefined) setCurrentPlayerIndex(remoteState.currentPlayerIndex);
+            if (remoteState.diceValue !== undefined) setDiceValue(remoteState.diceValue);
+            if (remoteState.hasRolled !== undefined) setHasRolled(remoteState.hasRolled);
+            if (remoteState.message) setMessage(remoteState.message);
+            if (remoteState.consecutiveSixes !== undefined) setConsecutiveSixes(remoteState.consecutiveSixes);
+            if (remoteState.winner) {
+              setWinner(remoteState.winner);
+              setGamePhase("ended");
+            }
+            // If remote state shows game is playing but we're still in setup, start playing
+            if (remoteState.gamePhase === "playing" && gamePhase === "setup") {
+              setGamePhase("playing");
+            }
+          }
+          setLastSyncTime(result.state.lastUpdated);
+        }
+      } catch (error) {
+        console.error("Error syncing game state:", error);
+      }
+    };
+    
+    const intervalId = setInterval(syncGameState, 500);
+    syncGameState(); // Initial sync
+    return () => clearInterval(intervalId);
+  }, [isOnlineGame, gameRoom, gamePhase, currentUser, lastSyncTime]);
+
+  // Save game state after changes
+  const saveOnlineGameState = useCallback(async (state: any) => {
+    if (!isOnlineGame || !gameRoom || !currentUser) return;
+    
+    try {
+      const { gameStateAPI } = await import("@/lib/api-utils");
+      const gameId = `ludo_${gameRoom.code}`;
+      await gameStateAPI.saveGameState({
+        id: gameId,
+        gameType: "ludo",
+        state: {
+          players: state.players || players,
+          currentPlayerIndex: state.currentPlayerIndex ?? currentPlayerIndex,
+          diceValue: state.diceValue ?? diceValue,
+          hasRolled: state.hasRolled ?? hasRolled,
+          message: state.message || message,
+          winner: state.winner || winner,
+          gamePhase: state.gamePhase || gamePhase,
+          consecutiveSixes: state.consecutiveSixes ?? consecutiveSixes,
+        },
+        lastUpdated: new Date().toISOString(),
+        updatedBy: currentUser.id,
+      });
+    } catch (error) {
+      console.error("Error saving game state:", error);
+    }
+  }, [isOnlineGame, gameRoom, currentUser, players, currentPlayerIndex, diceValue, hasRolled, message, winner, gamePhase, consecutiveSixes]);
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setIsOnlineGame(true);
+    setGamePhase("waiting");
+  };
+
+  // Start online game from waiting room
+  const handleStartOnlineGame = async () => {
+    if (!gameRoom) return;
+    
+    // Set player names from room players
+    const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+    while (roomPlayerNames.length < 4) {
+      roomPlayerNames.push(`Player ${roomPlayerNames.length + 1}`);
+    }
+    setPlayerNames(roomPlayerNames);
+    setPlayerCount(Math.min(gameRoom.currentPlayers.length, 4));
+    
+    // Find my player index
+    const myIndex = gameRoom.currentPlayers.findIndex(p => p.id === currentUser?.id);
+    setMyPlayerIndex(myIndex >= 0 ? myIndex : 0);
+    
+    // Update room status
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      await gameRoomsAPI.updateRoomStatus(gameRoom.id, 'playing');
+    } catch (error) {
+      console.error("Error updating room status:", error);
+    }
+    
+    setGamePhase("setup");
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setIsOnlineGame(false);
+    setGamePhase("lobby");
+    router.push("/games/ludo");
+  };
+
+  const initializeGame = async () => {
     const newPlayers: Player[] = [];
     for (let i = 0; i < playerCount; i++) {
       newPlayers.push({
@@ -165,19 +360,53 @@ export default function LudoPage() {
         ],
       });
     }
+    const initialMessage = `${newPlayers[0].name}'s turn! Roll the dice.`;
+    
     setPlayers(newPlayers);
     setCurrentPlayerIndex(0);
     setDiceValue(0);
     setHasRolled(false);
     setSelectedToken(null);
-    setMessage(`${newPlayers[0].name}'s turn! Roll the dice.`);
+    setMessage(initialMessage);
     setGameState("playing");
     setConsecutiveSixes(0);
+    
+    // Sync initial state for online games
+    if (isOnlineGame && gameRoom && currentUser) {
+      try {
+        const { gameStateAPI } = await import("@/lib/api-utils");
+        const gameId = `ludo_${gameRoom.code}`;
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: "ludo",
+          state: {
+            players: newPlayers,
+            currentPlayerIndex: 0,
+            diceValue: 0,
+            hasRolled: false,
+            message: initialMessage,
+            winner: null,
+            gamePhase: "playing",
+            consecutiveSixes: 0,
+          },
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+      } catch (error) {
+        console.error("Error syncing initial game state:", error);
+      }
+    }
   };
 
   const rollDice = useCallback(() => {
     if (hasRolled && diceValue !== 6) return;
     if (isRollingDice) return;
+    
+    // For online games, only the current player can roll
+    if (isOnlineGame && myPlayerIndex !== null && myPlayerIndex !== currentPlayerIndex) {
+      setMessage("Wait for your turn!");
+      return;
+    }
     
     setIsRollingDice(true);
     
@@ -195,22 +424,35 @@ export default function LudoPage() {
       setHasRolled(true);
       
       const currentPlayer = players[currentPlayerIndex];
+      let newMessage = "";
       
       if (roll === 6) {
         setConsecutiveSixes(prev => prev + 1);
         if (consecutiveSixes >= 2) {
-          setMessage(`${currentPlayer.name} rolled three 6s! Turn skipped.`);
+          newMessage = `${currentPlayer.name} rolled three 6s! Turn skipped.`;
+          setMessage(newMessage);
           setConsecutiveSixes(0);
+          // Sync before next turn
+          if (isOnlineGame) {
+            saveOnlineGameState({ diceValue: roll, hasRolled: true, message: newMessage });
+          }
           nextTurn();
           return;
         }
-        setMessage(`${currentPlayer.name} rolled a 6! You can move a token out or move again.`);
+        newMessage = `${currentPlayer.name} rolled a 6! You can move a token out or move again.`;
       } else {
         setConsecutiveSixes(0);
-        setMessage(`${currentPlayer.name} rolled a ${roll}. Select a token to move.`);
+        newMessage = `${currentPlayer.name} rolled a ${roll}. Select a token to move.`;
+      }
+      
+      setMessage(newMessage);
+      
+      // Sync game state for online games
+      if (isOnlineGame) {
+        saveOnlineGameState({ diceValue: roll, hasRolled: true, message: newMessage });
       }
     }, 1500);
-  }, [hasRolled, diceValue, players, currentPlayerIndex, consecutiveSixes, isRollingDice]);
+  }, [hasRolled, diceValue, players, currentPlayerIndex, consecutiveSixes, isRollingDice, isOnlineGame, myPlayerIndex, saveOnlineGameState]);
 
   const canMoveToken = (player: Player, token: Token): boolean => {
     if (token.isFinished) return false;
@@ -252,6 +494,12 @@ export default function LudoPage() {
   const moveToken = (playerIndex: number, tokenIndex: number) => {
     if (hasRolled && diceValue === 6 && consecutiveSixes >= 2) return;
     if (isMoving) return;
+    
+    // For online games, only the current player can move their tokens
+    if (isOnlineGame && myPlayerIndex !== null && myPlayerIndex !== currentPlayerIndex) {
+      setMessage("Wait for your turn!");
+      return;
+    }
     
     const player = players[playerIndex];
     const token = player.tokens[tokenIndex];
@@ -378,8 +626,19 @@ export default function LudoPage() {
     if (newPlayers[playerIndex].tokens.every(t => t.isFinished)) {
       setWinner(newPlayers[playerIndex]);
       setGameState("ended");
-      setMessage(`${player.name} wins! All tokens finished!`);
+      const winMessage = `${player.name} wins! All tokens finished!`;
+      setMessage(winMessage);
+      
+      // Sync win state for online games
+      if (isOnlineGame) {
+        saveOnlineGameState({ players: newPlayers, winner: newPlayers[playerIndex], message: winMessage, gamePhase: "ended" });
+      }
       return;
+    }
+    
+    // Sync move for online games
+    if (isOnlineGame) {
+      saveOnlineGameState({ players: newPlayers });
     }
     
     // If rolled 6, can roll again, otherwise next turn
@@ -391,21 +650,28 @@ export default function LudoPage() {
     }
   };
 
-  const nextTurn = () => {
+  const nextTurn = useCallback(() => {
     setConsecutiveSixes(0);
     setHasRolled(false);
     setDiceValue(0);
     setSelectedToken(null);
-    setPlayers(prev => {
-      const nextIndex = (currentPlayerIndex + 1) % playerCount;
-      setCurrentPlayerIndex(nextIndex);
-      const nextPlayer = prev[nextIndex];
-      if (nextPlayer) {
-        setMessage(`${nextPlayer.name}'s turn! Roll the dice.`);
-      }
-      return prev;
-    });
-  };
+    const nextIndex = (currentPlayerIndex + 1) % playerCount;
+    setCurrentPlayerIndex(nextIndex);
+    const nextPlayer = players[nextIndex];
+    const newMessage = nextPlayer ? `${nextPlayer.name}'s turn! Roll the dice.` : "";
+    setMessage(newMessage);
+    
+    // Sync game state for online games
+    if (isOnlineGame) {
+      saveOnlineGameState({
+        currentPlayerIndex: nextIndex,
+        diceValue: 0,
+        hasRolled: false,
+        message: newMessage,
+        players,
+      });
+    }
+  }, [currentPlayerIndex, playerCount, players, isOnlineGame, saveOnlineGameState]);
 
   const getTokenPosition = (player: Player, token: Token): { x: number; y: number } => {
     if (token.isHome) {
@@ -516,6 +782,49 @@ export default function LudoPage() {
     return null;
   }
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (gamePhase === "lobby") {
+    return (
+      <GameLobby
+        gameType="ludo"
+        gameName="LUDO"
+        gameIcon="🎲"
+        maxPlayers={4}
+        minPlayers={2}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
+  // WAITING ROOM PHASE - Wait for players
+  if (gamePhase === "waiting" && gameRoom) {
+    return (
+      <WaitingRoom
+        gameType="ludo"
+        gameName="LUDO"
+        gameIcon="🎲"
+        currentTeamName={currentUser?.name || "Player"}
+        currentTeamId={null}
+        gameId={`ludo_${gameRoom.code}`}
+        currentUser={currentUser}
+        roomCode={gameRoom.code}
+        room={gameRoom}
+        onStartGame={handleStartOnlineGame}
+        onPlayAgainstComputer={() => {
+          setIsOnlineGame(false);
+          setGamePhase("setup");
+        }}
+        onLeaveRoom={handleLeaveRoom}
+        minPlayers={2}
+        maxPlayers={4}
+        waitTime={60}
+        showAvailableGames={true}
+        showAvailableTeams={false}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen p-4 sm:p-8 bg-gradient-to-br from-gray-900 via-purple-900 to-gray-900">
       <div className="max-w-6xl mx-auto">
@@ -536,8 +845,25 @@ export default function LudoPage() {
           </p>
         </div>
 
+        {/* Online Game Info Banner */}
+        {isOnlineGame && gameRoom && (
+          <div className="neon-card neon-box-yellow p-4 mb-6 card-3d max-w-2xl mx-auto">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <Globe className="w-5 h-5 text-yellow-400" />
+                <div>
+                  <div className="text-yellow-400 font-bold">Online Game • Room: {gameRoom.code}</div>
+                  <div className="text-cyan-300/70 text-sm">
+                    {gameRoom.currentPlayers.length} players connected
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Team Info Banner */}
-        {(() => {
+        {!isOnlineGame && (() => {
           const currentTeamData = localStorage.getItem("currentTeam");
           let teamInfo = null;
           if (currentTeamData) {

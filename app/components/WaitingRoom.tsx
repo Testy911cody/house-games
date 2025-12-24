@@ -1,8 +1,35 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Users, Clock, AlertTriangle, Zap } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Users, Clock, Zap, Copy, Check, Crown, ArrowLeft, Share2 } from "lucide-react";
 import Link from "next/link";
+
+interface RoomPlayer {
+  id: string;
+  name: string;
+  team?: string;
+  isReady: boolean;
+  isHost: boolean;
+  joinedAt: string;
+}
+
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: RoomPlayer[];
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: Array<{ id: string; name: string; color: string; players: Array<{ id: string; name: string }> }>;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface AvailableTeam {
   id: string;
@@ -20,13 +47,18 @@ interface WaitingRoomProps {
   currentTeamId: string | null;
   gameId: string;
   currentUser: any;
+  roomCode?: string; // New: Room code for sharing
+  room?: GameRoom; // New: Room data if using new room system
   onTeamJoined?: (teamId: string, teamName: string) => void;
+  onPlayerJoined?: (player: RoomPlayer) => void; // New: Called when a player joins
   onStartGame: () => void;
   onPlayAgainstComputer: () => void;
+  onLeaveRoom?: () => void; // New: Called when leaving the room
   minPlayers?: number;
   maxPlayers?: number;
   waitTime?: number; // seconds
   showAvailableGames?: boolean; // Show other games waiting for players
+  showAvailableTeams?: boolean; // Show teams to invite (legacy mode)
 }
 
 export default function WaitingRoom({
@@ -37,24 +69,40 @@ export default function WaitingRoom({
   currentTeamId,
   gameId,
   currentUser,
+  roomCode,
+  room: initialRoom,
   onTeamJoined,
+  onPlayerJoined,
   onStartGame,
   onPlayAgainstComputer,
+  onLeaveRoom,
   minPlayers = 2,
   maxPlayers = 4,
   waitTime = 30,
   showAvailableGames = true,
+  showAvailableTeams = true,
 }: WaitingRoomProps) {
+  const [room, setRoom] = useState<GameRoom | null>(initialRoom || null);
   const [availableTeams, setAvailableTeams] = useState<AvailableTeam[]>([]);
   const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
   const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [waitingRoomStartTime, setWaitingRoomStartTime] = useState<number | null>(null);
   const [availableGames, setAvailableGames] = useState<any[]>([]);
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+
+  // Get effective room code
+  const effectiveRoomCode = roomCode || room?.code || null;
+  
+  // Check if using new room system
+  const isRoomBasedGame = !!room || !!roomCode;
 
   useEffect(() => {
     setWaitingRoomStartTime(Date.now());
+    if (showAvailableTeams) {
     loadAvailableTeams();
+    }
     if (showAvailableGames) {
       loadAvailableGames();
     }
@@ -73,7 +121,57 @@ export default function WaitingRoom({
     }
   }, []);
 
-  // Load available teams for this game
+  // Poll room state for real-time sync (new room system)
+  useEffect(() => {
+    if (!effectiveRoomCode || !currentUser) return;
+    
+    let previousPlayers: RoomPlayer[] = room?.currentPlayers || [];
+    let previousStatus = room?.status || 'waiting';
+    
+    const pollRoom = async () => {
+      try {
+        const { gameRoomsAPI } = await import('@/lib/api-utils');
+        const result = await gameRoomsAPI.getRoomByCode(effectiveRoomCode);
+        
+        if (result.success && result.room) {
+          const newRoom = result.room;
+          
+          // Check if new players joined
+          if (onPlayerJoined) {
+            const joinedPlayers = newRoom.currentPlayers.filter(
+              p => !previousPlayers.some(existing => existing.id === p.id) && p.id !== currentUser.id
+            );
+            joinedPlayers.forEach(player => onPlayerJoined(player));
+          }
+          
+          // Sync my ready status from server
+          const myPlayer = newRoom.currentPlayers.find(p => p.id === currentUser.id);
+          if (myPlayer && myPlayer.isReady !== isReady) {
+            setIsReady(myPlayer.isReady);
+          }
+          
+          // Check if game started
+          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
+            onStartGame();
+          }
+          
+          // Update state
+          previousPlayers = newRoom.currentPlayers;
+          previousStatus = newRoom.status;
+          setRoom(newRoom);
+        }
+      } catch (error) {
+        console.error('Error polling room:', error);
+      }
+    };
+    
+    const intervalId = setInterval(pollRoom, 1000);
+    pollRoom(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [effectiveRoomCode, currentUser, onPlayerJoined, onStartGame]);
+
+  // Load available teams for this game (legacy mode)
   const loadAvailableTeams = async () => {
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
@@ -81,45 +179,21 @@ export default function WaitingRoom({
       const result = await teamsAPI.getTeams();
       
       if (result.success && result.teams) {
-        console.log(`🔍 Loaded ${result.teams.length} teams for waiting room`);
-        
-        // Filter to only show teams that are online and not already in this game
         const onlineTeams = result.teams
           .filter((team: any) => {
-            // Don't show the current user's team
-            if (team.id === currentTeamId) {
-              console.log(`   Skipping own team: ${team.name}`);
-              return false;
-            }
+            if (team.id === currentTeamId) return false;
             
-            // If Supabase is configured, show ALL teams from Supabase (they're synced)
-            // Only filter by activity for local-only teams
             const isFromSupabase = isSupabaseConfigured();
+            if (isFromSupabase) return true;
             
-            if (isFromSupabase) {
-              // Show all teams from Supabase (they're already synced across devices)
-              console.log(`   ✅ Showing Supabase team: ${team.name} (${team.id})`);
-              return true;
-            }
-            
-            // For local-only teams, check activity
             const adminOnline = teamsAPI.isUserOnline(team.adminId);
             const membersOnline = team.members?.some((member: any) => 
               teamsAPI.isUserOnline(member.id)
             ) || false;
-            
-            // Also show new teams (created in last 10 minutes)
             const teamAge = Date.now() - new Date(team.createdAt).getTime();
             const isNewTeam = teamAge < 10 * 60 * 1000;
             
-            const shouldShow = adminOnline || membersOnline || isNewTeam;
-            if (shouldShow) {
-              console.log(`   ✅ Showing local team: ${team.name} (admin online: ${adminOnline}, members online: ${membersOnline}, new: ${isNewTeam})`);
-            } else {
-              console.log(`   ⏭️ Skipping inactive local team: ${team.name}`);
-            }
-            
-            return shouldShow;
+            return adminOnline || membersOnline || isNewTeam;
           })
           .map((team: any) => ({
             id: team.id,
@@ -129,14 +203,10 @@ export default function WaitingRoom({
             adminName: team.adminName,
           }));
         
-        console.log(`   📋 Showing ${onlineTeams.length} available teams:`, onlineTeams.map(t => t.name));
         setAvailableTeams(onlineTeams);
-      } else {
-        console.warn('⚠️ Failed to load teams:', result);
-        setAvailableTeams([]);
       }
     } catch (error) {
-      console.error('❌ Error loading available teams:', error);
+      console.error('Error loading available teams:', error);
       setAvailableTeams([]);
     }
   };
@@ -144,12 +214,14 @@ export default function WaitingRoom({
   // Load other games waiting for players
   const loadAvailableGames = async () => {
     try {
-      const { gameStateAPI } = await import('@/lib/api-utils');
-      const result = await gameStateAPI.getWaitingGames(gameType);
+      const { gameRoomsAPI } = await import('@/lib/api-utils');
+      const result = await gameRoomsAPI.getPublicRooms(gameType);
       
-      if (result.success && result.games) {
-        // Filter out this game
-        const otherGames = result.games.filter((game: any) => game.id !== gameId);
+      if (result.success && result.rooms) {
+        // Filter out current room
+        const otherGames = result.rooms.filter((r: any) => 
+          r.id !== room?.id && r.code !== effectiveRoomCode
+        );
         setAvailableGames(otherGames);
       }
     } catch (error) {
@@ -157,21 +229,19 @@ export default function WaitingRoom({
     }
   };
 
-  // Auto-refresh available teams
+  // Auto-refresh
   useEffect(() => {
     const interval = setInterval(() => {
-      loadAvailableTeams();
-      if (showAvailableGames) {
-        loadAvailableGames();
-      }
+      if (showAvailableTeams) loadAvailableTeams();
+      if (showAvailableGames) loadAvailableGames();
     }, 2000);
     
     return () => clearInterval(interval);
-  }, [gameId, showAvailableGames]);
+  }, [gameId, showAvailableGames, showAvailableTeams]);
   
-  // Poll game state to sync joined teams across devices
+  // Poll game state for legacy sync
   useEffect(() => {
-    if (!gameId || !currentUser) return;
+    if (!gameId || !currentUser || isRoomBasedGame) return;
     
     const pollGameState = async () => {
       try {
@@ -181,35 +251,27 @@ export default function WaitingRoom({
         if (result.success && result.state) {
           const remoteState = result.state.state;
           
-          // Only update if state is different and from another user
           if (result.state.updatedBy !== currentUser.id && remoteState.phase === "waiting") {
-            // Update joined teams if they changed
             if (remoteState.joinedTeamIds && Array.isArray(remoteState.joinedTeamIds)) {
               const remoteJoinedIds = remoteState.joinedTeamIds;
-              // Only update if the remote state has different teams
               if (JSON.stringify(remoteJoinedIds.sort()) !== JSON.stringify(joinedTeamIds.sort())) {
                 setJoinedTeamIds(remoteJoinedIds);
                 setIsPlayingAgainstComputer(remoteState.isPlayingAgainstComputer !== false);
                 
-                // Notify parent component about joined teams
                 if (onTeamJoined && remoteJoinedIds.length > joinedTeamIds.length) {
-                  // Find newly joined teams
                   const newTeams = remoteJoinedIds.filter((id: string) => !joinedTeamIds.includes(id));
                   for (const teamId of newTeams) {
                     const { teamsAPI } = await import('@/lib/api-utils');
                     const teamsResult = await teamsAPI.getTeams();
                     if (teamsResult.success && teamsResult.teams) {
                       const team = teamsResult.teams.find((t: any) => t.id === teamId);
-                      if (team) {
-                        onTeamJoined(teamId, team.name);
-                      }
+                      if (team) onTeamJoined(teamId, team.name);
                     }
                   }
                 }
               }
             }
             
-            // Update isPlayingAgainstComputer status
             if (remoteState.isPlayingAgainstComputer !== undefined) {
               setIsPlayingAgainstComputer(remoteState.isPlayingAgainstComputer);
             }
@@ -220,12 +282,11 @@ export default function WaitingRoom({
       }
     };
     
-    // Poll every 1 second for real-time sync
     const intervalId = setInterval(pollGameState, 1000);
-    pollGameState(); // Initial poll
+    pollGameState();
     
     return () => clearInterval(intervalId);
-  }, [gameId, currentUser, joinedTeamIds, onTeamJoined]);
+  }, [gameId, currentUser, joinedTeamIds, onTeamJoined, isRoomBasedGame]);
 
   // Countdown timer
   useEffect(() => {
@@ -241,21 +302,20 @@ export default function WaitingRoom({
         const newRemaining = Math.max(0, waitTime - newElapsed);
         setCountdown(newRemaining);
         
-        if (newRemaining === 0 && isPlayingAgainstComputer && joinedTeamIds.length < minPlayers - 1) {
-          // Auto-start if no teams joined and we need more players
+        if (newRemaining === 0 && isPlayingAgainstComputer && playerCount < minPlayers) {
           onPlayAgainstComputer();
         }
       }, 1000);
       
       return () => clearInterval(timer);
     } else {
-      if (isPlayingAgainstComputer && joinedTeamIds.length < minPlayers - 1) {
+      if (isPlayingAgainstComputer && playerCount < minPlayers) {
         onPlayAgainstComputer();
       }
     }
-  }, [waitingRoomStartTime, waitTime, isPlayingAgainstComputer, joinedTeamIds.length, minPlayers]);
+  }, [waitingRoomStartTime, waitTime, isPlayingAgainstComputer, minPlayers]);
 
-  // Function to join as a team
+  // Join as team (legacy)
   const joinAsTeam = async (teamId: string) => {
     try {
       const { teamsAPI } = await import('@/lib/api-utils');
@@ -268,7 +328,6 @@ export default function WaitingRoom({
           setJoinedTeamIds(updatedJoinedIds);
           setIsPlayingAgainstComputer(false);
           
-          // Update game state immediately
           if (gameId && currentUser) {
             const { gameStateAPI } = await import('@/lib/api-utils');
             await gameStateAPI.saveGameState({
@@ -281,16 +340,14 @@ export default function WaitingRoom({
                 isPlayingAgainstComputer: false,
                 currentTeamName: currentTeamName,
                 currentTeamId: currentTeamId,
+                roomCode: effectiveRoomCode,
               },
               lastUpdated: new Date().toISOString(),
               updatedBy: currentUser.id,
             });
           }
           
-          if (onTeamJoined) {
-            onTeamJoined(teamId, team.name);
-          }
-          
+          if (onTeamJoined) onTeamJoined(teamId, team.name);
           loadAvailableTeams();
         }
       }
@@ -299,15 +356,115 @@ export default function WaitingRoom({
     }
   };
 
-  const playerCount = 1 + joinedTeamIds.length; // Current team + joined teams
+  // Toggle ready status
+  const toggleReady = async () => {
+    if (!room || !currentUser) return;
+    
+    const newReady = !isReady;
+    setIsReady(newReady); // Optimistic update
+    
+    try {
+      const { gameRoomsAPI } = await import('@/lib/api-utils');
+      const result = await gameRoomsAPI.setPlayerReady(room.id, currentUser.id, newReady);
+      if (result.success && result.room) {
+        setRoom(result.room);
+      } else {
+        // Rollback on failure
+        setIsReady(!newReady);
+      }
+    } catch (error) {
+      console.error('Error toggling ready:', error);
+      // Rollback on error
+      setIsReady(!newReady);
+    }
+  };
+
+  // Copy room code
+  const copyRoomCode = () => {
+    if (effectiveRoomCode) {
+      navigator.clipboard.writeText(effectiveRoomCode);
+      setCopiedCode(true);
+      setTimeout(() => setCopiedCode(false), 2000);
+    }
+  };
+
+  // Share room (native share if available)
+  const shareRoom = async () => {
+    if (!effectiveRoomCode) return;
+    
+    const shareData = {
+      title: `Join my ${gameName} game!`,
+      text: `Join my game with code: ${effectiveRoomCode}`,
+      url: `${window.location.origin}/games/${gameType}?code=${effectiveRoomCode}`,
+    };
+    
+    if (navigator.share) {
+      try {
+        await navigator.share(shareData);
+      } catch (error) {
+        copyRoomCode();
+      }
+    } else {
+      copyRoomCode();
+    }
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (room && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import('@/lib/api-utils');
+        await gameRoomsAPI.leaveRoom(room.id, currentUser.id);
+      } catch (error) {
+        console.error('Error leaving room:', error);
+      }
+    }
+    // Always call onLeaveRoom if provided
+    if (onLeaveRoom) {
+      onLeaveRoom();
+    }
+  };
+
+  // Start the game (host only)
+  const handleStartGame = async () => {
+    if (room && currentUser?.id === room.hostId) {
+      try {
+        const { gameRoomsAPI } = await import('@/lib/api-utils');
+        const result = await gameRoomsAPI.updateRoomStatus(room.id, 'playing');
+        if (result.success) {
+          // Wait a bit for other clients to receive the update
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      } catch (error) {
+        console.error('Error starting game:', error);
+      }
+    }
+    onStartGame();
+  };
+
+  // Calculate player count
+  const playerCount = isRoomBasedGame 
+    ? (room?.currentPlayers.length || 1)
+    : (1 + joinedTeamIds.length);
   const canStart = playerCount >= minPlayers;
   const isFull = playerCount >= maxPlayers;
+  const isHost = room ? currentUser?.id === room.hostId : true;
+  const allReady = room?.currentPlayers.every(p => p.isReady || p.isHost) ?? true;
 
   return (
     <div className="min-h-screen p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
+        {/* Back Button */}
+        <button
+          onClick={handleLeaveRoom || (() => window.history.back())}
+          className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-6 font-semibold transition-colors"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          <span>LEAVE ROOM</span>
+        </button>
+
         <div className="text-center mb-8">
-          <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float">
+          <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4">
             {gameIcon} {gameName}
           </h1>
           <p className="text-cyan-300">
@@ -315,22 +472,69 @@ export default function WaitingRoom({
           </p>
         </div>
 
-        {/* Current Team Info */}
-        {currentTeamName && (
-          <div className="neon-card neon-box-purple p-4 mb-6 card-3d">
+        {/* Room Code Display */}
+        {effectiveRoomCode && (
+          <div className="neon-card neon-box-yellow p-6 mb-6 text-center">
+            <h2 className="text-lg font-bold text-yellow-400 mb-3">ROOM CODE</h2>
+            <div className="flex items-center justify-center gap-4">
+              <div className="bg-gray-800 px-6 py-3 rounded-lg border-2 border-yellow-500">
+                <span className="text-3xl font-mono font-bold text-yellow-400 tracking-widest">
+                  {effectiveRoomCode}
+                </span>
+              </div>
+              <button
+                onClick={copyRoomCode}
+                className="p-3 bg-yellow-500/20 hover:bg-yellow-500/30 rounded-lg border border-yellow-500 transition-colors"
+                title="Copy code"
+              >
+                {copiedCode ? (
+                  <Check className="w-6 h-6 text-green-400" />
+                ) : (
+                  <Copy className="w-6 h-6 text-yellow-400" />
+                )}
+              </button>
+              <button
+                onClick={shareRoom}
+                className="p-3 bg-yellow-500/20 hover:bg-yellow-500/30 rounded-lg border border-yellow-500 transition-colors"
+                title="Share"
+              >
+                <Share2 className="w-6 h-6 text-yellow-400" />
+              </button>
+            </div>
+            <p className="text-yellow-300/70 text-sm mt-3">
+              Share this code with friends to let them join!
+            </p>
+          </div>
+        )}
+
+        {/* Current Team/Player Info */}
+        <div className="neon-card neon-box-purple p-4 mb-6">
             <div className="flex items-center justify-between flex-wrap gap-3">
               <div className="flex items-center gap-3">
                 <Users className="w-5 h-5 text-purple-400" />
                 <div>
-                  <div className="text-purple-400 font-bold">You are playing as: {currentTeamName}</div>
+                <div className="text-purple-400 font-bold">
+                  {isHost ? "👑 You are the host" : "You are playing as"}: {currentTeamName || currentUser?.name || "Player"}
                 </div>
               </div>
             </div>
+            {room && !isHost && (
+              <button
+                onClick={toggleReady}
+                className={`px-4 py-2 font-bold rounded-lg transition-colors ${
+                  isReady 
+                    ? "bg-green-500 text-white" 
+                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+                }`}
+              >
+                {isReady ? "READY ✓" : "CLICK WHEN READY"}
+              </button>
+            )}
           </div>
-        )}
+        </div>
 
         {/* Game Status */}
-        <div className="neon-card neon-box-cyan p-6 mb-6 card-3d">
+        <div className="neon-card neon-box-cyan p-6 mb-6">
           <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-4 text-center">
             🎮 GAME STATUS
           </h2>
@@ -338,7 +542,9 @@ export default function WaitingRoom({
           {/* Player Count */}
           <div className="bg-gray-800/50 rounded-xl p-4 border-2 border-gray-600 mb-4">
             <div className="text-center">
-              <div className="text-3xl font-bold text-cyan-400 mb-2">{playerCount} / {maxPlayers}</div>
+              <div className="text-3xl font-bold text-cyan-400 mb-2">
+                {playerCount} / {maxPlayers}
+              </div>
               <div className="text-gray-400 text-sm">Players Joined</div>
               {!canStart && (
                 <div className="text-yellow-400 text-sm mt-2">
@@ -353,16 +559,59 @@ export default function WaitingRoom({
             </div>
           </div>
 
+          {/* Player List (Room-based) */}
+          {room && room.currentPlayers.length > 0 && (
+            <div className="mb-4">
+              <h3 className="text-lg font-bold text-cyan-400 mb-3 flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                PLAYERS IN ROOM
+              </h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {room.currentPlayers.map((player) => (
+                  <div
+                    key={player.id}
+                    className={`p-3 rounded-lg border-2 text-center ${
+                      player.isHost
+                        ? "bg-yellow-500/20 border-yellow-500"
+                        : player.isReady
+                        ? "bg-green-500/20 border-green-500"
+                        : "bg-gray-800/50 border-gray-600"
+                    }`}
+                  >
+                    {player.isHost && <Crown className="w-4 h-4 text-yellow-400 mx-auto mb-1" />}
+                    <div className="text-white font-semibold text-sm truncate">
+                      {player.name}
+                    </div>
+                    <div className={`text-xs mt-1 ${
+                      player.isHost ? "text-yellow-400" : player.isReady ? "text-green-400" : "text-gray-500"
+                    }`}>
+                      {player.isHost ? "HOST" : player.isReady ? "READY" : "NOT READY"}
+                    </div>
+                  </div>
+                ))}
+                {/* Empty slots */}
+                {Array.from({ length: maxPlayers - room.currentPlayers.length }).map((_, i) => (
+                  <div
+                    key={`empty-${i}`}
+                    className="p-3 rounded-lg border-2 border-dashed border-gray-700 text-center"
+                  >
+                    <div className="text-gray-600 text-sm">Empty Slot</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Countdown Timer */}
-          {countdown !== null && countdown > 0 && (
+          {countdown !== null && countdown > 0 && !isRoomBasedGame && (
             <div className="text-center mb-4">
               <div className="text-yellow-400 font-bold text-2xl mb-2 flex items-center justify-center gap-2">
                 <Clock className="w-6 h-6" />
-                {isPlayingAgainstComputer && joinedTeamIds.length < minPlayers - 1
+                {isPlayingAgainstComputer && playerCount < minPlayers
                   ? `Starting in ${countdown} seconds...`
                   : "Waiting for players..."}
               </div>
-              {isPlayingAgainstComputer && joinedTeamIds.length < minPlayers - 1 && (
+              {isPlayingAgainstComputer && playerCount < minPlayers && (
                 <p className="text-cyan-300/70 text-sm">
                   Game will start automatically with computer players if no one joins
                 </p>
@@ -370,7 +619,8 @@ export default function WaitingRoom({
             </div>
           )}
 
-          {/* Available Teams */}
+          {/* Available Teams (Legacy) */}
+          {showAvailableTeams && !isRoomBasedGame && (
           <div className="mb-6">
             <h3 className="text-lg font-bold text-cyan-400 mb-3 flex items-center gap-2">
               <Users className="w-5 h-5" />
@@ -404,7 +654,6 @@ export default function WaitingRoom({
                         <div className="text-gray-400 text-sm">
                           {team.memberCount} member{team.memberCount !== 1 ? "s" : ""} • Admin: {team.adminName}
                         </div>
-                        <div className="text-cyan-400 text-xs font-mono mt-1">Code: {team.code}</div>
                       </div>
                       {isJoined ? (
                         <div className="px-4 py-2 bg-green-500/20 border border-green-500 rounded text-green-400 font-bold text-sm">
@@ -413,7 +662,7 @@ export default function WaitingRoom({
                       ) : canJoin ? (
                         <button
                           onClick={() => joinAsTeam(team.id)}
-                          className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold rounded transition-all hover:scale-105"
+                            className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold rounded transition-all"
                         >
                           JOIN
                         </button>
@@ -428,6 +677,7 @@ export default function WaitingRoom({
               </div>
             )}
           </div>
+          )}
 
           {/* Other Games Waiting */}
           {showAvailableGames && availableGames.length > 0 && (
@@ -440,14 +690,21 @@ export default function WaitingRoom({
                 {availableGames.map((game) => (
                   <Link
                     key={game.id}
-                    href={`/games/${gameType}?join=${game.id}`}
+                    href={`/games/${gameType}?code=${game.code}`}
                     className="block bg-purple-900/30 rounded-xl p-3 border-2 border-purple-500 hover:border-purple-400 transition-all"
                   >
+                    <div className="flex items-center justify-between">
+                      <div>
                     <div className="text-white font-semibold text-sm">
-                      {game.state?.currentTeamName || "Game"} waiting for players
+                          {game.hostName}'s Game
                     </div>
                     <div className="text-purple-300 text-xs mt-1">
-                      Click to join this game
+                          {game.currentPlayers?.length || 1}/{game.maxPlayers} players • Code: {game.code}
+                        </div>
+                      </div>
+                      <div className="px-3 py-1 bg-purple-500 text-white text-sm font-bold rounded">
+                        JOIN
+                      </div>
                     </div>
                   </Link>
                 ))}
@@ -456,16 +713,27 @@ export default function WaitingRoom({
           )}
 
           {/* Action Buttons */}
-          <div className="flex gap-4">
-            {canStart && (
+          <div className="flex gap-4 flex-wrap">
+            {isHost && canStart && (
               <button
-                onClick={onStartGame}
-                className="flex-1 neon-btn neon-btn-green py-4 text-lg font-bold"
+                onClick={handleStartGame}
+                disabled={room && !allReady}
+                className={`flex-1 neon-btn neon-btn-green py-4 text-lg font-bold ${
+                  room && !allReady ? "opacity-50 cursor-not-allowed" : ""
+                }`}
               >
-                START GAME ({playerCount} PLAYERS)
+                {room && !allReady 
+                  ? "WAITING FOR PLAYERS TO READY UP"
+                  : `START GAME (${playerCount} PLAYERS)`
+                }
               </button>
             )}
-            {isPlayingAgainstComputer && joinedTeamIds.length < minPlayers - 1 && (
+            {!isHost && room && (
+              <div className="flex-1 text-center py-4 text-cyan-300">
+                Waiting for host to start the game...
+              </div>
+            )}
+            {!isRoomBasedGame && isPlayingAgainstComputer && playerCount < minPlayers && (
               <button
                 onClick={onPlayAgainstComputer}
                 className="flex-1 neon-btn neon-btn-yellow py-4 text-lg font-bold"
@@ -479,13 +747,20 @@ export default function WaitingRoom({
           <div className="mt-6 p-4 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
             <h3 className="font-bold text-blue-400 mb-2">ℹ️ HOW IT WORKS</h3>
             <ul className="text-blue-300/80 space-y-1 text-sm">
-              <li>• You are playing as: <span className="text-purple-400 font-bold">{currentTeamName || "Solo Player"}</span></li>
-              <li>• Other online teams can join your game</li>
+              <li>• You are playing as: <span className="text-purple-400 font-bold">{currentTeamName || currentUser?.name || "Player"}</span></li>
+              {effectiveRoomCode && (
+                <li>• Share the room code <span className="text-yellow-400 font-bold">{effectiveRoomCode}</span> with friends</li>
+              )}
               <li>• Need {minPlayers}-{maxPlayers} players to start</li>
-              {isPlayingAgainstComputer && (
+              {room && !isHost && (
+                <li>• Click "READY" when you're ready to play</li>
+              )}
+              {isHost && room && (
+                <li>• As the host, you can start the game when all players are ready</li>
+              )}
+              {!isRoomBasedGame && isPlayingAgainstComputer && (
                 <li>• If no one joins, you'll play against <span className="text-yellow-400 font-bold">COMPUTER</span> players</li>
               )}
-              <li>• Game will start automatically after {waitTime} seconds, or click to start early</li>
             </ul>
           </div>
         </div>
@@ -493,4 +768,3 @@ export default function WaitingRoom({
     </div>
   );
 }
-

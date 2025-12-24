@@ -1,10 +1,37 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star, Sparkles, Loader2 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star, Sparkles, Loader2, Globe } from "lucide-react";
 import Link from "next/link";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import GameLobby from "@/app/components/GameLobby";
+
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 // TOPICS WITH SUB-CATEGORIES
 const TOPICS: Record<string, {
@@ -449,14 +476,69 @@ interface CustomTopic {
 
 export default function JeopardyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
   
+  const [showLobby, setShowLobby] = useState(true);
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
   const [phase, setPhase] = useState<GamePhase>("waiting");
   const [teams, setTeams] = useState<Team[]>([]);
   const [currentTeamIndex, setCurrentTeamIndex] = useState(0);
   const [gameId, setGameId] = useState<string | null>(null);
   const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
   const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
+
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      setShowLobby(false);
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setShowLobby(false);
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setShowLobby(false);
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setShowLobby(true);
+    router.push("/games/jeopardy");
+  };
   
   const [selectedTopic, setSelectedTopic] = useState<string | null>(null);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
@@ -880,6 +962,22 @@ export default function JeopardyPage() {
   const currentTeam = teams[currentTeamIndex];
   const topicColor = currentTopicData ? COLOR_CLASSES[currentTopicData.color] : COLOR_CLASSES.cyan;
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (showLobby && phase === "waiting") {
+    return (
+      <GameLobby
+        gameType="jeopardy"
+        gameName="JEOPARDY"
+        gameIcon="🎯"
+        maxPlayers={6}
+        minPlayers={2}
+        teamMode={true}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
   // WAITING ROOM PHASE
   if (phase === "waiting") {
     const currentTeamData = localStorage.getItem("currentTeam");
@@ -902,8 +1000,11 @@ export default function JeopardyPage() {
         gameIcon="🎯"
         currentTeamName={currentTeamName}
         currentTeamId={currentTeamId}
-        gameId={gameId || ""}
+        gameId={gameRoom ? `jeopardy_${gameRoom.code}` : gameId || ""}
         currentUser={currentUser}
+        roomCode={gameRoom?.code}
+        room={gameRoom || undefined}
+        onLeaveRoom={handleLeaveRoom}
         onTeamJoined={async (teamId, teamName) => {
           setJoinedTeamIds(prev => [...prev, teamId]);
           setIsPlayingAgainstComputer(false);

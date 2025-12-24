@@ -1,12 +1,40 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Users, Moon, Sun, AlertTriangle, Shield, Skull, Vote, Eye, EyeOff } from "lucide-react";
+import { ArrowLeft, Users, Moon, Sun, AlertTriangle, Shield, Skull, Vote, Eye, EyeOff, Globe } from "lucide-react";
+import GameLobby from "@/app/components/GameLobby";
+import WaitingRoom from "@/app/components/WaitingRoom";
+
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 type Role = "werewolf" | "villager" | "seer" | "guardian";
-type Phase = "setup" | "night" | "day" | "voting" | "gameOver";
+type Phase = "lobby" | "waiting" | "setup" | "night" | "day" | "voting" | "gameOver";
 
 interface Player {
   id: number;
@@ -31,8 +59,11 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
 
 export default function WerewolfPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [gameState, setGameState] = useState<Phase>("setup");
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
+  const [isOnlineGame, setIsOnlineGame] = useState(false);
+  const [gameState, setGameState] = useState<Phase>("lobby");
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerCount, setPlayerCount] = useState(5);
   const [playerNames, setPlayerNames] = useState<string[]>([
@@ -53,6 +84,81 @@ export default function WerewolfPage() {
   const [winner, setWinner] = useState<{ team: "werewolves" | "villagers"; players: Player[] } | null>(null);
   const [revealedRoles, setRevealedRoles] = useState<Set<number>>(new Set());
   const [showRole, setShowRole] = useState<{ playerId: number; role: Role } | null>(null);
+
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setIsOnlineGame(true);
+        setGameState("waiting");
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setIsOnlineGame(true);
+    setGameState("waiting");
+  };
+
+  // Leave room properly
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setIsOnlineGame(false);
+    setGameState("lobby");
+    router.push("/games/werewolf");
+  };
+
+  // Start game from waiting room
+  const handleStartOnlineGame = async () => {
+    if (!gameRoom) return;
+    
+    const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+    while (roomPlayerNames.length < 8) {
+      roomPlayerNames.push(`Player ${roomPlayerNames.length + 1}`);
+    }
+    setPlayerNames(roomPlayerNames);
+    setPlayerCount(gameRoom.currentPlayers.length);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      await gameRoomsAPI.updateRoomStatus(gameRoom.id, 'playing');
+    } catch (error) {
+      console.error("Error updating room status:", error);
+    }
+    
+    setGameState("setup");
+  };
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -313,11 +419,71 @@ export default function WerewolfPage() {
 
   if (!currentUser) return null;
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (gameState === "lobby") {
+    return (
+      <GameLobby
+        gameType="werewolf"
+        gameName="WEREWOLF"
+        gameIcon="🐺"
+        maxPlayers={8}
+        minPlayers={5}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
+  // WAITING ROOM PHASE
+  if (gameState === "waiting" && gameRoom) {
+    return (
+      <WaitingRoom
+        gameType="werewolf"
+        gameName="WEREWOLF"
+        gameIcon="🐺"
+        currentTeamName={currentUser?.name || "Player"}
+        currentTeamId={null}
+        gameId={`werewolf_${gameRoom.code}`}
+        currentUser={currentUser}
+        roomCode={gameRoom.code}
+        room={gameRoom}
+        onStartGame={handleStartOnlineGame}
+        onPlayAgainstComputer={() => {
+          setIsOnlineGame(false);
+          setGameState("setup");
+        }}
+        onLeaveRoom={handleLeaveRoom}
+        minPlayers={5}
+        maxPlayers={8}
+        waitTime={60}
+        showAvailableGames={true}
+        showAvailableTeams={false}
+      />
+    );
+  }
+
   // Setup screen
   if (gameState === "setup") {
     return (
       <div className="min-h-screen p-8">
         <div className="max-w-4xl mx-auto">
+          {/* Online Game Info Banner */}
+          {isOnlineGame && gameRoom && (
+            <div className="neon-card neon-box-yellow p-4 mb-6">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Globe className="w-5 h-5 text-yellow-400" />
+                  <div>
+                    <div className="text-yellow-400 font-bold">Online Game • Room: {gameRoom.code}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {gameRoom.currentPlayers.length} players connected
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <Link
             href="/games"
             className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold"

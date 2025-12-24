@@ -1,11 +1,74 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, X, Users, Plus, Trash2, Play, Crown, RotateCcw, Zap } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, Check, X, Users, Plus, Trash2, Play, Crown, RotateCcw, Zap, Globe } from "lucide-react";
 import Link from "next/link";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import GameLobby from "@/app/components/GameLobby";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+
+// Taboo word card structure: each word has a guess word and forbidden taboo words
+interface TabooCard {
+  word: string;
+  tabooWords: string[];
+}
+
+// Generate taboo words for a given word (simplified - in real game these are pre-defined)
+const generateTabooWords = (word: string, difficulty: Difficulty): string[] => {
+  const wordLower = word.toLowerCase();
+  // Common taboo words based on word relationships
+  const tabooMap: Record<string, string[]> = {
+    "pizza": ["cheese", "slice", "italian", "topping", "delivery"],
+    "elephant": ["trunk", "africa", "big", "gray", "tusk"],
+    "computer": ["keyboard", "screen", "mouse", "internet", "laptop"],
+    "beach": ["sand", "ocean", "water", "swim", "sun"],
+    "doctor": ["hospital", "patient", "medicine", "nurse", "stethoscope"],
+    "bicycle": ["wheel", "pedal", "ride", "bike", "chain"],
+    "library": ["book", "read", "quiet", "shelf", "study"],
+    "guitar": ["string", "music", "play", "sound", "strum"],
+    "rainbow": ["color", "rain", "sky", "arc", "light"],
+    "butterfly": ["wing", "fly", "insect", "flower", "caterpillar"],
+    "penguin": ["antarctica", "bird", "ice", "swim", "black"],
+    "castle": ["king", "stone", "tower", "medieval", "fortress"],
+    "dragon": ["fire", "myth", "wing", "scaly", "fantasy"],
+    "ship": ["boat", "water", "sail", "ocean", "captain"],
+    "island": ["water", "land", "beach", "tropical", "isolated"],
+    "mountain": ["peak", "high", "climb", "snow", "hill"],
+    "forest": ["tree", "wood", "nature", "green", "wild"],
+    "river": ["water", "flow", "stream", "bank", "fish"],
+    "ocean": ["water", "sea", "wave", "blue", "deep"],
+    "desert": ["sand", "hot", "dry", "cactus", "camel"],
+    "jungle": ["tree", "tropical", "wild", "animal", "green"],
+    "rocket": ["space", "launch", "fuel", "nasa", "moon"],
+    "astronaut": ["space", "moon", "rocket", "nasa", "helmet"],
+    "planet": ["earth", "space", "orbit", "sun", "mars"],
+    "star": ["sky", "night", "bright", "twinkle", "sun"],
+    "moon": ["night", "sky", "round", "lunar", "bright"],
+    "sun": ["day", "bright", "hot", "solar", "sky"],
+    "cloud": ["sky", "rain", "white", "weather", "float"],
+    "camera": ["photo", "picture", "lens", "shoot", "film"],
+    "chocolate": ["sweet", "candy", "brown", "cocoa", "bar"],
+    "diamond": ["jewel", "ring", "precious", "sparkle", "gem"],
+    "garden": ["flower", "plant", "grow", "soil", "vegetable"],
+    "hamburger": ["meat", "bun", "cheese", "fast", "food"],
+    "umbrella": ["rain", "wet", "cover", "handle", "open"],
+    "waterfall": ["water", "fall", "height", "nature", "flow"],
+  };
+  
+  // Return pre-defined taboo words if available, otherwise generate generic ones
+  if (tabooMap[wordLower]) {
+    return tabooMap[wordLower];
+  }
+  
+  // Generic taboo words based on difficulty
+  if (difficulty === "easy") {
+    return ["thing", "item", "object", "stuff", "one"];
+  } else if (difficulty === "hard") {
+    return ["concept", "notion", "idea", "term", "entity"];
+  }
+  return ["thing", "item", "word", "term", "one"];
+};
 
 // Difficulty-based word lists
 const TABOO_WORDS_EASY = [
@@ -58,11 +121,40 @@ interface Team {
 type GamePhase = "waiting" | "setup" | "playing" | "roundEnd" | "gameOver";
 type PlayerRole = "describer" | "guesser";
 
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function TabooPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const guessInputRef = useRef<HTMLInputElement>(null);
   
+  const [showLobby, setShowLobby] = useState(true);
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
   const [phase, setPhase] = useState<GamePhase>("waiting");
   const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
   const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
@@ -75,12 +167,14 @@ export default function TabooPage() {
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [role, setRole] = useState<PlayerRole | null>(null);
   
-  const [words, setWords] = useState<string[]>([]);
-  const [currentWord, setCurrentWord] = useState<string | null>(null);
+  const [words, setWords] = useState<TabooCard[]>([]);
+  const [currentWord, setCurrentWord] = useState<TabooCard | null>(null);
   const [usedWords, setUsedWords] = useState<string[]>([]);
   const [timeLeft, setTimeLeft] = useState(60);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [roundScore, setRoundScore] = useState({ correct: 0, skipped: 0 });
+  const [roundScore, setRoundScore] = useState({ correct: 0, skipped: 0, violations: 0 });
+  const [describerText, setDescriberText] = useState("");
+  const [showViolation, setShowViolation] = useState(false);
   
   const [guess, setGuess] = useState("");
   const [guessHistory, setGuessHistory] = useState<{ guess: string; correct: boolean }[]>([]);
@@ -102,6 +196,58 @@ export default function TabooPage() {
   };
   const deviceIdRef = useRef<string>(getDeviceId());
 
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      setShowLobby(false);
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setShowLobby(false);
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setShowLobby(false);
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setShowLobby(true);
+    router.push("/games/taboo");
+  };
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
@@ -114,7 +260,7 @@ export default function TabooPage() {
     // Create game ID
     const currentTeam = localStorage.getItem("currentTeam");
     const { gameStateAPI, teamsAPI } = require('@/lib/api-utils');
-    const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'taboo');
+    const id = gameRoom ? `taboo_${gameRoom.code}` : gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'taboo');
     setGameId(id);
     
     // Update team's last game access if team exists
@@ -176,22 +322,23 @@ export default function TabooPage() {
       try {
         const { gameStateAPI } = await import('@/lib/api-utils');
         const stateToSave = {
-          phase,
-          difficulty,
-          teams,
-          currentTeamIndex,
-          roundsPerTeam,
-          roundsPlayed,
-          selectedTeam,
-          role,
-          words,
-          currentWord,
-          usedWords,
-          timeLeft,
-          isPlaying,
-          roundScore,
-          guessHistory,
-        };
+            phase,
+            difficulty,
+            teams,
+            currentTeamIndex,
+            roundsPerTeam,
+            roundsPlayed,
+            selectedTeam,
+            role,
+            words,
+            currentWord,
+            usedWords,
+            timeLeft,
+            isPlaying,
+            roundScore,
+            guessHistory,
+            describerText,
+          };
         
         const stateString = JSON.stringify(stateToSave);
         if (stateString === lastSyncedState) return; // Skip if unchanged
@@ -400,7 +547,7 @@ export default function TabooPage() {
     }
   }, [role, isPlaying, currentWord]);
 
-  const generateWordGrid = () => {
+  const generateWordGrid = (): TabooCard[] => {
     // Select words based on difficulty
     let wordPool: string[];
     switch (difficulty) {
@@ -424,7 +571,13 @@ export default function TabooPage() {
     }
     
     const shuffled = [...wordPool].sort(() => Math.random() - 0.5);
-    return shuffled.slice(0, 25);
+    const selectedWords = shuffled.slice(0, 25);
+    
+    // Create taboo cards with taboo words for each word
+    return selectedWords.map(word => ({
+      word,
+      tabooWords: generateTabooWords(word, difficulty)
+    }));
   };
 
   const addTeam = () => {
@@ -467,23 +620,57 @@ export default function TabooPage() {
     setUsedWords([]);
     setCurrentWord(null);
     setTimeLeft(60);
-    setRoundScore({ correct: 0, skipped: 0 });
+    setRoundScore({ correct: 0, skipped: 0, violations: 0 });
     setIsPlaying(true);
     setGuessHistory([]);
     setGuess("");
+    setDescriberText("");
     localStorage.setItem("taboo_guesses", JSON.stringify([]));
   };
 
-  const selectWord = (word: string) => {
-    if (usedWords.includes(word) || role !== "describer") return;
-    setCurrentWord(word);
+  const selectWord = (card: TabooCard) => {
+    if (usedWords.includes(card.word) || role !== "describer") return;
+    setCurrentWord(card);
+    setDescriberText("");
+  };
+  
+  // Check if describer text contains taboo words
+  const checkTabooViolation = (text: string): boolean => {
+    if (!currentWord) return false;
+    const textLower = text.toLowerCase();
+    const wordLower = currentWord.word.toLowerCase();
+    
+    // Check if the guess word itself is used
+    if (textLower.includes(wordLower)) return true;
+    
+    // Check if any taboo word is used
+    for (const tabooWord of currentWord.tabooWords) {
+      const tabooLower = tabooWord.toLowerCase();
+      // Check for whole word match or as part of a word
+      const regex = new RegExp(`\\b${tabooLower}\\b`, 'i');
+      if (regex.test(textLower)) return true;
+    }
+    
+    return false;
+  };
+  
+  const handleTabooViolation = () => {
+    if (!currentWord) return;
+    setRoundScore(prev => ({ ...prev, violations: prev.violations + 1 }));
+    setShowViolation(true);
+    setTimeout(() => {
+      setShowViolation(false);
+      // Move to next word (skip current word)
+      handleSkip();
+    }, 2000);
   };
 
   const handleCorrect = () => {
     if (!currentWord) return;
     setRoundScore(prev => ({ ...prev, correct: prev.correct + 1 }));
-    setUsedWords(prev => [...prev, currentWord]);
+    setUsedWords(prev => [...prev, currentWord.word]);
     setCurrentWord(null);
+    setDescriberText("");
     setShowCorrectFeedback(true);
     setTimeout(() => setShowCorrectFeedback(false), 500);
   };
@@ -491,8 +678,9 @@ export default function TabooPage() {
   const handleSkip = () => {
     if (!currentWord || role !== "describer") return;
     setRoundScore(prev => ({ ...prev, skipped: prev.skipped + 1 }));
-    setUsedWords(prev => [...prev, currentWord]);
+    setUsedWords(prev => [...prev, currentWord.word]);
     setCurrentWord(null);
+    setDescriberText("");
   };
 
   const submitGuess = (e: React.FormEvent) => {
@@ -500,7 +688,12 @@ export default function TabooPage() {
     if (!guess.trim()) return;
     
     const guessText = guess.trim();
-    const isCorrect = currentWord && guessText.toLowerCase() === currentWord.toLowerCase();
+    const isCorrect = currentWord && guessText.toLowerCase() === currentWord.word.toLowerCase();
+    
+    if (isCorrect && currentWord) {
+      // Auto-handle correct guess
+      handleCorrect();
+    }
     
     setGuessHistory(prev => [...prev, { guess: guessText, correct: isCorrect || false }]);
     
@@ -515,9 +708,11 @@ export default function TabooPage() {
     setIsPlaying(false);
     
     const currentTeam = teams[currentTeamIndex];
+    // Calculate final score: correct guesses - violations (penalties)
+    const finalScore = Math.max(0, roundScore.correct - roundScore.violations);
     setTeams(teams.map(t => 
       t.id === currentTeam.id 
-        ? { ...t, score: t.score + roundScore.correct }
+        ? { ...t, score: t.score + finalScore }
         : t
     ));
     
@@ -569,7 +764,7 @@ export default function TabooPage() {
     setUsedWords([]);
     setTimeLeft(60);
     setIsPlaying(false);
-    setRoundScore({ correct: 0, skipped: 0 });
+    setRoundScore({ correct: 0, skipped: 0, violations: 0 });
     setGuess("");
     setGuessHistory([]);
     setJoinedTeamIds([]);
@@ -597,6 +792,22 @@ export default function TabooPage() {
   const currentTeamName = teamInfo?.name || "Solo Player";
   const currentTeamId = teamInfo?.id || null;
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (showLobby && phase === "waiting") {
+    return (
+      <GameLobby
+        gameType="taboo"
+        gameName="TABOO"
+        gameIcon="🚫"
+        maxPlayers={6}
+        minPlayers={2}
+        teamMode={true}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
   // WAITING ROOM PHASE
   if (phase === "waiting") {
     return (
@@ -608,6 +819,9 @@ export default function TabooPage() {
         currentTeamId={currentTeamId}
         gameId={gameId || ""}
         currentUser={currentUser}
+        roomCode={gameRoom?.code}
+        room={gameRoom || undefined}
+        onLeaveRoom={handleLeaveRoom}
         onTeamJoined={async (teamId, teamName) => {
           setJoinedTeamIds(prev => [...prev, teamId]);
           setIsPlayingAgainstComputer(false);
@@ -935,16 +1149,52 @@ export default function TabooPage() {
             </div>
           )}
 
+          {/* Violation Feedback Animation */}
+          {showViolation && (
+            <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
+              <div className="bg-red-500 text-white text-4xl md:text-6xl font-bold px-12 py-8 rounded-2xl neon-box-orange animate-shake pixel-font">
+                🚫 TABOO VIOLATION! -1 POINT
+              </div>
+            </div>
+          )}
+
           {/* Current Word Display */}
           {currentWord ? (
             <div className="neon-card neon-box-pink p-4 md:p-8 mb-6 card-3d animate-zoom-in">
               <div className="text-center">
                 <div className="text-xs md:text-sm text-pink-400 font-semibold mb-2 animate-fade-in-down">DESCRIBE THIS WORD:</div>
                 <div className="text-2xl md:text-4xl lg:text-6xl font-bold text-white mb-4 md:mb-6 pixel-font neon-glow-cyan animate-bounce-in">
-                  {currentWord}
+                  {currentWord.word}
                 </div>
-                <div className="bg-red-900/50 border-2 border-red-500 neon-box-orange text-red-400 rounded-xl p-4 inline-block animate-shake">
-                  <div className="text-lg font-bold">🚫 TABOO! Don't say "{currentWord}"!</div>
+                <div className="bg-red-900/50 border-2 border-red-500 neon-box-orange text-red-400 rounded-xl p-4 mb-4 inline-block animate-shake">
+                  <div className="text-sm md:text-lg font-bold mb-2">🚫 TABOO WORDS (Don't say these!):</div>
+                  <div className="flex flex-wrap gap-2 justify-center">
+                    {currentWord.tabooWords.map((taboo, idx) => (
+                      <span key={idx} className="bg-red-800/50 px-3 py-1 rounded-lg text-red-300 font-semibold border border-red-500">
+                        {taboo}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                {/* Describer text input for violation checking */}
+                <div className="mt-4">
+                  <textarea
+                    value={describerText}
+                    onChange={(e) => {
+                      const text = e.target.value;
+                      setDescriberText(text);
+                      // Check for violations in real-time
+                      if (checkTabooViolation(text)) {
+                        handleTabooViolation();
+                      }
+                    }}
+                    placeholder="Type your description here (optional - for violation checking)..."
+                    className="w-full px-4 py-3 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-pink-400 text-center resize-none"
+                    rows={3}
+                  />
+                  <div className="text-xs text-gray-400 mt-2">
+                    Tip: Describe the word without using the taboo words above!
+                  </div>
                 </div>
               </div>
               <div className="flex flex-col sm:flex-row gap-2 md:gap-4 justify-center mt-4 md:mt-8 animate-fade-in-up delay-300">
@@ -975,13 +1225,13 @@ export default function TabooPage() {
           {/* Word Grid */}
           <div className="neon-card neon-box-cyan p-3 md:p-6 card-3d animate-fade-in delay-400">
             <div className="grid grid-cols-5 gap-1 md:gap-2 lg:gap-3">
-              {words.map((word, idx) => {
-                const isUsed = usedWords.includes(word);
-                const isCurrent = currentWord === word;
+              {words.map((card, idx) => {
+                const isUsed = usedWords.includes(card.word);
+                const isCurrent = currentWord?.word === card.word;
                 return (
                   <button
                     key={idx}
-                    onClick={() => selectWord(word)}
+                    onClick={() => selectWord(card)}
                     disabled={isUsed}
                     className={`
                       p-1 md:p-2 lg:p-4 rounded-lg font-bold text-[10px] md:text-xs lg:text-base transition-all
@@ -994,7 +1244,7 @@ export default function TabooPage() {
                     `}
                     style={{ animationDelay: `${idx * 0.02}s` }}
                   >
-                    {word}
+                    {card.word}
                   </button>
                 );
               })}
@@ -1044,7 +1294,7 @@ export default function TabooPage() {
           <div className="neon-card neon-box-pink p-4 md:p-8 mb-6 card-3d">
             <div className="text-center mb-4 md:mb-6">
               <div className="text-lg md:text-2xl font-bold text-pink-400 mb-2 pixel-font text-xs md:text-sm">
-                {currentWord ? "🎯 GUESS THE WORD!" : "⏳ WAITING..."}
+                {currentWord ? `🎯 GUESS THE WORD: "${currentWord.word.toUpperCase()}"` : "⏳ WAITING..."}
               </div>
               <div className="text-sm md:text-base text-gray-400">
                 {currentWord ? "Listen to the clues and type your guess!" : "The describer is choosing a word..."}
@@ -1127,7 +1377,7 @@ export default function TabooPage() {
             <div className="bg-black/20 rounded-xl p-4 mb-8">
               <div className="text-sm text-gray-400">TOTAL SCORE</div>
               <div className={`text-3xl font-bold ${currentTeam.color.text} pixel-font`}>
-                {(teams.find(t => t.id === currentTeam.id)?.score || 0) + roundScore.correct}
+                {(teams.find(t => t.id === currentTeam.id)?.score || 0) + Math.max(0, roundScore.correct - roundScore.violations)}
               </div>
             </div>
 

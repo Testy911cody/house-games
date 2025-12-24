@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, Home, DollarSign, Users, Trophy, Zap } from "lucide-react";
+import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, Home, DollarSign, Users, Trophy, Zap, Globe, Lock, Copy, Check } from "lucide-react";
+import GameLobby from "@/app/components/GameLobby";
+import WaitingRoom from "@/app/components/WaitingRoom";
 
 // Monopoly board spaces
 const BOARD_SPACES = [
@@ -150,10 +152,50 @@ const DiceIcon = ({ value, isRolling }: { value: number; isRolling?: boolean }) 
   );
 };
 
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 export default function MonopolyPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [gameState, setGameState] = useState<"setup" | "playing" | "ended">("setup");
+  const [gamePhase, setGamePhase] = useState<"lobby" | "waiting" | "setup" | "playing" | "ended">("lobby");
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
+  const [isOnlineGame, setIsOnlineGame] = useState(false);
+  const [myPlayerIndex, setMyPlayerIndex] = useState<number | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  
+  // Legacy gameState for compatibility
+  const gameState = gamePhase === "setup" ? "setup" : gamePhase === "playing" ? "playing" : gamePhase === "ended" ? "ended" : "setup";
+  const setGameState = (state: "setup" | "playing" | "ended") => {
+    if (state === "setup") setGamePhase("setup");
+    else if (state === "playing") setGamePhase("playing");
+    else if (state === "ended") setGamePhase("ended");
+  };
+  
   const [players, setPlayers] = useState<Player[]>([]);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const [dice, setDice] = useState<[number, number]>([1, 1]);
@@ -169,6 +211,154 @@ export default function MonopolyPage() {
   const [playerCount, setPlayerCount] = useState(2);
   const [playerNames, setPlayerNames] = useState<string[]>(["Player 1", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6"]);
   const [winner, setWinner] = useState<Player | null>(null);
+
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setIsOnlineGame(true);
+        setGamePhase("waiting");
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setIsOnlineGame(true);
+    setGamePhase("waiting");
+  };
+
+  // Start online game from waiting room
+  const handleStartOnlineGame = async () => {
+    if (!gameRoom) return;
+    
+    const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+    while (roomPlayerNames.length < 6) {
+      roomPlayerNames.push(`Player ${roomPlayerNames.length + 1}`);
+    }
+    setPlayerNames(roomPlayerNames);
+    setPlayerCount(Math.min(gameRoom.currentPlayers.length, 6));
+    
+    const myIndex = gameRoom.currentPlayers.findIndex(p => p.id === currentUser?.id);
+    setMyPlayerIndex(myIndex >= 0 ? myIndex : 0);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      await gameRoomsAPI.updateRoomStatus(gameRoom.id, 'playing');
+    } catch (error) {
+      console.error("Error updating room status:", error);
+    }
+    
+    setGamePhase("setup");
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setIsOnlineGame(false);
+    setGamePhase("lobby");
+    router.push("/games/monopoly");
+  };
+
+  // Save game state for online multiplayer
+  const saveOnlineGameState = useCallback(async (state: any) => {
+    if (!isOnlineGame || !gameRoom || !currentUser) return;
+    
+    try {
+      const { gameStateAPI } = await import("@/lib/api-utils");
+      const gameId = `monopoly_${gameRoom.code}`;
+      await gameStateAPI.saveGameState({
+        id: gameId,
+        gameType: "monopoly",
+        state: {
+          players: state.players || players,
+          currentPlayerIndex: state.currentPlayerIndex ?? currentPlayerIndex,
+          dice: state.dice || dice,
+          hasRolled: state.hasRolled ?? hasRolled,
+          propertyOwnership: state.propertyOwnership || propertyOwnership,
+          message: state.message || message,
+          winner: state.winner || winner,
+          gamePhase: state.gamePhase || gamePhase,
+        },
+        lastUpdated: new Date().toISOString(),
+        updatedBy: currentUser.id,
+      });
+    } catch (error) {
+      console.error("Error saving game state:", error);
+    }
+  }, [isOnlineGame, gameRoom, currentUser, players, currentPlayerIndex, dice, hasRolled, propertyOwnership, message, winner, gamePhase]);
+
+  // Sync game state for online multiplayer (works during playing AND setup phases)
+  useEffect(() => {
+    if (!isOnlineGame || !gameRoom) return;
+    if (gamePhase !== "playing" && gamePhase !== "setup") return;
+    
+    const syncGameState = async () => {
+      try {
+        const { gameStateAPI } = await import("@/lib/api-utils");
+        const gameId = `monopoly_${gameRoom.code}`;
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state && result.state.lastUpdated !== lastSyncTime) {
+          const remoteState = result.state.state;
+          
+          if (result.state.updatedBy !== currentUser?.id) {
+            if (remoteState.players) setPlayers(remoteState.players);
+            if (remoteState.currentPlayerIndex !== undefined) setCurrentPlayerIndex(remoteState.currentPlayerIndex);
+            if (remoteState.dice) setDice(remoteState.dice);
+            if (remoteState.hasRolled !== undefined) setHasRolled(remoteState.hasRolled);
+            if (remoteState.propertyOwnership) setPropertyOwnership(remoteState.propertyOwnership);
+            if (remoteState.message) setMessage(remoteState.message);
+            if (remoteState.winner) {
+              setWinner(remoteState.winner);
+              setGamePhase("ended");
+            }
+            // If remote state shows game is playing but we're still in setup, start playing
+            if (remoteState.gamePhase === "playing" && gamePhase === "setup") {
+              setGamePhase("playing");
+            }
+          }
+          setLastSyncTime(result.state.lastUpdated);
+        }
+      } catch (error) {
+        console.error("Error syncing game state:", error);
+      }
+    };
+    
+    const intervalId = setInterval(syncGameState, 500);
+    syncGameState(); // Initial sync
+    return () => clearInterval(intervalId);
+  }, [isOnlineGame, gameRoom, gamePhase, currentUser, lastSyncTime]);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -213,7 +403,7 @@ export default function MonopolyPage() {
     }
   }, [router]);
 
-  const initializeGame = () => {
+  const initializeGame = async () => {
     const newPlayers: Player[] = [];
     for (let i = 0; i < playerCount; i++) {
       newPlayers.push({
@@ -229,12 +419,40 @@ export default function MonopolyPage() {
         isBankrupt: false,
       });
     }
+    const initialMessage = `${newPlayers[0].name}'s turn! Roll the dice.`;
+    
     setPlayers(newPlayers);
     setPropertyOwnership({});
     setCurrentPlayerIndex(0);
     setHasRolled(false);
-    setMessage(`${newPlayers[0].name}'s turn! Roll the dice.`);
+    setMessage(initialMessage);
     setGameState("playing");
+    
+    // Sync initial state for online games
+    if (isOnlineGame && gameRoom && currentUser) {
+      try {
+        const { gameStateAPI } = await import("@/lib/api-utils");
+        const gameId = `monopoly_${gameRoom.code}`;
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: "monopoly",
+          state: {
+            players: newPlayers,
+            currentPlayerIndex: 0,
+            dice: [1, 1],
+            hasRolled: false,
+            propertyOwnership: {},
+            message: initialMessage,
+            winner: null,
+            gamePhase: "playing",
+          },
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+        });
+      } catch (error) {
+        console.error("Error syncing initial game state:", error);
+      }
+    }
   };
 
   const handleLanding = useCallback((position: number) => {
@@ -607,6 +825,49 @@ export default function MonopolyPage() {
 
   if (!currentUser) return null;
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (gamePhase === "lobby") {
+    return (
+      <GameLobby
+        gameType="monopoly"
+        gameName="MONOPOLY"
+        gameIcon="🏠"
+        maxPlayers={6}
+        minPlayers={2}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
+  // WAITING ROOM PHASE - Wait for players
+  if (gamePhase === "waiting" && gameRoom) {
+    return (
+      <WaitingRoom
+        gameType="monopoly"
+        gameName="MONOPOLY"
+        gameIcon="🏠"
+        currentTeamName={currentUser?.name || "Player"}
+        currentTeamId={null}
+        gameId={`monopoly_${gameRoom.code}`}
+        currentUser={currentUser}
+        roomCode={gameRoom.code}
+        room={gameRoom}
+        onStartGame={handleStartOnlineGame}
+        onPlayAgainstComputer={() => {
+          setIsOnlineGame(false);
+          setGamePhase("setup");
+        }}
+        onLeaveRoom={handleLeaveRoom}
+        minPlayers={2}
+        maxPlayers={6}
+        waitTime={60}
+        showAvailableGames={true}
+        showAvailableTeams={false}
+      />
+    );
+  }
+
   // Setup screen
   if (gameState === "setup") {
     const currentTeamData = localStorage.getItem("currentTeam");
@@ -622,6 +883,23 @@ export default function MonopolyPage() {
     return (
       <div className="min-h-screen p-4 sm:p-8 page-enter">
         <div className="max-w-4xl mx-auto">
+          {/* Online Game Info Banner */}
+          {isOnlineGame && gameRoom && (
+            <div className="neon-card neon-box-yellow p-4 mb-6 card-3d">
+              <div className="flex items-center justify-between flex-wrap gap-3">
+                <div className="flex items-center gap-3">
+                  <Globe className="w-5 h-5 text-yellow-400" />
+                  <div>
+                    <div className="text-yellow-400 font-bold">Online Game • Room: {gameRoom.code}</div>
+                    <div className="text-cyan-300/70 text-sm">
+                      {gameRoom.currentPlayers.length} players connected
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           <Link
             href="/games"
             className="inline-flex items-center gap-2 text-cyan-400 active:opacity-80 mb-4 sm:mb-8 font-semibold min-h-[44px] animate-fade-in-left hover:animate-pulse-glow"

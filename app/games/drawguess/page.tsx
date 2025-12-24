@@ -1,11 +1,38 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Check, X, Users, Play, RotateCcw, Palette, Eraser, Trash2, Zap, Clock, Trophy } from "lucide-react";
+import { ArrowLeft, Check, X, Users, Play, RotateCcw, Palette, Eraser, Trash2, Zap, Clock, Trophy, Globe } from "lucide-react";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import GameLobby from "@/app/components/GameLobby";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+
+// Game Room types
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: 'waiting' | 'playing' | 'finished';
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, any>;
+  teamMode: boolean;
+  teams: any[];
+  createdAt: string;
+  updatedAt: string;
+}
 
 const DRAWING_WORDS = [
   "Cat", "Dog", "Elephant", "Lion", "Tiger", "Bear", "Rabbit", "Horse", "Cow", "Pig",
@@ -32,6 +59,7 @@ interface Player {
 
 export default function DrawGuessPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const guesserCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -52,10 +80,64 @@ export default function DrawGuessPage() {
   const [wordOptions, setWordOptions] = useState<string[]>([]);
   const guessInputRef = useRef<HTMLInputElement>(null);
 
+  const [showLobby, setShowLobby] = useState(true);
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
   const [gameId, setGameId] = useState<string | null>(null);
   const [lastSyncedState, setLastSyncedState] = useState<string>("");
   const [joinedTeamIds, setJoinedTeamIds] = useState<string[]>([]);
   const [isPlayingAgainstComputer, setIsPlayingAgainstComputer] = useState(true);
+
+  // Check for room code in URL
+  useEffect(() => {
+    const code = searchParams.get('code');
+    if (code) {
+      setShowLobby(false);
+      joinRoomByCode(code);
+    }
+  }, [searchParams]);
+
+  // Join room by code from URL
+  const joinRoomByCode = async (code: string) => {
+    const user = localStorage.getItem("currentUser");
+    if (!user) {
+      router.push("/");
+      return;
+    }
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    
+    try {
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+      if (result.success && result.room) {
+        setGameRoom(result.room);
+        setShowLobby(false);
+      }
+    } catch (error) {
+      console.error("Error joining room:", error);
+    }
+  };
+
+  // Handle room joined from lobby
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setShowLobby(false);
+  };
+
+  // Handle leaving room
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setShowLobby(true);
+    router.push("/games/drawguess");
+  };
   // Device/session ID to track which device made the update (for multi-device same-user sync)
   const getDeviceId = (): string => {
     if (typeof window !== 'undefined') {
@@ -754,6 +836,21 @@ export default function DrawGuessPage() {
 
   const currentDrawer = players[currentDrawerIndex];
 
+  // LOBBY PHASE - Show game lobby for online multiplayer
+  if (showLobby && phase === "waitingRoom") {
+    return (
+      <GameLobby
+        gameType="drawguess"
+        gameName="DRAW & GUESS"
+        gameIcon="🎨"
+        maxPlayers={8}
+        minPlayers={2}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+      />
+    );
+  }
+
   // WAITING ROOM PHASE
   if (phase === "waitingRoom") {
     const currentTeamData = localStorage.getItem("currentTeam");
@@ -776,8 +873,11 @@ export default function DrawGuessPage() {
         gameIcon="🎨"
         currentTeamName={currentTeamName}
         currentTeamId={currentTeamId}
-        gameId={gameId || ""}
+        gameId={gameRoom ? `drawguess_${gameRoom.code}` : gameId || ""}
         currentUser={currentUser}
+        roomCode={gameRoom?.code}
+        room={gameRoom || undefined}
+        onLeaveRoom={handleLeaveRoom}
         onTeamJoined={async (teamId, teamName) => {
           setJoinedTeamIds(prev => [...prev, teamId]);
           setIsPlayingAgainstComputer(false);
