@@ -23,31 +23,152 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Verify deployment workflow completed
+        id: verify-deployment
+        run: |
+          echo "🔍 Verifying deployment workflow status..."
+          
+          # If triggered by workflow_run, check the triggering workflow
+          if [ -n "${{ github.event.workflow_run.id }}" ]; then
+            WORKFLOW_RUN_ID="${{ github.event.workflow_run.id }}"
+            WORKFLOW_CONCLUSION="${{ github.event.workflow_run.conclusion }}"
+            
+            echo "📋 Triggered by workflow run: $WORKFLOW_RUN_ID"
+            echo "📊 Workflow conclusion: $WORKFLOW_CONCLUSION"
+            
+            if [ "$WORKFLOW_CONCLUSION" != "success" ]; then
+              echo "⚠️ Deployment workflow did not complete successfully ($WORKFLOW_CONCLUSION)"
+              echo "⚠️ Skipping deployment verification checks"
+              echo "skip_checks=true" >> $GITHUB_OUTPUT
+            else
+              echo "✅ Deployment workflow completed successfully"
+              echo "skip_checks=false" >> $GITHUB_OUTPUT
+            fi
+          else
+            # Manual trigger or scheduled - proceed with checks
+            echo "ℹ️ Manual or scheduled trigger - proceeding with checks"
+            echo "skip_checks=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Get deployment status
+        if: steps.verify-deployment.outputs.skip_checks != 'true'
         id: deployment-status
         run: |
           echo "🔍 Checking deployment status..."
           
-          # Get the latest deployment status
-          DEPLOYMENT_STATUS=$(gh api repos/${{ github.repository }}/pages/deployments --jq '.[0].status' 2>/dev/null || echo "unknown")
-          DEPLOYMENT_URL=$(gh api repos/${{ github.repository }}/pages/deployments --jq '.[0].page_url' 2>/dev/null || echo "")
+          # Initialize variables with safe defaults
+          DEPLOYMENT_STATUS="not_available"
+          DEPLOYMENT_URL=""
           
+          # Get the latest deployment status with proper error handling
+          # Capture both stdout and stderr, but check exit code
+          API_RESPONSE=$(gh api repos/${{ github.repository }}/pages/deployments 2>&1)
+          API_EXIT_CODE=$?
+          
+          # First check: Did the API call fail or return an error response?
+          if [ $API_EXIT_CODE -ne 0 ] || echo "$API_RESPONSE" | grep -qE '"(message|error)"' && echo "$API_RESPONSE" | grep -qE '"(status|code)"'; then
+            # This is an error response
+            ERROR_CODE=$(echo "$API_RESPONSE" | grep -oE '"status"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
+            echo "⚠️ GitHub Pages deployments API returned error (this is normal if Pages uses GitHub Actions deployment)"
+            if [ -n "$ERROR_CODE" ]; then
+              echo "   Error code: $ERROR_CODE"
+            fi
+            # Keep default values: DEPLOYMENT_STATUS="not_available", DEPLOYMENT_URL=""
+          # Second check: Is this a valid array response?
+          elif echo "$API_RESPONSE" | jq -e 'type == "array" and length > 0' >/dev/null 2>&1; then
+            # Valid array response - extract data
+            EXTRACTED_STATUS=$(echo "$API_RESPONSE" | jq -r '.[0].status // "unknown"' 2>/dev/null || echo "unknown")
+            EXTRACTED_URL=$(echo "$API_RESPONSE" | jq -r '.[0].page_url // ""' 2>/dev/null || echo "")
+            
+            # Validate extracted values are not error JSON or contain JSON structure
+            if [ -n "$EXTRACTED_STATUS" ] && ! echo "$EXTRACTED_STATUS" | grep -qE '[{}"]' && [ "$EXTRACTED_STATUS" != "null" ]; then
+              DEPLOYMENT_STATUS="$EXTRACTED_STATUS"
+            fi
+            if [ -n "$EXTRACTED_URL" ] && ! echo "$EXTRACTED_URL" | grep -qE '[{}"]' && [ "$EXTRACTED_URL" != "null" ]; then
+              DEPLOYMENT_URL="$EXTRACTED_URL"
+            fi
+          else
+            # API call returned unexpected format
+            echo "⚠️ GitHub Pages deployments API not available (this is normal if Pages is not configured or using GitHub Actions deployment)"
+          fi
+          
+          # Sanitize output values (remove newlines, ensure single line, only allow safe chars)
+          DEPLOYMENT_STATUS=$(echo "$DEPLOYMENT_STATUS" | tr -d '\n\r\t' | sed 's/[^a-zA-Z0-9_\-]//g' | head -c 100)
+          DEPLOYMENT_URL=$(echo "$DEPLOYMENT_URL" | tr -d '\n\r\t' | sed 's/[{}"]//g' | head -c 200)
+          
+          # Ensure status is never empty and doesn't contain JSON
+          [ -z "$DEPLOYMENT_STATUS" ] && DEPLOYMENT_STATUS="not_available"
+          if echo "$DEPLOYMENT_STATUS" | grep -qE '[{}"]'; then
+            DEPLOYMENT_STATUS="not_available"
+          fi
+          
+          # Write to output (ensure no special characters that break GitHub Actions format)
           echo "status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
-          echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          if [ -n "$DEPLOYMENT_URL" ] && ! echo "$DEPLOYMENT_URL" | grep -qE '[{}"]'; then
+            echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
+          else
+            echo "url=" >> $GITHUB_OUTPUT
+          fi
           
+          # Display results (safe to echo these as they're sanitized)
           echo "📊 Deployment Status: $DEPLOYMENT_STATUS"
-          echo "🌐 Deployment URL: $DEPLOYMENT_URL"
+          if [ -n "$DEPLOYMENT_URL" ] && ! echo "$DEPLOYMENT_URL" | grep -qE '[{}"]'; then
+            echo "🌐 Deployment URL: $DEPLOYMENT_URL"
+          else
+            echo "🌐 Deployment URL: N/A"
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check GitHub Pages settings
         id: pages-settings
+        if: steps.verify-deployment.outputs.skip_checks != 'true'
         run: |
           echo "🔧 Checking GitHub Pages configuration..."
           
-          # Check if Pages is enabled and configured correctly
-          PAGES_ENABLED=$(gh api repos/${{ github.repository }}/pages --jq '.source.branch // .source.path // "not_configured"' 2>/dev/null || echo "error")
+          # Initialize with safe default
+          PAGES_ENABLED="not_configured"
           
+          # Check if Pages is enabled and configured correctly with proper error handling
+          # Capture both stdout and stderr, but check exit code
+          API_RESPONSE=$(gh api repos/${{ github.repository }}/pages 2>&1)
+          API_EXIT_CODE=$?
+          
+          # First check: Did the API call fail or return an error response?
+          if [ $API_EXIT_CODE -ne 0 ] || echo "$API_RESPONSE" | grep -qE '"(message|error)"' && echo "$API_RESPONSE" | grep -qE '"(status|code)"'; then
+            # This is an error response
+            ERROR_CODE=$(echo "$API_RESPONSE" | grep -oE '"status"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
+            echo "⚠️ GitHub Pages API returned error (Pages may not be enabled)"
+            if [ -n "$ERROR_CODE" ]; then
+              echo "   Error code: $ERROR_CODE"
+            fi
+            # Keep default value: PAGES_ENABLED="not_configured"
+          # Second check: Is this a valid Pages config object?
+          elif echo "$API_RESPONSE" | jq -e 'type == "object" and (has("source") or has("url"))' >/dev/null 2>&1; then
+            # Valid Pages config - extract data
+            EXTRACTED_CONFIG=$(echo "$API_RESPONSE" | jq -r '.source.branch // .source.path // "not_configured"' 2>/dev/null || echo "not_configured")
+            
+            # Validate extracted value is not error JSON or contains JSON structure
+            if [ -n "$EXTRACTED_CONFIG" ] && ! echo "$EXTRACTED_CONFIG" | grep -qE '[{}"]' && [ "$EXTRACTED_CONFIG" != "null" ]; then
+              PAGES_ENABLED="$EXTRACTED_CONFIG"
+            fi
+          else
+            # API call returned unexpected format
+            echo "⚠️ GitHub Pages API not available (Pages may not be enabled)"
+          fi
+          
+          # Sanitize output value (remove newlines, ensure single line, only allow safe chars)
+          PAGES_ENABLED=$(echo "$PAGES_ENABLED" | tr -d '\n\r\t' | sed 's/[^a-zA-Z0-9_\-]//g' | head -c 100)
+          [ -z "$PAGES_ENABLED" ] && PAGES_ENABLED="not_configured"
+          
+          # Ensure value doesn't contain JSON
+          if echo "$PAGES_ENABLED" | grep -qE '[{}"]'; then
+            PAGES_ENABLED="not_configured"
+          fi
+          
+          # Write to output (ensure no special characters)
           echo "pages_config=$PAGES_ENABLED" >> $GITHUB_OUTPUT
           echo "📋 Pages Configuration: $PAGES_ENABLED"
         env:
@@ -55,8 +176,9 @@ jobs:
 
       - name: Test website accessibility
         id: health-check
+        if: steps.verify-deployment.outputs.skip_checks != 'true'
         run: |
-          echo "🏥 Running health check on website..."
+          echo "🏥 Running automatic deployment verification..."
           
           # Try to determine the website URL
           # First check if custom domain is configured
@@ -80,37 +202,58 @@ jobs:
             echo "🌐 Testing GitHub Pages URL: $TEST_URL"
           fi
           
-          # Wait a bit for deployment to propagate
-          echo "⏳ Waiting 10 seconds for deployment to propagate..."
-          sleep 10
+          # Wait for deployment to propagate (GitHub Pages can take time)
+          echo "⏳ Waiting 15 seconds for deployment to propagate..."
+          sleep 15
           
-          # Test the website
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 --retry 3 "$TEST_URL" || echo "000")
-          echo "📡 HTTP Status Code: $HTTP_CODE"
+          # Retry logic: Try up to 5 times with increasing delays
+          MAX_RETRIES=5
+          RETRY_DELAY=30
+          HTTP_CODE="000"
+          ATTEMPT=1
           
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Website is accessible!"
-            echo "accessible=true" >> $GITHUB_OUTPUT
-            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
-          elif [ "$HTTP_CODE" = "404" ]; then
-            echo "❌ Website returned 404 - deployment may not be complete"
-            echo "accessible=false" >> $GITHUB_OUTPUT
+          while [ $ATTEMPT -le $MAX_RETRIES ]; do
+            echo "🔄 Attempt $ATTEMPT of $MAX_RETRIES: Checking website accessibility..."
+            
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 --retry 2 "$TEST_URL" 2>/dev/null || echo "000")
+            echo "📡 HTTP Status Code: $HTTP_CODE"
+            
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "✅ Website is accessible!"
+              echo "accessible=true" >> $GITHUB_OUTPUT
+              echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
+              echo "attempts=$ATTEMPT" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            if [ $ATTEMPT -lt $MAX_RETRIES ]; then
+              echo "⏳ Waiting ${RETRY_DELAY} seconds before retry..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY + 15))
+            fi
+            
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+          
+          # All retries failed
+          echo "accessible=false" >> $GITHUB_OUTPUT
+          echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
+          echo "attempts=$MAX_RETRIES" >> $GITHUB_OUTPUT
+          
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "❌ Website returned 404 after $MAX_RETRIES attempts - deployment may not be complete"
             echo "error=404_not_found" >> $GITHUB_OUTPUT
-            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
           elif [ "$HTTP_CODE" = "000" ]; then
-            echo "⚠️ Could not connect to website (timeout or DNS issue)"
-            echo "accessible=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Could not connect to website after $MAX_RETRIES attempts (timeout or DNS issue)"
             echo "error=connection_failed" >> $GITHUB_OUTPUT
-            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
           else
-            echo "⚠️ Website returned HTTP $HTTP_CODE"
-            echo "accessible=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Website returned HTTP $HTTP_CODE after $MAX_RETRIES attempts"
             echo "error=http_${HTTP_CODE}" >> $GITHUB_OUTPUT
-            echo "test_url=$TEST_URL" >> $GITHUB_OUTPUT
           fi
 
       - name: Check workflow run status
         id: workflow-status
+        if: steps.verify-deployment.outputs.skip_checks != 'true'
         run: |
           echo "🔍 Checking latest workflow run status..."
           
@@ -132,13 +275,14 @@ jobs:
 
       - name: Auto-fix common issues
         id: auto-fix
-        if: steps.workflow-status.outputs.conclusion == 'failure' || steps.health-check.outputs.accessible == 'false'
+        if: steps.verify-deployment.outputs.skip_checks != 'true' && (steps.workflow-status.outputs.conclusion == 'failure' || steps.health-check.outputs.accessible == 'false')
         run: |
           echo "🔧 Attempting to auto-fix deployment issues..."
           
           FIXED=false
           ERROR_TYPE="${{ steps.health-check.outputs.error }}"
           WORKFLOW_CONCLUSION="${{ steps.workflow-status.outputs.conclusion }}"
+          TEST_URL="${{ steps.health-check.outputs.test_url }}"
           
           # If workflow failed, try to re-run it
           if [ "$WORKFLOW_CONCLUSION" = "failure" ]; then
@@ -147,42 +291,35 @@ jobs:
               echo "✅ Re-triggered deployment workflow"
               FIXED=true
               echo "fix_applied=retrigger_workflow" >> $GITHUB_OUTPUT
+              echo "accessible=false" >> $GITHUB_OUTPUT
             else
               echo "⚠️ Could not re-trigger workflow automatically"
               echo "fix_applied=retrigger_failed" >> $GITHUB_OUTPUT
             fi
-          elif [ "$ERROR_TYPE" = "404_not_found" ]; then
-            echo "⚠️ 404 error detected - this might be a propagation delay"
-            echo "💡 Waiting 60 seconds and checking again..."
-            sleep 60
+          elif [ "$ERROR_TYPE" = "404_not_found" ] || [ "$ERROR_TYPE" = "connection_failed" ]; then
+            echo "⚠️ Deployment issue detected - waiting additional time for propagation..."
+            echo "💡 Waiting 90 seconds and checking again..."
+            sleep 90
             
-            # Re-check
-            if [ -f "public/CNAME" ]; then
-              CUSTOM_DOMAIN=$(cat public/CNAME | tr -d '\n\r' | xargs)
-              TEST_URL="https://${CUSTOM_DOMAIN}/"
-            else
-              REPO_NAME=$(echo "${{ github.repository }}" | cut -d'/' -f2)
-              USERNAME=$(echo "${{ github.repository }}" | cut -d'/' -f1)
-              TEST_URL="https://${USERNAME}.github.io/${REPO_NAME}/"
-            fi
+            # Final re-check
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 --retry 3 "$TEST_URL" 2>/dev/null || echo "000")
+            echo "📡 Final check HTTP Status Code: $HTTP_CODE"
             
-            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 --retry 2 "$TEST_URL" || echo "000")
             if [ "$HTTP_CODE" = "200" ]; then
-              echo "✅ Website is now accessible after waiting!"
+              echo "✅ Website is now accessible after extended wait!"
               FIXED=true
-              echo "fix_applied=wait_and_retry" >> $GITHUB_OUTPUT
+              echo "fix_applied=extended_wait_success" >> $GITHUB_OUTPUT
+              echo "accessible=true" >> $GITHUB_OUTPUT
             else
-              echo "⚠️ Still getting $HTTP_CODE - may need manual intervention"
-              echo "💡 This could be a DNS propagation issue or deployment still in progress"
-              echo "fix_applied=wait_failed" >> $GITHUB_OUTPUT
+              echo "⚠️ Still getting $HTTP_CODE after extended wait"
+              echo "💡 This could be a DNS propagation issue, deployment still in progress, or configuration problem"
+              echo "fix_applied=extended_wait_failed" >> $GITHUB_OUTPUT
+              echo "accessible=false" >> $GITHUB_OUTPUT
             fi
-          elif [ "$ERROR_TYPE" = "connection_failed" ]; then
-            echo "⚠️ Connection failed - could be DNS or network issue"
-            echo "💡 This might resolve itself - deployment may still be propagating"
-            echo "fix_applied=connection_issue_detected" >> $GITHUB_OUTPUT
           else
             echo "⚠️ Issue detected but no automatic fix available"
             echo "fix_applied=none" >> $GITHUB_OUTPUT
+            echo "accessible=false" >> $GITHUB_OUTPUT
           fi
           
           echo "fixed=$FIXED" >> $GITHUB_OUTPUT
@@ -190,6 +327,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create status report
+        if: steps.verify-deployment.outputs.skip_checks != 'true'
         run: |
           echo "📊 Creating deployment status report..."
           
@@ -238,7 +376,7 @@ jobs:
           cat deployment-status.md
 
       - name: Comment on PR or create issue (if failed)
-        if: steps.health-check.outputs.accessible == 'false' && steps.auto-fix.outputs.fixed != 'true'
+        if: steps.verify-deployment.outputs.skip_checks != 'true' && steps.health-check.outputs.accessible == 'false' && steps.auto-fix.outputs.fixed != 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -271,6 +409,69 @@ jobs:
                 labels: ['deployment', 'automated']
               });
             }
+
+      - name: Deployment Status Summary
+        if: always()
+        run: |
+          echo "## 🚀 Deployment Verification Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          IS_ACCESSIBLE="${{ steps.health-check.outputs.accessible }}"
+          TEST_URL="${{ steps.health-check.outputs.test_url }}"
+          WORKFLOW_STATUS="${{ steps.workflow-status.outputs.conclusion }}"
+          FIXED="${{ steps.auto-fix.outputs.fixed }}"
+          
+          if [ "$IS_ACCESSIBLE" = "true" ] || [ "$FIXED" = "true" ]; then
+            echo "### ✅ Deployment Successful!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "🎉 Your website is **live and accessible**!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**🌐 Website URL:** [$TEST_URL]($TEST_URL)" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            if [ "$FIXED" = "true" ]; then
+              echo "💡 *Note: Deployment required additional time to propagate, but is now working.*" >> $GITHUB_STEP_SUMMARY
+            fi
+          else
+            echo "### ❌ Deployment Verification Failed" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ The website is not accessible at this time." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**🌐 Tested URL:** $TEST_URL" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Possible reasons:**" >> $GITHUB_STEP_SUMMARY
+            echo "- Deployment is still propagating (can take 5-10 minutes)" >> $GITHUB_STEP_SUMMARY
+            echo "- DNS propagation delay (if using custom domain)" >> $GITHUB_STEP_SUMMARY
+            echo "- GitHub Pages configuration issue" >> $GITHUB_STEP_SUMMARY
+            echo "- Build or deployment error" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Next steps:**" >> $GITHUB_STEP_SUMMARY
+            echo "1. Check the 'Deploy to GitHub Pages' workflow status" >> $GITHUB_STEP_SUMMARY
+            echo "2. Verify GitHub Pages settings in repository Settings → Pages" >> $GITHUB_STEP_SUMMARY
+            echo "3. Wait 10-15 minutes and check again" >> $GITHUB_STEP_SUMMARY
+            echo "4. Review the detailed status report in the artifacts" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "---" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**📊 Quick Status:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Website Accessible: $([ "$IS_ACCESSIBLE" = "true" ] || [ "$FIXED" = "true" ] && echo "✅ Yes" || echo "❌ No")" >> $GITHUB_STEP_SUMMARY
+          echo "- Workflow Status: $([ "$WORKFLOW_STATUS" = "success" ] && echo "✅ Success" || echo "⚠️ $WORKFLOW_STATUS")" >> $GITHUB_STEP_SUMMARY
+          echo "- Auto-fix Applied: $([ "$FIXED" = "true" ] && echo "✅ Yes" || echo "❌ No")" >> $GITHUB_STEP_SUMMARY
+          
+          # Also print to console
+          echo ""
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          if [ "$IS_ACCESSIBLE" = "true" ] || [ "$FIXED" = "true" ]; then
+            echo "✅ DEPLOYMENT VERIFICATION: SUCCESS"
+            echo "🌐 Website URL: $TEST_URL"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          else
+            echo "❌ DEPLOYMENT VERIFICATION: FAILED"
+            echo "🌐 Tested URL: $TEST_URL"
+            echo "💡 Check the workflow logs and status report for details"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          fi
 
       - name: Upload status report
         uses: actions/upload-artifact@v4
