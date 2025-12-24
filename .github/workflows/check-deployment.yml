@@ -56,6 +56,7 @@ jobs:
         if: steps.verify-deployment.outputs.skip_checks != 'true'
         id: deployment-status
         run: |
+          set +e  # Don't exit on error - we'll handle errors gracefully
           echo "🔍 Checking deployment status..."
           
           # Initialize variables with safe defaults
@@ -67,8 +68,17 @@ jobs:
           API_RESPONSE=$(gh api repos/${{ github.repository }}/pages/deployments 2>&1)
           API_EXIT_CODE=$?
           
+          # Check if response contains error JSON
+          HAS_ERROR_MESSAGE=false
+          HAS_ERROR=false
+          if echo "$API_RESPONSE" | grep -qE '"(message|error)"' 2>/dev/null; then
+            if echo "$API_RESPONSE" | grep -qE '"(status|code)"' 2>/dev/null; then
+              HAS_ERROR_MESSAGE=true
+            fi
+          fi
+          
           # First check: Did the API call fail or return an error response?
-          if [ $API_EXIT_CODE -ne 0 ] || echo "$API_RESPONSE" | grep -qE '"(message|error)"' && echo "$API_RESPONSE" | grep -qE '"(status|code)"'; then
+          if [ $API_EXIT_CODE -ne 0 ] || [ "$HAS_ERROR_MESSAGE" = "true" ]; then
             # This is an error response
             ERROR_CODE=$(echo "$API_RESPONSE" | grep -oE '"status"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
             echo "⚠️ GitHub Pages deployments API returned error (this is normal if Pages uses GitHub Actions deployment)"
@@ -95,18 +105,18 @@ jobs:
           fi
           
           # Sanitize output values (remove newlines, ensure single line, only allow safe chars)
-          DEPLOYMENT_STATUS=$(echo "$DEPLOYMENT_STATUS" | tr -d '\n\r\t' | sed 's/[^a-zA-Z0-9_\-]//g' | head -c 100)
-          DEPLOYMENT_URL=$(echo "$DEPLOYMENT_URL" | tr -d '\n\r\t' | sed 's/[{}"]//g' | head -c 200)
+          DEPLOYMENT_STATUS=$(echo "$DEPLOYMENT_STATUS" | tr -d '\n\r\t' | sed 's/[^a-zA-Z0-9_\-]//g' | head -c 100 || echo "not_available")
+          DEPLOYMENT_URL=$(echo "$DEPLOYMENT_URL" | tr -d '\n\r\t' | sed 's/[{}"]//g' | head -c 200 || echo "")
           
           # Ensure status is never empty and doesn't contain JSON
           [ -z "$DEPLOYMENT_STATUS" ] && DEPLOYMENT_STATUS="not_available"
-          if echo "$DEPLOYMENT_STATUS" | grep -qE '[{}"]'; then
+          if echo "$DEPLOYMENT_STATUS" | grep -qE '[{}"]' 2>/dev/null; then
             DEPLOYMENT_STATUS="not_available"
           fi
           
           # Write to output (ensure no special characters that break GitHub Actions format)
           echo "status=$DEPLOYMENT_STATUS" >> $GITHUB_OUTPUT
-          if [ -n "$DEPLOYMENT_URL" ] && ! echo "$DEPLOYMENT_URL" | grep -qE '[{}"]'; then
+          if [ -n "$DEPLOYMENT_URL" ] && ! echo "$DEPLOYMENT_URL" | grep -qE '[{}"]' 2>/dev/null; then
             echo "url=$DEPLOYMENT_URL" >> $GITHUB_OUTPUT
           else
             echo "url=" >> $GITHUB_OUTPUT
@@ -114,11 +124,13 @@ jobs:
           
           # Display results (safe to echo these as they're sanitized)
           echo "📊 Deployment Status: $DEPLOYMENT_STATUS"
-          if [ -n "$DEPLOYMENT_URL" ] && ! echo "$DEPLOYMENT_URL" | grep -qE '[{}"]'; then
+          if [ -n "$DEPLOYMENT_URL" ] && ! echo "$DEPLOYMENT_URL" | grep -qE '[{}"]' 2>/dev/null; then
             echo "🌐 Deployment URL: $DEPLOYMENT_URL"
           else
             echo "🌐 Deployment URL: N/A"
           fi
+          
+          exit 0  # Always exit successfully
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -126,6 +138,7 @@ jobs:
         id: pages-settings
         if: steps.verify-deployment.outputs.skip_checks != 'true'
         run: |
+          set +e  # Don't exit on error - we'll handle errors gracefully
           echo "🔧 Checking GitHub Pages configuration..."
           
           # Initialize with safe default
@@ -136,8 +149,16 @@ jobs:
           API_RESPONSE=$(gh api repos/${{ github.repository }}/pages 2>&1)
           API_EXIT_CODE=$?
           
+          # Check if response contains error JSON
+          HAS_ERROR_MESSAGE=false
+          if echo "$API_RESPONSE" | grep -qE '"(message|error)"' 2>/dev/null; then
+            if echo "$API_RESPONSE" | grep -qE '"(status|code)"' 2>/dev/null; then
+              HAS_ERROR_MESSAGE=true
+            fi
+          fi
+          
           # First check: Did the API call fail or return an error response?
-          if [ $API_EXIT_CODE -ne 0 ] || echo "$API_RESPONSE" | grep -qE '"(message|error)"' && echo "$API_RESPONSE" | grep -qE '"(status|code)"'; then
+          if [ $API_EXIT_CODE -ne 0 ] || [ "$HAS_ERROR_MESSAGE" = "true" ]; then
             # This is an error response
             ERROR_CODE=$(echo "$API_RESPONSE" | grep -oE '"status"[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | head -1 || echo "")
             echo "⚠️ GitHub Pages API returned error (Pages may not be enabled)"
@@ -151,7 +172,7 @@ jobs:
             EXTRACTED_CONFIG=$(echo "$API_RESPONSE" | jq -r '.source.branch // .source.path // "not_configured"' 2>/dev/null || echo "not_configured")
             
             # Validate extracted value is not error JSON or contains JSON structure
-            if [ -n "$EXTRACTED_CONFIG" ] && ! echo "$EXTRACTED_CONFIG" | grep -qE '[{}"]' && [ "$EXTRACTED_CONFIG" != "null" ]; then
+            if [ -n "$EXTRACTED_CONFIG" ] && ! echo "$EXTRACTED_CONFIG" | grep -qE '[{}"]' 2>/dev/null && [ "$EXTRACTED_CONFIG" != "null" ]; then
               PAGES_ENABLED="$EXTRACTED_CONFIG"
             fi
           else
@@ -160,17 +181,19 @@ jobs:
           fi
           
           # Sanitize output value (remove newlines, ensure single line, only allow safe chars)
-          PAGES_ENABLED=$(echo "$PAGES_ENABLED" | tr -d '\n\r\t' | sed 's/[^a-zA-Z0-9_\-]//g' | head -c 100)
+          PAGES_ENABLED=$(echo "$PAGES_ENABLED" | tr -d '\n\r\t' | sed 's/[^a-zA-Z0-9_\-]//g' | head -c 100 || echo "not_configured")
           [ -z "$PAGES_ENABLED" ] && PAGES_ENABLED="not_configured"
           
           # Ensure value doesn't contain JSON
-          if echo "$PAGES_ENABLED" | grep -qE '[{}"]'; then
+          if echo "$PAGES_ENABLED" | grep -qE '[{}"]' 2>/dev/null; then
             PAGES_ENABLED="not_configured"
           fi
           
           # Write to output (ensure no special characters)
           echo "pages_config=$PAGES_ENABLED" >> $GITHUB_OUTPUT
           echo "📋 Pages Configuration: $PAGES_ENABLED"
+          
+          exit 0  # Always exit successfully
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
