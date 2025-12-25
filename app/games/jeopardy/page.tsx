@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star, Sparkles, Loader2, Globe } from "lucide-react";
 import Link from "next/link";
@@ -474,7 +474,7 @@ interface CustomTopic {
   isAIGenerated: boolean;
 }
 
-export default function JeopardyPage() {
+function JeopardyPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -1871,4 +1871,16 @@ export default function JeopardyPage() {
   }
 
   return null;
+}
+
+export default function JeopardyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-cyan-400 text-xl">Loading game...</div>
+      </div>
+    }>
+      <JeopardyPageContent />
+    </Suspense>
+  );
 }

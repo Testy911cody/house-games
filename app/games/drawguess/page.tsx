@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Check, X, Users, Play, RotateCcw, Palette, Eraser, Trash2, Zap, Clock, Trophy, Globe } from "lucide-react";
@@ -57,7 +57,7 @@ interface Player {
   hasDrawn: boolean;
 }
 
-export default function DrawGuessPage() {
+function DrawGuessPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -1445,5 +1445,17 @@ export default function DrawGuessPage() {
   }
 
   return null;
+}
+
+export default function DrawGuessPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-cyan-400 text-xl">Loading game...</div>
+      </div>
+    }>
+      <DrawGuessPageContent />
+    </Suspense>
+  );
 }
 

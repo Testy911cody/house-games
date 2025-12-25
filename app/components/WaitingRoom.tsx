@@ -717,7 +717,7 @@ export default function WaitingRoom({
             {isHost && canStart && (
               <button
                 onClick={handleStartGame}
-                disabled={room && !allReady}
+                disabled={!!(room && !allReady)}
                 className={`flex-1 neon-btn neon-btn-green py-4 text-lg font-bold ${
                   room && !allReady ? "opacity-50 cursor-not-allowed" : ""
                 }`}

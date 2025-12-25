@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, Home, DollarSign, Users, Trophy, Zap, Globe, Lock, Copy, Check } from "lucide-react";
@@ -178,7 +178,7 @@ interface GameRoom {
   updatedAt: string;
 }
 
-export default function MonopolyPage() {
+function MonopolyPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -1513,6 +1513,18 @@ function BoardSpace({
         </div>
       )}
     </div>
+  );
+}
+
+export default function MonopolyPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-cyan-400 text-xl">Loading game...</div>
+      </div>
+    }>
+      <MonopolyPageContent />
+    </Suspense>
   );
 }
 

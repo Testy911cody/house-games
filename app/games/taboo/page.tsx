@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Check, X, Users, Plus, Trash2, Play, Crown, RotateCcw, Zap, Globe } from "lucide-react";
 import Link from "next/link";
@@ -147,7 +147,7 @@ interface GameRoom {
   updatedAt: string;
 }
 
-export default function TabooPage() {
+function TabooPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -535,7 +535,7 @@ export default function TabooPage() {
         const guesses = JSON.parse(localStorage.getItem("taboo_guesses") || "[]");
         if (guesses.length > 0 && currentWord) {
           const correctGuess = guesses.find((g: string) => 
-            g.toLowerCase().trim() === currentWord.toLowerCase()
+            g.toLowerCase().trim() === currentWord.word.toLowerCase()
           );
           if (correctGuess) {
             handleCorrect();
@@ -1455,4 +1455,16 @@ export default function TabooPage() {
   }
 
   return null;
+}
+
+export default function TabooPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-cyan-400 text-xl">Loading game...</div>
+      </div>
+    }>
+      <TabooPageContent />
+    </Suspense>
+  );
 }

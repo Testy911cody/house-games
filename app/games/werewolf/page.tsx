@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Users, Moon, Sun, AlertTriangle, Shield, Skull, Vote, Eye, EyeOff, Globe } from "lucide-react";
@@ -57,7 +57,7 @@ const ROLE_DESCRIPTIONS: Record<Role, string> = {
   guardian: "You are the GUARDIAN! Each night, you can protect one player from werewolf attacks.",
 };
 
-export default function WerewolfPage() {
+function WerewolfPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -856,6 +856,18 @@ export default function WerewolfPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function WerewolfPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center bg-black">
+        <div className="text-cyan-400 text-xl">Loading game...</div>
+      </div>
+    }>
+      <WerewolfPageContent />
+    </Suspense>
   );
 }
 
