@@ -123,6 +123,41 @@ function WerewolfPageContent() {
     setGameState("waiting");
   };
 
+  // Poll room status to detect when game starts (even when in waiting phase)
+  useEffect(() => {
+    if (!gameRoom || !currentUser || gameState !== "waiting" || !isOnlineGame) return;
+    
+    let previousStatus = gameRoom.status;
+    
+    const pollRoomStatus = async () => {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        const result = await gameRoomsAPI.getRoomByCode(gameRoom.code);
+        
+        if (result.success && result.room) {
+          const newRoom = result.room;
+          
+          // Check if game status changed from waiting to playing
+          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
+            // Game was started - trigger the start handler
+            handleStartOnlineGame();
+          }
+          
+          // Update room state (players, etc.)
+          previousStatus = newRoom.status;
+          setGameRoom(newRoom);
+        }
+      } catch (error) {
+        console.error("Error polling room status:", error);
+      }
+    };
+    
+    const intervalId = setInterval(pollRoomStatus, 1000);
+    pollRoomStatus(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [gameRoom?.code, currentUser, gameState, isOnlineGame]);
+
   // Leave room properly
   const handleLeaveRoom = async () => {
     if (gameRoom && currentUser) {

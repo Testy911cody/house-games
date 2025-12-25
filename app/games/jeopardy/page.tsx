@@ -497,6 +497,63 @@ function JeopardyPageContent() {
     }
   }, [searchParams]);
 
+  // Poll room status to detect when game starts (even when in waiting phase)
+  useEffect(() => {
+    if (!gameRoom || !currentUser || phase !== "waiting") return;
+    
+    let previousStatus = gameRoom.status;
+    
+    const pollRoomStatus = async () => {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        const result = await gameRoomsAPI.getRoomByCode(gameRoom.code);
+        
+        if (result.success && result.room) {
+          const newRoom = result.room;
+          
+          // Check if game status changed from waiting to playing
+          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
+            // Game was started - trigger the start game handler
+            const currentTeamData = localStorage.getItem("currentTeam");
+            if (currentTeamData) {
+              try {
+                const teamData = JSON.parse(currentTeamData);
+                setTeams(prev => {
+                  const currentTeamExists = prev.some(t => t.id === `team_${teamData.id}`);
+                  if (!currentTeamExists) {
+                    const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
+                    const gameTeam: Team = {
+                      id: `team_${teamData.id}`,
+                      name: teamData.name,
+                      color: availableColor,
+                      score: 0
+                    };
+                    return [gameTeam, ...prev];
+                  }
+                  return prev;
+                });
+              } catch (e) {
+                console.error("Error adding current team:", e);
+              }
+            }
+            setPhase("setup");
+          }
+          
+          // Update room state (players, etc.)
+          previousStatus = newRoom.status;
+          setGameRoom(newRoom);
+        }
+      } catch (error) {
+        console.error("Error polling room status:", error);
+      }
+    };
+    
+    const intervalId = setInterval(pollRoomStatus, 1000);
+    pollRoomStatus(); // Initial poll
+    
+    return () => clearInterval(intervalId);
+  }, [gameRoom?.code, currentUser, phase]);
+
   // Join room by code from URL
   const joinRoomByCode = async (code: string) => {
     const user = localStorage.getItem("currentUser");
