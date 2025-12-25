@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useState, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, ChevronRight, Star, Sparkles, Loader2, Globe } from "lucide-react";
 import Link from "next/link";
@@ -570,6 +570,8 @@ function JeopardyPageContent() {
       if (result.success && result.room) {
         setGameRoom(result.room);
         setShowLobby(false);
+        // Update gameId to use room code for multiplayer sync
+        setGameId(`jeopardy_${result.room.code}`);
       }
     } catch (error) {
       console.error("Error joining room:", error);
@@ -625,6 +627,19 @@ function JeopardyPageContent() {
   const [isGeneratingTopic, setIsGeneratingTopic] = useState(false);
   const [generationError, setGenerationError] = useState<string | null>(null);
 
+  // Device ID for tracking which device made updates
+  const getDeviceId = () => {
+    if (typeof window === 'undefined') return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let deviceId = localStorage.getItem('jeopardy_deviceId');
+    if (!deviceId) {
+      deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('jeopardy_deviceId', deviceId);
+    }
+    return deviceId;
+  };
+  const deviceIdRef = useRef<string>(getDeviceId());
+  const lastSyncedStateRef = useRef<string>("");
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {
@@ -633,10 +648,14 @@ function JeopardyPageContent() {
     }
     setCurrentUser(JSON.parse(user));
     
-    // Create game ID
+    // Create game ID (use room code if in multiplayer, otherwise use team ID)
     const currentTeam = localStorage.getItem("currentTeam");
     const { gameStateAPI } = require('@/lib/api-utils');
-    const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'jeopardy');
+    // If we have a gameRoom, use room code for gameId
+    // Otherwise, use team-based gameId
+    const id = gameRoom 
+      ? `jeopardy_${gameRoom.code}`
+      : gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'jeopardy');
     setGameId(id);
     
     // Load custom categories from localStorage
@@ -784,6 +803,110 @@ function JeopardyPageContent() {
     setPhase("playing");
     setUsedQuestions(new Set());
   };
+
+  // Save game state to Supabase whenever it changes (for multiplayer sync)
+  useEffect(() => {
+    if (!currentUser || !gameId || !gameRoom) return;
+    if (phase === "waiting" || phase === "setup") return;
+    
+    const saveState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const stateToSave = {
+          phase,
+          teams,
+          currentTeamIndex,
+          selectedTopic,
+          selectedCategories,
+          usedQuestions: Array.from(usedQuestions),
+          selectedQuestion,
+          showAnswer,
+          buzzedTeam,
+        };
+        
+        const stateString = JSON.stringify(stateToSave);
+        if (stateString === lastSyncedStateRef.current) return; // Skip if unchanged
+        
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'jeopardy',
+          state: stateToSave,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+          deviceId: deviceIdRef.current,
+        });
+        
+        lastSyncedStateRef.current = stateString;
+      } catch (error) {
+        console.error('Error saving game state:', error);
+      }
+    };
+    
+    // Debounce saves to avoid too many API calls
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [phase, teams, currentTeamIndex, selectedTopic, selectedCategories, usedQuestions, selectedQuestion, showAnswer, buzzedTeam, currentUser, gameId, gameRoom]);
+
+  // Sync game state from other players (polling)
+  useEffect(() => {
+    if (!currentUser || !gameId || !gameRoom) return;
+    if (phase === "waiting" || phase === "setup") return;
+    
+    const syncGameState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state) {
+          const remoteState = result.state.state;
+          const remoteStateString = JSON.stringify(remoteState);
+          
+          // Only update if state is different and not from this device
+          const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+          
+          if (remoteStateString !== lastSyncedStateRef.current && !isFromThisDevice) {
+            // Update state from remote
+            if (remoteState.phase && remoteState.phase !== phase) {
+              setPhase(remoteState.phase);
+            }
+            if (remoteState.teams && Array.isArray(remoteState.teams)) {
+              setTeams(remoteState.teams);
+            }
+            if (remoteState.currentTeamIndex !== undefined) {
+              setCurrentTeamIndex(remoteState.currentTeamIndex);
+            }
+            if (remoteState.selectedTopic !== undefined) {
+              setSelectedTopic(remoteState.selectedTopic);
+            }
+            if (remoteState.selectedCategories && Array.isArray(remoteState.selectedCategories)) {
+              setSelectedCategories(remoteState.selectedCategories);
+            }
+            if (remoteState.usedQuestions && Array.isArray(remoteState.usedQuestions)) {
+              setUsedQuestions(new Set(remoteState.usedQuestions));
+            }
+            if (remoteState.selectedQuestion !== undefined) {
+              setSelectedQuestion(remoteState.selectedQuestion);
+            }
+            if (remoteState.showAnswer !== undefined) {
+              setShowAnswer(remoteState.showAnswer);
+            }
+            if (remoteState.buzzedTeam !== undefined) {
+              setBuzzedTeam(remoteState.buzzedTeam);
+            }
+            
+            lastSyncedStateRef.current = remoteStateString;
+          }
+        }
+      } catch (error) {
+        console.error('Error syncing game state:', error);
+      }
+    };
+    
+    const intervalId = setInterval(syncGameState, 1000);
+    syncGameState(); // Initial sync
+    
+    return () => clearInterval(intervalId);
+  }, [currentUser, gameId, gameRoom, phase, teams, currentTeamIndex, selectedTopic, selectedCategories, usedQuestions, selectedQuestion, showAnswer, buzzedTeam]);
 
   const selectQuestion = (category: string, questionIndex: number) => {
     if (!selectedTopic) return;
