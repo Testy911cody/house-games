@@ -256,6 +256,7 @@ function TabooPageContent() {
       if (result.success && result.room) {
         setGameRoom(result.room);
         setShowLobby(false);
+        setGameId(`taboo_${result.room.code}`);
       }
     } catch (error) {
       console.error("Error joining room:", error);
@@ -266,7 +267,15 @@ function TabooPageContent() {
   const handleJoinRoom = (room: GameRoom) => {
     setGameRoom(room);
     setShowLobby(false);
+    setGameId(`taboo_${room.code}`);
   };
+  
+  // Update gameId when gameRoom changes
+  useEffect(() => {
+    if (gameRoom) {
+      setGameId(`taboo_${gameRoom.code}`);
+    }
+  }, [gameRoom?.code]);
 
   // Handle leaving room
   const handleLeaveRoom = async () => {
@@ -351,7 +360,7 @@ function TabooPageContent() {
 
   // Save game state to Supabase whenever it changes
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup" || !isPlaying) return;
+    if (!currentUser || !gameId) return;
     
     const saveState = async () => {
       try {
@@ -411,7 +420,7 @@ function TabooPageContent() {
 
   // Use Supabase realtime subscription for instant updates, fallback to polling
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup" || !isPlaying) return;
+    if (!currentUser || !gameId) return;
     
     if (isSupabaseConfigured() && supabase) {
       // Set up realtime subscription for instant updates

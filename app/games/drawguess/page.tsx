@@ -147,6 +147,7 @@ function DrawGuessPageContent() {
       if (result.success && result.room) {
         setGameRoom(result.room);
         setShowLobby(false);
+        setGameId(`drawguess_${result.room.code}`);
       }
     } catch (error) {
       console.error("Error joining room:", error);
@@ -157,7 +158,22 @@ function DrawGuessPageContent() {
   const handleJoinRoom = (room: GameRoom) => {
     setGameRoom(room);
     setShowLobby(false);
+    setGameId(`drawguess_${room.code}`);
   };
+  
+  // Update gameId when gameRoom changes
+  useEffect(() => {
+    if (gameRoom) {
+      setGameId(`drawguess_${gameRoom.code}`);
+    }
+  }, [gameRoom?.code]);
+  
+  // Update gameId when gameRoom changes
+  useEffect(() => {
+    if (gameRoom) {
+      setGameId(`drawguess_${gameRoom.code}`);
+    }
+  }, [gameRoom?.code]);
 
   // Handle leaving room
   const handleLeaveRoom = async () => {
@@ -238,7 +254,7 @@ function DrawGuessPageContent() {
 
   // Save game state to Supabase whenever it changes
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup" || phase === "waiting" || phase === "waitingRoom") return;
+    if (!currentUser || !gameId) return;
     
     const saveState = async () => {
       try {
@@ -298,7 +314,7 @@ function DrawGuessPageContent() {
 
   // Use Supabase realtime subscription for instant updates, fallback to polling
   useEffect(() => {
-    if (!currentUser || !gameId || phase === "setup" || phase === "waiting" || phase === "waitingRoom") return;
+    if (!currentUser || !gameId) return;
     
     if (isSupabaseConfigured() && supabase) {
       // Set up realtime subscription for instant updates

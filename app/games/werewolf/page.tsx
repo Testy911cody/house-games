@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Users, Moon, Sun, AlertTriangle, Shield, Skull, Vote, Eye, EyeOff, Globe } from "lucide-react";
@@ -84,6 +84,20 @@ function WerewolfPageContent() {
   const [winner, setWinner] = useState<{ team: "werewolves" | "villagers"; players: Player[] } | null>(null);
   const [revealedRoles, setRevealedRoles] = useState<Set<number>>(new Set());
   const [showRole, setShowRole] = useState<{ playerId: number; role: Role } | null>(null);
+  
+  // Device ID for tracking which device made updates
+  const getDeviceId = () => {
+    if (typeof window === 'undefined') return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    let deviceId = localStorage.getItem('werewolf_deviceId');
+    if (!deviceId) {
+      deviceId = `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      localStorage.setItem('werewolf_deviceId', deviceId);
+    }
+    return deviceId;
+  };
+  const deviceIdRef = useRef<string>(getDeviceId());
+  const lastSyncedStateRef = useRef<string>("");
+  const [gameId, setGameId] = useState<string | null>(null);
 
   // Check for room code in URL
   useEffect(() => {
@@ -121,7 +135,15 @@ function WerewolfPageContent() {
     setGameRoom(room);
     setIsOnlineGame(true);
     setGameState("waiting");
+    setGameId(`werewolf_${room.code}`);
   };
+  
+  // Update gameId when gameRoom changes
+  useEffect(() => {
+    if (gameRoom) {
+      setGameId(`werewolf_${gameRoom.code}`);
+    }
+  }, [gameRoom?.code]);
 
   // Poll room status to detect when game starts (even when in waiting phase)
   useEffect(() => {
@@ -194,6 +216,163 @@ function WerewolfPageContent() {
     
     setGameState("setup");
   };
+  
+  // Save game state to Supabase whenever it changes (for multiplayer sync)
+  useEffect(() => {
+    if (!currentUser || !gameId || !gameRoom || !isOnlineGame) return;
+    if (gameState === "waiting" || gameState === "lobby") return;
+    
+    const saveState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const stateToSave = {
+          gameState,
+          players,
+          playerCount,
+          playerNames,
+          currentPhase,
+          round,
+          selectedTarget,
+          seerCheck,
+          guardianProtect,
+          nightActions,
+          dayMessage,
+          votingPhase,
+          winner,
+          revealedRoles: Array.from(revealedRoles),
+          showRole,
+        };
+        
+        const stateString = JSON.stringify(stateToSave);
+        if (stateString === lastSyncedStateRef.current) return; // Skip if unchanged
+        
+        await gameStateAPI.saveGameState({
+          id: gameId,
+          gameType: 'werewolf',
+          state: stateToSave,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+          deviceId: deviceIdRef.current,
+        });
+        
+        lastSyncedStateRef.current = stateString;
+      } catch (error) {
+        console.error('Error saving game state:', error);
+      }
+    };
+    
+    // Debounce saves to avoid too many API calls
+    const timeoutId = setTimeout(saveState, 500);
+    return () => clearTimeout(timeoutId);
+  }, [gameState, players, playerCount, playerNames, currentPhase, round, selectedTarget, seerCheck, guardianProtect, nightActions, dayMessage, votingPhase, winner, revealedRoles, showRole, currentUser, gameId, gameRoom, isOnlineGame]);
+
+  // Sync game state from other players (polling)
+  useEffect(() => {
+    if (!currentUser || !gameId || !gameRoom || !isOnlineGame) return;
+    if (gameState === "waiting" || gameState === "lobby") return;
+    
+    const syncGameState = async () => {
+      try {
+        const { gameStateAPI } = await import('@/lib/api-utils');
+        const result = await gameStateAPI.getGameState(gameId);
+        
+        if (result.success && result.state) {
+          const remoteState = result.state.state;
+          const remoteStateString = JSON.stringify(remoteState);
+          
+          // Only update if state is different and not from this device
+          const isFromThisDevice = result.state.deviceId === deviceIdRef.current;
+          
+          // Get current local state string for comparison
+          const currentLocalState = JSON.stringify({
+            gameState,
+            players,
+            playerCount,
+            playerNames,
+            currentPhase,
+            round,
+            selectedTarget,
+            seerCheck,
+            guardianProtect,
+            nightActions,
+            dayMessage,
+            votingPhase,
+            winner,
+            revealedRoles: Array.from(revealedRoles),
+            showRole,
+          });
+          
+          // Only sync if remote state is different from local AND not from this device
+          if (remoteStateString !== currentLocalState && !isFromThisDevice) {
+            console.log('🔄 Syncing Werewolf game state from remote player');
+            
+            // Update state from remote - only update if different
+            if (remoteState.gameState && remoteState.gameState !== gameState) {
+              setGameState(remoteState.gameState);
+            }
+            if (remoteState.players && Array.isArray(remoteState.players) && JSON.stringify(remoteState.players) !== JSON.stringify(players)) {
+              setPlayers(remoteState.players);
+            }
+            if (remoteState.playerCount !== undefined && remoteState.playerCount !== playerCount) {
+              setPlayerCount(remoteState.playerCount);
+            }
+            if (remoteState.playerNames && Array.isArray(remoteState.playerNames) && JSON.stringify(remoteState.playerNames) !== JSON.stringify(playerNames)) {
+              setPlayerNames(remoteState.playerNames);
+            }
+            if (remoteState.currentPhase && remoteState.currentPhase !== currentPhase) {
+              setCurrentPhase(remoteState.currentPhase);
+            }
+            if (remoteState.round !== undefined && remoteState.round !== round) {
+              setRound(remoteState.round);
+            }
+            if (remoteState.selectedTarget !== undefined && remoteState.selectedTarget !== selectedTarget) {
+              setSelectedTarget(remoteState.selectedTarget);
+            }
+            if (remoteState.seerCheck !== undefined && remoteState.seerCheck !== seerCheck) {
+              setSeerCheck(remoteState.seerCheck);
+            }
+            if (remoteState.guardianProtect !== undefined && remoteState.guardianProtect !== guardianProtect) {
+              setGuardianProtect(remoteState.guardianProtect);
+            }
+            if (remoteState.nightActions && JSON.stringify(remoteState.nightActions) !== JSON.stringify(nightActions)) {
+              setNightActions(remoteState.nightActions);
+            }
+            if (remoteState.dayMessage !== undefined && remoteState.dayMessage !== dayMessage) {
+              setDayMessage(remoteState.dayMessage);
+            }
+            if (remoteState.votingPhase !== undefined && remoteState.votingPhase !== votingPhase) {
+              setVotingPhase(remoteState.votingPhase);
+            }
+            if (remoteState.winner && JSON.stringify(remoteState.winner) !== JSON.stringify(winner)) {
+              setWinner(remoteState.winner);
+            }
+            if (remoteState.revealedRoles && Array.isArray(remoteState.revealedRoles)) {
+              const remoteSet = new Set<number>(remoteState.revealedRoles);
+              const currentSet = revealedRoles;
+              const setsEqual = remoteSet.size === currentSet.size && 
+                Array.from(remoteSet).every((r) => currentSet.has(r));
+              if (!setsEqual) {
+                setRevealedRoles(remoteSet);
+              }
+            }
+            if (remoteState.showRole && JSON.stringify(remoteState.showRole) !== JSON.stringify(showRole)) {
+              setShowRole(remoteState.showRole);
+            }
+            
+            // Update lastSyncedStateRef to prevent re-syncing the same state
+            lastSyncedStateRef.current = remoteStateString;
+          }
+        }
+      } catch (error) {
+        console.error('Error syncing game state:', error);
+      }
+    };
+    
+    const intervalId = setInterval(syncGameState, 1000);
+    syncGameState(); // Initial sync
+    
+    return () => clearInterval(intervalId);
+  }, [currentUser, gameId, gameRoom, isOnlineGame, gameState, players, playerCount, playerNames, currentPhase, round, selectedTarget, seerCheck, guardianProtect, nightActions, dayMessage, votingPhase, winner, revealedRoles, showRole]);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");

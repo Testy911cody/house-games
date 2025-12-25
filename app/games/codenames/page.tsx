@@ -838,8 +838,7 @@ function CodenamesPageContent() {
       return () => clearInterval(intervalId);
     }
     
-    if (phase === "setup") return;
-    
+    // Save state for both setup and playing phases
     const saveState = async () => {
       try {
         const { gameStateAPI } = await import('@/lib/api-utils');
@@ -848,6 +847,7 @@ function CodenamesPageContent() {
           difficulty,
           redTeamName,
           blueTeamName,
+          blueTeamId,
           cards,
           currentTeam,
           clue,
@@ -892,7 +892,7 @@ function CodenamesPageContent() {
     // Debounce saves to avoid too many API calls
     const timeoutId = setTimeout(saveState, 500);
     return () => clearTimeout(timeoutId);
-  }, [phase, cards, currentTeam, clue, guessesRemaining, gameOverReason, players, gameLog, currentUser, gameId, lastSyncedState, difficulty, redTeamName, blueTeamName]);
+  }, [phase, cards, currentTeam, clue, guessesRemaining, gameOverReason, players, gameLog, currentUser, gameId, lastSyncedState, difficulty, redTeamName, blueTeamName, blueTeamId]);
 
   // Auto-switch turns when guesses run out (but not if turn was already switched by wrong card)
   const prevGuessesRemainingRef = useRef<number>(0);
@@ -1048,8 +1048,7 @@ function CodenamesPageContent() {
       return () => clearInterval(intervalId);
     }
     
-    if (phase === "setup") return;
-    
+    // Sync game state for setup and playing phases
     // Use Supabase realtime subscription for instant updates, fallback to polling
     if (isSupabaseConfigured() && supabase) {
       // Set up realtime subscription for instant updates
@@ -1130,23 +1129,52 @@ function CodenamesPageContent() {
             if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
               const userTeam = getUserTeam();
               
-              // Merge remote state
-              if (remoteState.phase) setPhase(remoteState.phase);
-              if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
+              // Merge remote state - sync all phases including setup
+              if (remoteState.phase && remoteState.phase !== phase) {
+                setPhase(remoteState.phase);
+              }
+              if (remoteState.difficulty && remoteState.difficulty !== difficulty) {
+                setDifficulty(remoteState.difficulty);
+              }
               
-              // Only update team names from opposing team
-              if (remoteState.redTeamName && userTeam === "blue") {
-                setRedTeamName(remoteState.redTeamName);
+              // Sync team names - in multiplayer mode, sync both teams
+              if (gameRoom) {
+                if (remoteState.redTeamName && remoteState.redTeamName !== redTeamName) {
+                  setRedTeamName(remoteState.redTeamName);
+                }
+                if (remoteState.blueTeamName && remoteState.blueTeamName !== blueTeamName) {
+                  setBlueTeamName(remoteState.blueTeamName);
+                }
+                if (remoteState.blueTeamId && remoteState.blueTeamId !== blueTeamId) {
+                  setBlueTeamId(remoteState.blueTeamId);
+                }
+              } else {
+                if (remoteState.redTeamName && userTeam === "blue" && remoteState.redTeamName !== redTeamName) {
+                  setRedTeamName(remoteState.redTeamName);
+                }
+                if (remoteState.blueTeamName && userTeam === "red" && remoteState.blueTeamName !== blueTeamName) {
+                  setBlueTeamName(remoteState.blueTeamName);
+                }
               }
-              if (remoteState.blueTeamName && userTeam === "red") {
-                setBlueTeamName(remoteState.blueTeamName);
+              
+              if (remoteState.cards && JSON.stringify(remoteState.cards) !== JSON.stringify(cards)) {
+                setCards(remoteState.cards);
               }
-              if (remoteState.cards) setCards(remoteState.cards);
-              if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
-              if (remoteState.clue) setClue(remoteState.clue);
-              if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
-              if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
-              if (remoteState.players) setPlayers(remoteState.players);
+              if (remoteState.currentTeam && remoteState.currentTeam !== currentTeam) {
+                setCurrentTeam(remoteState.currentTeam);
+              }
+              if (remoteState.clue && remoteState.clue !== clue) {
+                setClue(remoteState.clue);
+              }
+              if (remoteState.guessesRemaining !== undefined && remoteState.guessesRemaining !== guessesRemaining) {
+                setGuessesRemaining(remoteState.guessesRemaining);
+              }
+              if (remoteState.gameOverReason && remoteState.gameOverReason !== gameOverReason) {
+                setGameOverReason(remoteState.gameOverReason);
+              }
+              if (remoteState.players && JSON.stringify(remoteState.players) !== JSON.stringify(players)) {
+                setPlayers(remoteState.players);
+              }
               if (remoteState.gameLog) {
                 setGameLog(remoteState.gameLog.map((entry: any) => ({
                   ...entry,
