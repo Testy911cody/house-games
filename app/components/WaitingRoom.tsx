@@ -155,7 +155,7 @@ export default function WaitingRoom({
             onStartGame();
           }
           
-          // Update state
+          // Update state - always update to ensure allReady calculation is correct
           previousPlayers = newRoom.currentPlayers;
           previousStatus = newRoom.status;
           setRoom(newRoom);
@@ -169,7 +169,7 @@ export default function WaitingRoom({
     pollRoom(); // Initial poll
     
     return () => clearInterval(intervalId);
-  }, [effectiveRoomCode, currentUser, onPlayerJoined, onStartGame]);
+  }, [effectiveRoomCode, currentUser, onPlayerJoined, onStartGame, room, isReady]);
 
   // Load available teams for this game (legacy mode)
   const loadAvailableTeams = async () => {
@@ -449,7 +449,30 @@ export default function WaitingRoom({
   const canStart = playerCount >= minPlayers;
   const isFull = playerCount >= maxPlayers;
   const isHost = room ? currentUser?.id === room.hostId : true;
-  const allReady = room?.currentPlayers.every(p => p.isReady || p.isHost) ?? true;
+  // Calculate allReady: all non-host players must be ready (host can start without being ready themselves)
+  // We need at least minPlayers total
+  const nonHostPlayers = room ? room.currentPlayers.filter(p => !p.isHost) : [];
+  // If there are non-host players, they all must be ready. If no non-host players, we still need minPlayers.
+  const allNonHostReady = nonHostPlayers.length === 0 
+    ? (room ? room.currentPlayers.length >= minPlayers : true)
+    : nonHostPlayers.every(p => p.isReady === true);
+  const allReady = room 
+    ? (room.currentPlayers.length >= minPlayers && allNonHostReady)
+    : true;
+  
+  // Debug logging (only log when room state changes)
+  useEffect(() => {
+    if (room && isHost) {
+      console.log('🎮 Ready status check:', {
+        playerCount: room.currentPlayers.length,
+        minPlayers,
+        nonHostPlayers: nonHostPlayers.length,
+        allNonHostReady,
+        allReady,
+        players: room.currentPlayers.map(p => ({ id: p.id, name: p.name, isReady: p.isReady, isHost: p.isHost }))
+      });
+    }
+  }, [room?.currentPlayers, allReady, isHost]);
 
   return (
     <div className="min-h-screen p-4 md:p-8">
