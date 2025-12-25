@@ -653,10 +653,12 @@ function JeopardyPageContent() {
     const { gameStateAPI } = require('@/lib/api-utils');
     // If we have a gameRoom, use room code for gameId
     // Otherwise, use team-based gameId
-    const id = gameRoom 
-      ? `jeopardy_${gameRoom.code}`
-      : gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'jeopardy');
-    setGameId(id);
+    if (gameRoom) {
+      setGameId(`jeopardy_${gameRoom.code}`);
+    } else {
+      const id = gameStateAPI.createGameId(currentTeam ? JSON.parse(currentTeam).id : null, 'jeopardy');
+      setGameId(id);
+    }
     
     // Load custom categories from localStorage
     const savedCustomCategories = localStorage.getItem("jeopardy_custom_categories");
@@ -804,6 +806,13 @@ function JeopardyPageContent() {
     setUsedQuestions(new Set());
   };
 
+  // Update gameId when gameRoom changes
+  useEffect(() => {
+    if (gameRoom) {
+      setGameId(`jeopardy_${gameRoom.code}`);
+    }
+  }, [gameRoom?.code]);
+
   // Save game state to Supabase whenever it changes (for multiplayer sync)
   useEffect(() => {
     if (!currentUser || !gameId || !gameRoom) return;
@@ -862,38 +871,74 @@ function JeopardyPageContent() {
           const remoteStateString = JSON.stringify(remoteState);
           
           // Only update if state is different and not from this device
-          const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
+          const isFromThisDevice = result.state.deviceId === deviceIdRef.current;
           
-          if (remoteStateString !== lastSyncedStateRef.current && !isFromThisDevice) {
-            // Update state from remote
+          // Get current local state string for comparison
+          const currentLocalState = JSON.stringify({
+            phase,
+            teams,
+            currentTeamIndex,
+            selectedTopic,
+            selectedCategories,
+            usedQuestions: Array.from(usedQuestions),
+            selectedQuestion,
+            showAnswer,
+            buzzedTeam,
+          });
+          
+          // Only sync if remote state is different from local AND not from this device
+          if (remoteStateString !== currentLocalState && !isFromThisDevice) {
+            console.log('🔄 Syncing game state from remote player');
+            
+            // Update state from remote - only update if different
             if (remoteState.phase && remoteState.phase !== phase) {
               setPhase(remoteState.phase);
             }
             if (remoteState.teams && Array.isArray(remoteState.teams)) {
-              setTeams(remoteState.teams);
+              // Deep compare teams to avoid unnecessary updates
+              const teamsChanged = JSON.stringify(remoteState.teams) !== JSON.stringify(teams);
+              if (teamsChanged) {
+                setTeams(remoteState.teams);
+              }
             }
-            if (remoteState.currentTeamIndex !== undefined) {
+            if (remoteState.currentTeamIndex !== undefined && remoteState.currentTeamIndex !== currentTeamIndex) {
               setCurrentTeamIndex(remoteState.currentTeamIndex);
             }
-            if (remoteState.selectedTopic !== undefined) {
+            if (remoteState.selectedTopic !== undefined && remoteState.selectedTopic !== selectedTopic) {
               setSelectedTopic(remoteState.selectedTopic);
             }
             if (remoteState.selectedCategories && Array.isArray(remoteState.selectedCategories)) {
-              setSelectedCategories(remoteState.selectedCategories);
+              const catsChanged = JSON.stringify(remoteState.selectedCategories) !== JSON.stringify(selectedCategories);
+              if (catsChanged) {
+                setSelectedCategories(remoteState.selectedCategories);
+              }
             }
             if (remoteState.usedQuestions && Array.isArray(remoteState.usedQuestions)) {
-              setUsedQuestions(new Set(remoteState.usedQuestions));
+              const usedSet = new Set<string>(remoteState.usedQuestions);
+              const currentSet = usedQuestions;
+              const setsEqual = usedSet.size === currentSet.size && 
+                Array.from(usedSet).every((q: string) => currentSet.has(q));
+              if (!setsEqual) {
+                setUsedQuestions(usedSet);
+              }
             }
             if (remoteState.selectedQuestion !== undefined) {
-              setSelectedQuestion(remoteState.selectedQuestion);
+              const questionChanged = JSON.stringify(remoteState.selectedQuestion) !== JSON.stringify(selectedQuestion);
+              if (questionChanged) {
+                setSelectedQuestion(remoteState.selectedQuestion);
+              }
             }
-            if (remoteState.showAnswer !== undefined) {
+            if (remoteState.showAnswer !== undefined && remoteState.showAnswer !== showAnswer) {
               setShowAnswer(remoteState.showAnswer);
             }
             if (remoteState.buzzedTeam !== undefined) {
-              setBuzzedTeam(remoteState.buzzedTeam);
+              const buzzedChanged = JSON.stringify(remoteState.buzzedTeam) !== JSON.stringify(buzzedTeam);
+              if (buzzedChanged) {
+                setBuzzedTeam(remoteState.buzzedTeam);
+              }
             }
             
+            // Update lastSyncedStateRef to prevent re-syncing the same state immediately
             lastSyncedStateRef.current = remoteStateString;
           }
         }

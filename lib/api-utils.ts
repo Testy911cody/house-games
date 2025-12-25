@@ -908,8 +908,16 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
         .single();
       
       if (error) {
+        // Handle specific error codes gracefully
         if (error.code === 'PGRST116') return null; // Not found
-        throw error;
+        if ((error as any).status === 406 || (error as any).status === 409) {
+          // RLS policy or conflict - return null instead of throwing
+          console.warn('Supabase query blocked (RLS or conflict):', error.message);
+          return null;
+        }
+        // Only throw for unexpected errors
+        console.error('Supabase error getting game state:', error);
+        return null;
       }
       
       if (!data) return null;
@@ -1180,7 +1188,14 @@ export const gameStateAPI = {
         
         const { data, error } = await query;
         
-        if (error) throw error;
+        if (error) {
+          // Handle RLS/conflict errors gracefully
+          if ((error as any).status === 406 || (error as any).status === 409) {
+            console.warn('Supabase query blocked (RLS or conflict) for waiting games:', error.message);
+            return { success: true, games: [] };
+          }
+          throw error;
+        }
         
         // Filter to only games in "waiting" phase
         const waitingGames = (data || [])
@@ -1277,8 +1292,16 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
         .single();
       
       if (error) {
+        // Handle specific error codes gracefully
         if (error.code === 'PGRST116') return null; // Not found
-        throw error;
+        if ((error as any).status === 406 || (error as any).status === 409) {
+          // RLS policy or conflict - return null instead of throwing
+          console.warn('Supabase query blocked (RLS or conflict) for room:', error.message);
+          return null;
+        }
+        // Only log unexpected errors, don't throw
+        console.error('Supabase error getting room:', error);
+        return null;
       }
       
       if (!data) return null;
@@ -1304,8 +1327,16 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
         .single();
       
       if (error) {
+        // Handle specific error codes gracefully
         if (error.code === 'PGRST116') return null; // Not found
-        throw error;
+        if ((error as any).status === 406 || (error as any).status === 409) {
+          // RLS policy or conflict - return null instead of throwing
+          console.warn('Supabase query blocked (RLS or conflict):', error.message);
+          return null;
+        }
+        // Only log unexpected errors, don't throw
+        console.error('Supabase error getting room by code:', error);
+        return null;
       }
       
       if (!data) return null;
@@ -1337,7 +1368,16 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
       
       const { data, error } = await query;
       
-      if (error) throw error;
+      if (error) {
+        // Handle RLS/conflict errors gracefully
+        if ((error as any).status === 406 || (error as any).status === 409) {
+          console.warn('Supabase query blocked (RLS or conflict) for public rooms:', error.message);
+          return [];
+        }
+        // Log other errors but don't throw
+        console.error('Supabase error getting public rooms:', error);
+        return [];
+      }
       
       return (data || []).map(mapDBRoomToGameRoom);
     } catch (error) {
