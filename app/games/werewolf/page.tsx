@@ -368,7 +368,7 @@ function WerewolfPageContent() {
       }
     };
     
-    const intervalId = setInterval(syncGameState, 1000);
+    const intervalId = setInterval(syncGameState, 300);
     syncGameState(); // Initial sync
     
     return () => clearInterval(intervalId);

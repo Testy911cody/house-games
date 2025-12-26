@@ -423,8 +423,8 @@ function DrawGuessPageContent() {
       
       // Initial poll
       pollState();
-      // Fallback polling every 2 seconds (less frequent since we have realtime)
-      const intervalId = setInterval(pollState, 2000);
+      // Fallback polling every 500ms (less frequent since we have realtime)
+      const intervalId = setInterval(pollState, 500);
       
       return () => {
         if (supabase) {
@@ -480,8 +480,8 @@ function DrawGuessPageContent() {
         }
       };
       
-      // Poll every 1 second for real-time updates
-      const intervalId = setInterval(pollState, 1000);
+      // Poll every 300ms for real-time updates
+      const intervalId = setInterval(pollState, 300);
       pollState(); // Initial poll
       
       return () => clearInterval(intervalId);

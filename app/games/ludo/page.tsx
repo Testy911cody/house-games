@@ -261,7 +261,7 @@ function LudoPageContent() {
       }
     };
     
-    const intervalId = setInterval(syncGameState, 500);
+    const intervalId = setInterval(syncGameState, 300);
     syncGameState(); // Initial sync
     return () => clearInterval(intervalId);
   }, [isOnlineGame, gameRoom, gamePhase, currentUser, lastSyncTime]);
