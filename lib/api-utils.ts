@@ -2128,15 +2128,5 @@ export const gameRoomsAPI = {
    * Generate a room code (utility function)
    */
   generateRoomCode,
-  
-  /**
-   * Update player activity timestamp
-   */
-  updatePlayerActivity,
-  
-  /**
-   * Clean up inactive players from rooms
-   */
-  cleanupInactivePlayers,
 };
 
