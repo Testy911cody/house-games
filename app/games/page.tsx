@@ -43,6 +43,31 @@ export default function GamesPage() {
     }
   }, []);
 
+  // Periodic cleanup of inactive players and stale rooms
+  useEffect(() => {
+    const runCleanup = async () => {
+      try {
+        const { gameRoomsAPI, teamsAPI } = await import("@/lib/api-utils");
+        // Clean up inactive players (every 2 minutes)
+        await gameRoomsAPI.cleanupInactivePlayers();
+        // Clean up stale rooms (every 5 minutes)
+        await gameRoomsAPI.cleanupStaleRooms();
+        // Clean up inactive teams (every 2 minutes)
+        await teamsAPI.cleanupInactiveTeams();
+      } catch (error) {
+        console.error("Error running cleanup:", error);
+      }
+    };
+    
+    // Run cleanup immediately
+    runCleanup();
+    
+    // Then run cleanup every 2 minutes
+    const cleanupInterval = setInterval(runCleanup, 2 * 60 * 1000);
+    
+    return () => clearInterval(cleanupInterval);
+  }, []);
+
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
     if (!user) {

@@ -136,6 +136,14 @@ export default function WaitingRoom({
         if (result.success && result.room) {
           const newRoom = result.room;
           
+          // Update our activity when polling (this happens automatically in getRoomByCode, but ensure it's done)
+          if (newRoom && currentUser) {
+            const { gameRoomsAPI } = await import('@/lib/api-utils');
+            gameRoomsAPI.updatePlayerActivity(newRoom.id, currentUser.id).catch(() => {
+              // Ignore errors - activity update is best effort
+            });
+          }
+          
           // Check if new players joined
           if (onPlayerJoined) {
             const joinedPlayers = newRoom.currentPlayers.filter(

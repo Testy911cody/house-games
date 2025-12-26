@@ -621,9 +621,42 @@ function DrawGuessPageContent() {
   };
 
   const addPlayer = () => {
+    // Try to get next available team member name
+    let playerName = `Player ${players.length + 1}`;
+    
+    const currentTeamData = localStorage.getItem("currentTeam");
+    if (currentTeamData) {
+      try {
+        const team = JSON.parse(currentTeamData);
+        const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
+        
+        // Get admin name
+        const admin = allUsers.find((u: any) => u.id === team.adminId);
+        const teamMemberNames: string[] = [];
+        if (admin) teamMemberNames.push(admin.name);
+        
+        // Add all team member names
+        team.members.forEach((member: any) => {
+          teamMemberNames.push(member.name);
+        });
+        
+        // Find a team member not already in players list
+        const existingPlayerNames = players.map(p => p.name.toLowerCase());
+        const availableMember = teamMemberNames.find(
+          name => !existingPlayerNames.includes(name.toLowerCase())
+        );
+        
+        if (availableMember) {
+          playerName = availableMember;
+        }
+      } catch (e) {
+        console.error("Error getting team member name:", e);
+      }
+    }
+    
     const newPlayer: Player = {
       id: `player_${Date.now()}`,
-      name: `Player ${players.length + 1}`,
+      name: playerName,
       score: 0,
       hasDrawn: false
     };

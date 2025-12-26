@@ -1240,6 +1240,7 @@ export interface GameRoomPlayer {
   isReady: boolean;
   isHost: boolean;
   joinedAt: string;
+  lastActive?: string;  // Last time player was active (polling, actions, etc.)
 }
 
 export interface GameRoomTeam {
@@ -1306,7 +1307,31 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
       
       if (!data) return null;
       
-      return mapDBRoomToGameRoom(data);
+      const room = mapDBRoomToGameRoom(data);
+      
+      // Update current user's activity if they're in the room (async, don't wait)
+      if (typeof window !== 'undefined' && room) {
+        const currentUser = localStorage.getItem('currentUser');
+        if (currentUser) {
+          try {
+            const userData = JSON.parse(currentUser);
+            const playerIndex = room.currentPlayers.findIndex(p => p.id === userData.id);
+            if (playerIndex >= 0) {
+              // Update activity timestamp for current user
+              room.currentPlayers[playerIndex] = {
+                ...room.currentPlayers[playerIndex],
+                lastActive: new Date().toISOString(),
+              };
+              // Save updated activity (async, don't wait)
+              saveRoomToDB(room).catch(err => console.error('Error updating player activity:', err));
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+        }
+      }
+      
+      return room;
     } catch (error) {
       console.error('Supabase error getting room:', error);
       return null;
@@ -1341,7 +1366,31 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
       
       if (!data) return null;
       
-      return mapDBRoomToGameRoom(data);
+      const room = mapDBRoomToGameRoom(data);
+      
+      // Update current user's activity if they're in the room (async, don't wait)
+      if (typeof window !== 'undefined' && room) {
+        const currentUser = localStorage.getItem('currentUser');
+        if (currentUser) {
+          try {
+            const userData = JSON.parse(currentUser);
+            const playerIndex = room.currentPlayers.findIndex(p => p.id === userData.id);
+            if (playerIndex >= 0) {
+              // Update activity timestamp for current user
+              room.currentPlayers[playerIndex] = {
+                ...room.currentPlayers[playerIndex],
+                lastActive: new Date().toISOString(),
+              };
+              // Save updated activity (async, don't wait)
+              saveRoomToDB(room).catch(err => console.error('Error updating player activity:', err));
+            }
+          } catch (e) {
+            // Ignore errors
+          }
+        }
+      }
+      
+      return room;
     } catch (error) {
       console.error('Supabase error getting room by code:', error);
       return null;
@@ -1545,6 +1594,7 @@ export const gameRoomsAPI = {
           isReady: true,
           isHost: true,
           joinedAt: now,
+          lastActive: now,
         }],
         settings: options.settings ?? {},
         teamMode: options.teamMode ?? false,
@@ -1586,12 +1636,14 @@ export const gameRoomsAPI = {
       }
       
       // Add player to room
+      const now = new Date().toISOString();
       room.currentPlayers.push({
         id: userId,
         name: userName,
         isReady: false,
         isHost: false,
-        joinedAt: new Date().toISOString(),
+        joinedAt: now,
+        lastActive: now,
       });
       
       const savedRoom = await saveRoomToDB(room);
@@ -1677,10 +1729,11 @@ export const gameRoomsAPI = {
         return { success: false, error: 'Player not in room' };
       }
       
-      // Update player
+      // Update player (always update lastActive when player info changes)
       room.currentPlayers[playerIndex] = {
         ...room.currentPlayers[playerIndex],
         ...updates,
+        lastActive: new Date().toISOString(), // Update activity on any player update
       };
       
       const savedRoom = await saveRoomToDB(room);
@@ -1704,6 +1757,126 @@ export const gameRoomsAPI = {
     } catch (error: any) {
       console.error('Error getting room:', error);
       return { success: false, error: error.message || 'Failed to get room' };
+    }
+  },
+  
+  /**
+   * Update player activity timestamp (called when player polls or interacts)
+   */
+  async updatePlayerActivity(roomId: string, userId: string): Promise<{ success: boolean; error?: string }> {
+    try {
+      const room = await getRoomFromDB(roomId);
+      if (!room) {
+        return { success: false, error: 'Room not found' };
+      }
+      
+      const playerIndex = room.currentPlayers.findIndex(p => p.id === userId);
+      if (playerIndex >= 0) {
+        room.currentPlayers[playerIndex] = {
+          ...room.currentPlayers[playerIndex],
+          lastActive: new Date().toISOString(),
+        };
+        await saveRoomToDB(room);
+      }
+      
+      return { success: true };
+    } catch (error: any) {
+      console.error('Error updating player activity:', error);
+      return { success: false, error: error.message || 'Failed to update player activity' };
+    }
+  },
+  
+  /**
+   * Clean up inactive players from rooms (players inactive for more than 3 minutes)
+   */
+  async cleanupInactivePlayers(): Promise<{ success: boolean; cleaned: number; error?: string }> {
+    try {
+      if (!isSupabaseConfigured() || !supabase) {
+        return { success: true, cleaned: 0 };
+      }
+      
+      const { data: rooms, error } = await supabase
+        .from('game_rooms')
+        .select('*')
+        .in('status', ['waiting', 'playing']);
+      
+      if (error) {
+        console.error('Error fetching rooms for cleanup:', error);
+        return { success: false, error: error.message, cleaned: 0 };
+      }
+      
+      if (!rooms || rooms.length === 0) {
+        return { success: true, cleaned: 0 };
+      }
+      
+      const now = Date.now();
+      const INACTIVE_THRESHOLD = 3 * 60 * 1000; // 3 minutes in milliseconds
+      let totalCleaned = 0;
+      
+      for (const dbRoom of rooms) {
+        try {
+          const room = mapDBRoomToGameRoom(dbRoom);
+          const activePlayers: GameRoomPlayer[] = [];
+          let cleaned = 0;
+          
+          for (const player of room.currentPlayers) {
+            const lastActive = player.lastActive ? new Date(player.lastActive).getTime() : new Date(player.joinedAt).getTime();
+            const timeSinceActive = now - lastActive;
+            
+            // Keep player if:
+            // 1. They've been active within the threshold, OR
+            // 2. They're the host (don't auto-remove host)
+            if (timeSinceActive < INACTIVE_THRESHOLD || player.isHost) {
+              activePlayers.push(player);
+            } else {
+              cleaned++;
+              console.log(`🧹 Removing inactive player ${player.name} (${player.id}) from room ${room.code} - inactive for ${Math.floor(timeSinceActive / 1000)}s`);
+            }
+          }
+          
+          if (cleaned > 0) {
+            room.currentPlayers = activePlayers;
+            
+            // Clean up teams that have no active players
+            if (room.teamMode && room.teams) {
+              const activePlayerIds = new Set(activePlayers.map(p => p.id));
+              room.teams = room.teams.map(team => ({
+                ...team,
+                players: team.players.filter(p => activePlayerIds.has(p.id))
+              })).filter(team => team.players.length > 0); // Remove empty teams
+            }
+            
+            // If host was removed and there are still players, assign new host
+            if (room.currentPlayers.length > 0 && !room.currentPlayers.some(p => p.isHost)) {
+              const newHost = room.currentPlayers[0];
+              room.hostId = newHost.id;
+              room.hostName = newHost.name;
+              newHost.isHost = true;
+            }
+            
+            // If room is empty, delete it
+            if (room.currentPlayers.length === 0) {
+              await deleteRoomFromDB(room.id);
+              console.log(`🗑️ Deleted empty room ${room.code}`);
+            } else {
+              await saveRoomToDB(room);
+            }
+            
+            totalCleaned += cleaned;
+          }
+        } catch (error) {
+          console.error(`Error cleaning up room ${dbRoom.code}:`, error);
+        }
+      }
+      
+      if (totalCleaned > 0) {
+        console.log(`✅ Cleaned up ${totalCleaned} inactive player(s) from ${rooms.length} room(s)`);
+      }
+      
+      return { success: true, cleaned: totalCleaned };
+    } catch (error: any) {
+      console.error('Error cleaning up inactive players:', error);
+      return { success: false, error: error.message || 'Failed to clean up inactive players', cleaned: 0 };
     }
   },
   
@@ -1777,6 +1950,7 @@ export const gameRoomsAPI = {
       }
       
       player.isReady = isReady;
+      player.lastActive = new Date().toISOString(); // Update activity on ready status change
       
       const savedRoom = await saveRoomToDB(room);
       return { success: true, room: savedRoom };
@@ -1954,5 +2128,15 @@ export const gameRoomsAPI = {
    * Generate a room code (utility function)
    */
   generateRoomCode,
+  
+  /**
+   * Update player activity timestamp
+   */
+  updatePlayerActivity,
+  
+  /**
+   * Clean up inactive players from rooms
+   */
+  cleanupInactivePlayers,
 };
 

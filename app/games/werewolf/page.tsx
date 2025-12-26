@@ -201,8 +201,9 @@ function WerewolfPageContent() {
     if (!gameRoom) return;
     
     const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+    // Keep slots empty for additional players - don't use generic names
     while (roomPlayerNames.length < 8) {
-      roomPlayerNames.push(`Player ${roomPlayerNames.length + 1}`);
+      roomPlayerNames.push("");
     }
     setPlayerNames(roomPlayerNames);
     setPlayerCount(gameRoom.currentPlayers.length);
@@ -404,9 +405,9 @@ function WerewolfPageContent() {
         // Update player names and count
         if (teamMemberNames.length > 0) {
           const newNames = [...teamMemberNames];
-          // Fill remaining slots with default names
+          // Keep remaining slots empty - don't use generic names
           while (newNames.length < 8) {
-            newNames.push(`Player ${newNames.length + 1}`);
+            newNames.push("");
           }
           setPlayerNames(newNames);
           setPlayerCount(Math.min(Math.max(teamMemberNames.length, 5), 8));
@@ -453,9 +454,11 @@ function WerewolfPageContent() {
     const newPlayers: Player[] = [];
     
     for (let i = 0; i < playerCount; i++) {
+      // Use playerName if set, otherwise use placeholder only at game start
+      const playerName = playerNames[i]?.trim() || `Player ${i + 1}`;
       newPlayers.push({
         id: i,
-        name: playerNames[i] || `Player ${i + 1}`,
+        name: playerName,
         role: roles[i],
         alive: true,
         votes: 0,

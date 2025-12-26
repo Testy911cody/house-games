@@ -129,8 +129,9 @@ export default function PacmanPage() {
         // Update player names and count
         if (teamMemberNames.length > 0) {
           const newNames = [...teamMemberNames];
+          // Keep remaining slots empty - don't use generic names
           while (newNames.length < 4) {
-            newNames.push(`Player ${newNames.length + 1}`);
+            newNames.push("");
           }
           setPlayerNames(newNames);
           setPlayerCount(Math.min(teamMemberNames.length, 4));
@@ -165,9 +166,11 @@ export default function PacmanPage() {
     
     for (let i = 0; i < playerCount; i++) {
       const startPos = START_POSITIONS[i];
+      // Use playerName if set, otherwise use placeholder only at game start
+      const playerName = playerNames[i]?.trim() || `Player ${i + 1}`;
       newPlayers.push({
         id: i,
-        name: playerNames[i] || `Player ${i + 1}`,
+        name: playerName,
         color: PLAYER_COLORS[i],
         x: startPos.x,
         y: startPos.y,
