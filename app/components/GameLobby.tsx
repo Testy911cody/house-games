@@ -99,9 +99,17 @@ export default function GameLobby({
   const loadPublicRooms = useCallback(async () => {
     try {
       const { gameRoomsAPI } = await import("@/lib/api-utils");
+      
+      // Clean up stale/empty rooms before fetching
+      await gameRoomsAPI.cleanupStaleRooms();
+      
       const result = await gameRoomsAPI.getPublicRooms(gameType);
       if (result.success) {
-        setPublicRooms(result.rooms);
+        // Additional client-side filter: only show rooms with at least 1 player
+        const validRooms = result.rooms.filter((room: any) => 
+          room.currentPlayers && room.currentPlayers.length > 0
+        );
+        setPublicRooms(validRooms);
       } else if (result.error) {
         // Don't show error for missing table - just show empty list
         if (!result.error.includes("game_rooms") && !result.error.includes("schema cache")) {

@@ -222,23 +222,71 @@ function DrawGuessPageContent() {
   useEffect(() => {
     if (!currentUser) return;
     
-    // Initialize players from group if available
-    const currentTeam = localStorage.getItem("currentTeam");
-    if (currentTeam && players.length === 0) {
-      try {
-        const team = JSON.parse(currentTeam);
-        const teamPlayers: Player[] = [
-          { id: currentUser.id, name: currentUser.name, score: 0, hasDrawn: false },
-          ...team.members.map((m: any) => ({ 
-            id: m.id, 
-            name: m.name, 
+    // Initialize players from group or current user
+    if (players.length === 0) {
+      const currentTeamData = localStorage.getItem("currentTeam");
+      
+      if (currentTeamData) {
+        try {
+          const team = JSON.parse(currentTeamData);
+          const allUsers = JSON.parse(localStorage.getItem("users") || "[]");
+          
+          // Get all team member names (admin + members)
+          const teamPlayers: Player[] = [];
+          
+          // Add admin first (the team creator)
+          const admin = allUsers.find((u: any) => u.id === team.adminId);
+          if (admin) {
+            teamPlayers.push({ 
+              id: admin.id, 
+              name: admin.name, 
+              score: 0, 
+              hasDrawn: false 
+            });
+          }
+          
+          // Add all team members
+          team.members.forEach((m: any) => {
+            // Avoid duplicates (in case current user is both admin and in members)
+            if (!teamPlayers.some(p => p.id === m.id)) {
+              teamPlayers.push({ 
+                id: m.id, 
+                name: m.name, 
+                score: 0, 
+                hasDrawn: false 
+              });
+            }
+          });
+          
+          if (teamPlayers.length > 0) {
+            setPlayers(teamPlayers);
+          } else {
+            // Fallback: add current user if no team members found
+            setPlayers([{ 
+              id: currentUser.id, 
+              name: currentUser.name, 
+              score: 0, 
+              hasDrawn: false 
+            }]);
+          }
+        } catch (e) {
+          console.error("Error loading group:", e);
+          // Fallback: add current user
+          setPlayers([{ 
+            id: currentUser.id, 
+            name: currentUser.name, 
             score: 0, 
             hasDrawn: false 
-          }))
-        ];
-        setPlayers(teamPlayers);
-      } catch (e) {
-        console.error("Error loading group:", e);
+          }]);
+        }
+      } else {
+        // No team - add current user with their actual name
+        setPlayers([{ 
+          id: currentUser.id, 
+          name: currentUser.name, 
+          score: 0, 
+          hasDrawn: false 
+        }]);
       }
     }
   }, [currentUser, players.length]);

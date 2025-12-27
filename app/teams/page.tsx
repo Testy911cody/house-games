@@ -81,7 +81,7 @@ export default function TeamsPage() {
         updateActivity();
       }, 1000);
       
-      // Run cleanup every 2 minutes to remove inactive teams
+      // Run cleanup every 30 seconds to quickly remove inactive/empty teams
       const cleanupInterval = setInterval(async () => {
         try {
           const { teamsAPI } = await import('@/lib/api-utils');
@@ -91,7 +91,7 @@ export default function TeamsPage() {
         } catch (e) {
           // Silently fail
         }
-      }, 120000); // Every 2 minutes
+      }, 30000); // Every 30 seconds
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
@@ -239,8 +239,13 @@ export default function TeamsPage() {
         ...activeLocalTeams // Active local-only teams
       ];
       
+      // Filter out teams with no members (empty teams should be cleaned up)
+      const nonEmptyTeams = allTeamsToShow.filter(team => 
+        team.members && team.members.length > 0
+      );
+      
       // Sort by creation date (newest first)
-      const sortedTeams = allTeamsToShow.sort((a, b) => 
+      const sortedTeams = nonEmptyTeams.sort((a, b) => 
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       

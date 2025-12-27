@@ -67,7 +67,7 @@ function WerewolfPageContent() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerCount, setPlayerCount] = useState(5);
   const [playerNames, setPlayerNames] = useState<string[]>([
-    "Player 1", "Player 2", "Player 3", "Player 4", "Player 5", "Player 6", "Player 7", "Player 8"
+    "", "", "", "", "", "", "", ""
   ]);
   const [currentPhase, setCurrentPhase] = useState<"night" | "day">("night");
   const [round, setRound] = useState(1);
@@ -381,13 +381,14 @@ function WerewolfPageContent() {
       router.push("/");
       return;
     }
-    setCurrentUser(JSON.parse(user));
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
 
     // Check if there's a current team and auto-populate players
-    const currentTeam = localStorage.getItem("currentTeam");
-    if (currentTeam) {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    if (currentTeamData) {
       try {
-        const team = JSON.parse(currentTeam);
+        const team = JSON.parse(currentTeamData);
         const teamMemberNames: string[] = [];
         
         // Add admin
@@ -399,7 +400,10 @@ function WerewolfPageContent() {
         
         // Add members
         team.members.forEach((member: any) => {
-          teamMemberNames.push(member.name);
+          // Avoid duplicates
+          if (!teamMemberNames.includes(member.name)) {
+            teamMemberNames.push(member.name);
+          }
         });
         
         // Update player names and count
@@ -411,10 +415,21 @@ function WerewolfPageContent() {
           }
           setPlayerNames(newNames);
           setPlayerCount(Math.min(Math.max(teamMemberNames.length, 5), 8));
+        } else {
+          // Fallback: use current user name
+          const newNames = [userData.name, "", "", "", "", "", "", ""];
+          setPlayerNames(newNames);
         }
       } catch (e) {
         console.error("Error loading group:", e);
+        // Fallback: use current user name
+        const newNames = [userData.name, "", "", "", "", "", "", ""];
+        setPlayerNames(newNames);
       }
+    } else {
+      // No team - use current user name as first player
+      const newNames = [userData.name, "", "", "", "", "", "", ""];
+      setPlayerNames(newNames);
     }
   }, [router]);
 

@@ -12,3 +12,23 @@ UPDATE teams
 SET last_game_access = NULL 
 WHERE last_game_access IS NULL;
 
+-- Function to clean up inactive/empty teams (aggressive cleanup)
+CREATE OR REPLACE FUNCTION cleanup_inactive_teams()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM teams
+  WHERE 
+    -- Delete teams with no members (empty teams) older than 10 minutes
+    ((members = '[]'::jsonb OR members IS NULL OR jsonb_array_length(members) = 0) 
+     AND created_at < NOW() - INTERVAL '10 minutes')
+    OR
+    -- Delete teams with no game access in the last 10 minutes and older than 10 minutes
+    (last_game_access IS NOT NULL 
+     AND last_game_access < NOW() - INTERVAL '10 minutes'
+     AND created_at < NOW() - INTERVAL '10 minutes')
+    OR
+    -- Delete teams that never played a game and are older than 1 hour
+    (last_game_access IS NULL AND created_at < NOW() - INTERVAL '1 hour');
+END;
+$$ LANGUAGE plpgsql;
+

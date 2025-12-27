@@ -376,8 +376,11 @@ async function getTeamsFromDB(): Promise<Team[]> {
         lastGameAccess: team.last_game_access || null,
       }));
       
-      console.log(`✅ Successfully mapped ${mappedTeams.length} teams from Supabase`);
-      return mappedTeams;
+      // Filter out empty teams (teams with no members should not be shown)
+      const nonEmptyTeams = mappedTeams.filter(team => team.members && team.members.length > 0);
+      
+      console.log(`✅ Successfully mapped ${mappedTeams.length} teams from Supabase (${nonEmptyTeams.length} non-empty)`);
+      return nonEmptyTeams;
     } catch (error: any) {
       console.error('❌ Supabase error getting teams:', error);
       if (error.code === 'PGRST301' || error.message?.includes('permission') || error.message?.includes('policy')) {
@@ -389,7 +392,8 @@ async function getTeamsFromDB(): Promise<Team[]> {
     }
   }
   console.log('⚠️  Supabase not configured, returning local storage teams');
-  return teamsStorage;
+  // Filter out empty teams
+  return teamsStorage.filter(team => team.members && team.members.length > 0);
 }
 
 async function saveTeamToDB(team: Team): Promise<Team> {
@@ -735,8 +739,8 @@ async function cleanupInactiveTeams(): Promise<void> {
 
     const teamsToDelete: string[] = [];
     const now = Date.now();
+    const TEN_MINUTES = 10 * 60 * 1000; // 10 minutes in milliseconds
     const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
-    const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
     for (const team of teams) {
       const teamAge = now - new Date(team.createdAt).getTime();
@@ -754,35 +758,35 @@ async function cleanupInactiveTeams(): Promise<void> {
       // Determine if team is active (admin or any member is online)
       const hasActiveUsers = adminOnline || membersOnline;
       
-      // Determine if team has recent game activity (within last hour)
-      const hasRecentGameAccess = timeSinceLastGame < ONE_HOUR;
+      // Determine if team has recent game activity (within last 10 minutes)
+      const hasRecentGameAccess = timeSinceLastGame < TEN_MINUTES;
       
-      // Delete team if:
-      // 1. Team is 1+ days old AND has no active users AND no recent game access (regardless of past game access)
-      // 2. Team is less than 1 day old AND has no active users AND no game access ever AND is older than 1 hour
       let shouldDelete = false;
       let deleteReason = '';
       
-      if (teamAge >= ONE_DAY) {
-        // For teams 1+ days old: delete if no active users and no recent game access
-        // This will clean up old teams even if they were used days ago
-        if (!hasActiveUsers && !hasRecentGameAccess) {
+      // Delete team if it has no members (empty team)
+      if (!team.members || team.members.length === 0) {
+        // Only delete if older than 10 minutes (give time to add members)
+        if (teamAge > TEN_MINUTES && !hasActiveUsers) {
           shouldDelete = true;
-          const daysOld = Math.floor(teamAge / ONE_DAY);
-          const hoursSinceLastGame = lastGameAccess > 0 ? Math.floor(timeSinceLastGame / ONE_HOUR) : null;
-          if (hoursSinceLastGame !== null) {
-            deleteReason = `Old team (${daysOld} days old), no active users, last game access ${hoursSinceLastGame} hours ago`;
-          } else {
-            deleteReason = `Old team (${daysOld} days old), no active users, never accessed a game`;
-          }
+          deleteReason = `Empty team (no members) older than 10 minutes, no active admin`;
         }
-      } else {
-        // For newer teams (less than 1 day old), only delete if:
-        // - No active users AND no game access ever AND older than 1 hour
-        if (!hasActiveUsers && lastGameAccess === 0 && teamAge > ONE_HOUR) {
-          shouldDelete = true;
-          deleteReason = `New team (${Math.floor(teamAge / ONE_HOUR)} hours old), no active users, never accessed a game`;
+      }
+      // Delete team if no active users and no recent game access and older than 10 minutes
+      else if (!hasActiveUsers && !hasRecentGameAccess && teamAge > TEN_MINUTES) {
+        shouldDelete = true;
+        const minsOld = Math.floor(teamAge / 60000);
+        const minsSinceGame = lastGameAccess > 0 ? Math.floor(timeSinceLastGame / 60000) : null;
+        if (minsSinceGame !== null) {
+          deleteReason = `Inactive team (${minsOld} min old), no active users, last game ${minsSinceGame} min ago`;
+        } else {
+          deleteReason = `Inactive team (${minsOld} min old), no active users, never played a game`;
         }
+      }
+      // Delete teams older than 1 hour with no activity at all
+      else if (teamAge > ONE_HOUR && !hasActiveUsers && lastGameAccess === 0) {
+        shouldDelete = true;
+        deleteReason = `Old team (${Math.floor(teamAge / ONE_HOUR)} hours old), never used, no active users`;
       }
       
       if (shouldDelete) {
@@ -839,11 +843,18 @@ export const teamsAPI = {
     }
   },
   
-  async updateTeam(teamId: string, updates: Partial<Team>): Promise<{ success: boolean; team?: Team; error?: string }> {
+  async updateTeam(teamId: string, updates: Partial<Team>): Promise<{ success: boolean; team?: Team; deleted?: boolean; error?: string }> {
     try {
       const updatedTeam = await updateTeamInDB(teamId, updates);
       if (!updatedTeam) {
         return { success: false, error: 'Team not found' };
+      }
+      
+      // If team has no members after update, delete it
+      if (!updatedTeam.members || updatedTeam.members.length === 0) {
+        console.log(`🗑️ Deleting empty team ${updatedTeam.name} after last member removed`);
+        await deleteTeamFromDB(teamId);
+        return { success: true, deleted: true };
       }
       
       // Mark admin and members as active when team is updated
@@ -1428,15 +1439,22 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         return [];
       }
       
-      return (data || []).map(mapDBRoomToGameRoom);
+      // Filter out empty rooms (rooms with 0 players should not be shown)
+      const rooms = (data || []).map(mapDBRoomToGameRoom);
+      return rooms.filter(room => room.currentPlayers && room.currentPlayers.length > 0);
     } catch (error) {
       console.error('Supabase error getting public rooms:', error);
       return [];
     }
   }
   
-  // Fallback to local storage
-  let rooms = roomsStorage.filter(r => !r.isPrivate && r.status === 'waiting');
+  // Fallback to local storage - filter out empty rooms
+  let rooms = roomsStorage.filter(r => 
+    !r.isPrivate && 
+    r.status === 'waiting' && 
+    r.currentPlayers && 
+    r.currentPlayers.length > 0
+  );
   if (gameType) {
     rooms = rooms.filter(r => r.gameType === gameType);
   }
@@ -1673,21 +1691,24 @@ export const gameRoomsAPI = {
         room.teams.forEach(team => {
           team.players = team.players.filter(p => p.id !== userId);
         });
+        // Remove empty teams
+        room.teams = room.teams.filter(team => team.players.length > 0);
       }
       
-      // If the host left, either assign new host or delete room
+      // If room is empty, delete it immediately
+      if (room.currentPlayers.length === 0) {
+        console.log(`🗑️ Deleting empty room ${room.code} after last player left`);
+        await deleteRoomFromDB(roomId);
+        return { success: true };
+      }
+      
+      // If the host left, assign new host
       if (room.hostId === userId) {
-        if (room.currentPlayers.length > 0) {
-          // Assign new host
-          const newHost = room.currentPlayers[0];
-          room.hostId = newHost.id;
-          room.hostName = newHost.name;
-          newHost.isHost = true;
-        } else {
-          // Delete empty room
-          await deleteRoomFromDB(roomId);
-          return { success: true };
-        }
+        const newHost = room.currentPlayers[0];
+        room.hostId = newHost.id;
+        room.hostName = newHost.name;
+        newHost.isHost = true;
+        console.log(`👑 New host assigned: ${newHost.name} for room ${room.code}`);
       }
       
       const savedRoom = await saveRoomToDB(room);
@@ -2074,33 +2095,96 @@ export const gameRoomsAPI = {
   },
   
   /**
-   * Clean up stale rooms (rooms that are old or abandoned)
+   * Clean up stale rooms (rooms that are empty, old, or abandoned)
    */
   async cleanupStaleRooms(): Promise<void> {
     try {
       if (isSupabaseConfigured() && supabase) {
-        // Delete rooms that are waiting for more than 24 hours
-        // or finished more than 1 hour ago
-        const { error } = await supabase.rpc('cleanup_stale_game_rooms');
-        if (error) {
-          console.error('Error cleaning up stale rooms:', error);
+        // First, delete all rooms with 0 players immediately
+        const { error: emptyError } = await supabase
+          .from('game_rooms')
+          .delete()
+          .eq('current_players', '[]');
+        
+        if (emptyError) {
+          console.error('Error deleting empty rooms:', emptyError);
         }
+        
+        // Also delete rooms with empty current_players array (different format check)
+        const { data: allRooms } = await supabase
+          .from('game_rooms')
+          .select('id, code, current_players, status, created_at, finished_at');
+        
+        if (allRooms) {
+          const now = Date.now();
+          const FIVE_MINUTES = 5 * 60 * 1000;
+          const ONE_HOUR = 60 * 60 * 1000;
+          
+          for (const room of allRooms) {
+            let shouldDelete = false;
+            const players = room.current_players || [];
+            const createdAge = now - new Date(room.created_at).getTime();
+            const finishedAge = room.finished_at ? now - new Date(room.finished_at).getTime() : 0;
+            
+            // Delete if no players
+            if (players.length === 0) {
+              shouldDelete = true;
+              console.log(`🗑️ Deleting empty room ${room.code}`);
+            }
+            // Delete if waiting for more than 5 minutes with only 1 player
+            else if (room.status === 'waiting' && players.length === 1 && createdAge > FIVE_MINUTES) {
+              shouldDelete = true;
+              console.log(`🗑️ Deleting abandoned waiting room ${room.code} (1 player, ${Math.floor(createdAge / 60000)} min old)`);
+            }
+            // Delete finished rooms after 5 minutes
+            else if (room.status === 'finished' && finishedAge > FIVE_MINUTES) {
+              shouldDelete = true;
+              console.log(`🗑️ Deleting finished room ${room.code}`);
+            }
+            // Delete rooms playing for more than 6 hours (likely abandoned)
+            else if (room.status === 'playing' && createdAge > 6 * ONE_HOUR) {
+              shouldDelete = true;
+              console.log(`🗑️ Deleting abandoned playing room ${room.code} (${Math.floor(createdAge / ONE_HOUR)} hours old)`);
+            }
+            
+            if (shouldDelete) {
+              await supabase.from('game_rooms').delete().eq('id', room.id);
+            }
+          }
+        }
+        
+        // Also run the stored procedure for any additional cleanup
+        await supabase.rpc('cleanup_stale_game_rooms');
       } else {
-        // Local cleanup
+        // Local cleanup - more aggressive
         const now = Date.now();
+        const FIVE_MINUTES = 5 * 60 * 1000;
         const ONE_HOUR = 60 * 60 * 1000;
-        const ONE_DAY = 24 * 60 * 60 * 1000;
         
         roomsStorage = roomsStorage.filter(room => {
           const createdAge = now - new Date(room.createdAt).getTime();
           const finishedAge = room.finishedAt ? now - new Date(room.finishedAt).getTime() : 0;
           
-          // Keep if waiting less than 24 hours
-          if (room.status === 'waiting' && createdAge < ONE_DAY) return true;
-          // Keep if playing less than 12 hours
-          if (room.status === 'playing' && createdAge < 12 * ONE_HOUR) return true;
-          // Keep if finished less than 1 hour ago
-          if (room.status === 'finished' && finishedAge < ONE_HOUR) return true;
+          // Delete if no players
+          if (room.currentPlayers.length === 0) {
+            console.log(`🗑️ Removing empty room ${room.code}`);
+            return false;
+          }
+          // Delete if waiting for more than 5 minutes with only 1 player
+          if (room.status === 'waiting' && room.currentPlayers.length === 1 && createdAge > FIVE_MINUTES) {
+            console.log(`🗑️ Removing abandoned waiting room ${room.code}`);
+            return false;
+          }
+          // Keep if waiting with 2+ players
+          if (room.status === 'waiting' && room.currentPlayers.length >= 2) return true;
+          // Keep if playing less than 6 hours
+          if (room.status === 'playing' && createdAge < 6 * ONE_HOUR) return true;
+          // Delete finished rooms after 5 minutes
+          if (room.status === 'finished' && finishedAge > FIVE_MINUTES) {
+            console.log(`🗑️ Removing finished room ${room.code}`);
+            return false;
+          }
+          if (room.status === 'finished') return true; // Keep recent finished rooms
           
           return false;
         });

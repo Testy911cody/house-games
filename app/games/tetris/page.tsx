@@ -77,7 +77,7 @@ export default function TetrisPage() {
   const [gameState, setGameState] = useState<GameState>("setup");
   const [players, setPlayers] = useState<Player[]>([]);
   const [playerCount, setPlayerCount] = useState(2);
-  const [playerNames, setPlayerNames] = useState<string[]>(["Player 1", "Player 2", "Player 3", "Player 4"]);
+  const [playerNames, setPlayerNames] = useState<string[]>(["", "", "", ""]);
   const [winner, setWinner] = useState<Player | null>(null);
   const [currentPlayerIndex, setCurrentPlayerIndex] = useState(0);
   const dropTimerRef = useRef<number | null>(null);
@@ -96,13 +96,14 @@ export default function TetrisPage() {
       router.push("/");
       return;
     }
-    setCurrentUser(JSON.parse(user));
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
 
     // Check if there's a current team and auto-populate players
-    const currentTeam = localStorage.getItem("currentTeam");
-    if (currentTeam) {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    if (currentTeamData) {
       try {
-        const team = JSON.parse(currentTeam);
+        const team = JSON.parse(currentTeamData);
         const teamMemberNames: string[] = [];
         
         // Add admin
@@ -114,7 +115,10 @@ export default function TetrisPage() {
         
         // Add members
         team.members.forEach((member: any) => {
-          teamMemberNames.push(member.name);
+          // Avoid duplicates
+          if (!teamMemberNames.includes(member.name)) {
+            teamMemberNames.push(member.name);
+          }
         });
         
         // Update player names and count
@@ -126,10 +130,21 @@ export default function TetrisPage() {
           }
           setPlayerNames(newNames);
           setPlayerCount(Math.min(teamMemberNames.length, 4));
+        } else {
+          // Fallback: use current user name
+          const newNames = [userData.name, "", "", ""];
+          setPlayerNames(newNames);
         }
       } catch (e) {
         console.error("Error loading team:", e);
+        // Fallback: use current user name
+        const newNames = [userData.name, "", "", ""];
+        setPlayerNames(newNames);
       }
+    } else {
+      // No team - use current user name as first player
+      const newNames = [userData.name, "", "", ""];
+      setPlayerNames(newNames);
     }
   }, [router]);
 

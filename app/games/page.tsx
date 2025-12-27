@@ -48,11 +48,11 @@ export default function GamesPage() {
     const runCleanup = async () => {
       try {
         const { gameRoomsAPI, teamsAPI } = await import("@/lib/api-utils");
-        // Clean up inactive players (every 2 minutes)
+        // Clean up inactive players
         await gameRoomsAPI.cleanupInactivePlayers();
-        // Clean up stale rooms (every 5 minutes)
+        // Clean up stale/empty rooms
         await gameRoomsAPI.cleanupStaleRooms();
-        // Clean up inactive teams (every 2 minutes)
+        // Clean up inactive teams
         await teamsAPI.cleanupInactiveTeams();
       } catch (error) {
         console.error("Error running cleanup:", error);
@@ -62,8 +62,8 @@ export default function GamesPage() {
     // Run cleanup immediately
     runCleanup();
     
-    // Then run cleanup every 2 minutes
-    const cleanupInterval = setInterval(runCleanup, 2 * 60 * 1000);
+    // Then run cleanup every 30 seconds for faster cleanup of empty rooms/teams
+    const cleanupInterval = setInterval(runCleanup, 30 * 1000);
     
     return () => clearInterval(cleanupInterval);
   }, []);

@@ -286,17 +286,28 @@ export default function TeamDetailClient() {
         members: updatedMembers,
       });
       
-      if (updateResult.success && updateResult.team) {
-        // Update localStorage with API response
-        const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-        const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
-        if (teamIndex >= 0) {
-          allTeams[teamIndex] = updateResult.team;
+      if (updateResult.success) {
+        // If team was deleted (no members left), redirect to teams page
+        if (updateResult.deleted) {
+          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
+          localStorage.setItem("teams", JSON.stringify(filteredTeams));
+          router.push("/teams");
+          return;
         }
-        localStorage.setItem("teams", JSON.stringify(allTeams));
-        setTeam(updateResult.team);
-        setRemoveMemberId(null);
-        return;
+        
+        if (updateResult.team) {
+          // Update localStorage with API response
+          const allTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const teamIndex = allTeams.findIndex((t: Team) => t.id === teamId);
+          if (teamIndex >= 0) {
+            allTeams[teamIndex] = updateResult.team;
+          }
+          localStorage.setItem("teams", JSON.stringify(allTeams));
+          setTeam(updateResult.team);
+          setRemoveMemberId(null);
+          return;
+        }
       }
     } catch (e) {
       // API failed, continue with local
@@ -309,6 +320,14 @@ export default function TeamDetailClient() {
     if (teamIndex === -1) return;
 
     allTeams[teamIndex].members = updatedMembers;
+    
+    // If no members left, delete the team locally too
+    if (updatedMembers.length === 0) {
+      const filteredTeams = allTeams.filter((t: Team) => t.id !== teamId);
+      localStorage.setItem("teams", JSON.stringify(filteredTeams));
+      router.push("/teams");
+      return;
+    }
 
     localStorage.setItem("teams", JSON.stringify(allTeams));
     setTeam(allTeams[teamIndex]);

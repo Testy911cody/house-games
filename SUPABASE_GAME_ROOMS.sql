@@ -67,20 +67,26 @@ CREATE TRIGGER trigger_update_game_rooms_updated_at
   FOR EACH ROW
   EXECUTE FUNCTION update_game_rooms_updated_at();
 
--- Function to clean up old/stale rooms (rooms older than 24 hours or finished > 1 hour ago)
+-- Function to clean up old/stale/empty rooms (aggressive cleanup)
 CREATE OR REPLACE FUNCTION cleanup_stale_game_rooms()
 RETURNS void AS $$
 BEGIN
   DELETE FROM game_rooms
   WHERE 
-    -- Delete rooms that have been waiting for more than 24 hours
-    (status = 'waiting' AND created_at < NOW() - INTERVAL '24 hours')
+    -- Delete rooms with no players (empty rooms) immediately
+    (current_players = '[]'::jsonb OR current_players IS NULL OR jsonb_array_length(current_players) = 0)
     OR
-    -- Delete rooms that finished more than 1 hour ago
-    (status = 'finished' AND finished_at < NOW() - INTERVAL '1 hour')
+    -- Delete rooms that finished more than 5 minutes ago
+    (status = 'finished' AND finished_at < NOW() - INTERVAL '5 minutes')
     OR
-    -- Delete rooms that have been playing for more than 12 hours (likely abandoned)
-    (status = 'playing' AND started_at < NOW() - INTERVAL '12 hours');
+    -- Delete waiting rooms with only 1 player that are older than 5 minutes
+    (status = 'waiting' AND jsonb_array_length(current_players) = 1 AND created_at < NOW() - INTERVAL '5 minutes')
+    OR
+    -- Delete rooms that have been playing for more than 6 hours (likely abandoned)
+    (status = 'playing' AND started_at < NOW() - INTERVAL '6 hours')
+    OR
+    -- Delete waiting rooms older than 1 hour (cleanup old lobbies)
+    (status = 'waiting' AND created_at < NOW() - INTERVAL '1 hour');
 END;
 $$ LANGUAGE plpgsql;
 
