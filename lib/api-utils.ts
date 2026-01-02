@@ -773,6 +773,8 @@ async function cleanupInactiveTeams(): Promise<void> {
     const now = Date.now();
     const TEN_MINUTES = 10 * 60 * 1000; // 10 minutes in milliseconds
     const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
+    const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const THREE_DAYS = 3 * 24 * 60 * 60 * 1000; // 3 days in milliseconds
 
     for (const team of teams) {
       const teamAge = now - new Date(team.createdAt).getTime();
@@ -790,40 +792,62 @@ async function cleanupInactiveTeams(): Promise<void> {
       // Determine if team is active (admin or any member is online)
       const hasActiveUsers = adminOnline || membersOnline;
       
-      // Determine if team has recent game activity (within last 10 minutes)
-      const hasRecentGameAccess = timeSinceLastGame < TEN_MINUTES;
+      // Determine if team has recent game activity
+      // For very old teams, require more recent activity
+      const hasRecentGameAccess = teamAge > THREE_DAYS 
+        ? timeSinceLastGame < ONE_HOUR  // For 3+ day old teams, need activity within last hour
+        : timeSinceLastGame < TEN_MINUTES; // For newer teams, 10 minutes is fine
       
       let shouldDelete = false;
       let deleteReason = '';
       
-      // DELETE IMMEDIATELY if admin is not online (admin left)
-      if (!adminOnline) {
-        shouldDelete = true;
-        deleteReason = `Admin is not online (admin left)`;
-      }
-      // Delete team if it has no members (empty team)
-      else if (!team.members || team.members.length === 0) {
-        // Only delete if older than 10 minutes (give time to add members)
+      // Priority 1: Delete empty teams (no members) older than 10 minutes
+      if (!team.members || team.members.length === 0) {
         if (teamAge > TEN_MINUTES) {
           shouldDelete = true;
           deleteReason = `Empty team (no members) older than 10 minutes`;
         }
       }
-      // Delete team if no active users and no recent game access and older than 10 minutes
-      else if (!hasActiveUsers && !hasRecentGameAccess && teamAge > TEN_MINUTES) {
-        shouldDelete = true;
-        const minsOld = Math.floor(teamAge / 60000);
-        const minsSinceGame = lastGameAccess > 0 ? Math.floor(timeSinceLastGame / 60000) : null;
-        if (minsSinceGame !== null) {
-          deleteReason = `Inactive team (${minsOld} min old), no active users, last game ${minsSinceGame} min ago`;
-        } else {
-          deleteReason = `Inactive team (${minsOld} min old), no active users, never played a game`;
+      // Priority 2: Delete very old teams (3+ days) unless they have active users AND recent game access
+      else if (teamAge > THREE_DAYS) {
+        if (!hasActiveUsers || !hasRecentGameAccess) {
+          shouldDelete = true;
+          const daysOld = Math.floor(teamAge / ONE_DAY);
+          if (!hasActiveUsers && !hasRecentGameAccess) {
+            deleteReason = `Very old team (${daysOld} days), no active users, no recent game access`;
+          } else if (!hasActiveUsers) {
+            deleteReason = `Very old team (${daysOld} days), no active users`;
+          } else {
+            const hoursSinceGame = Math.floor(timeSinceLastGame / ONE_HOUR);
+            deleteReason = `Very old team (${daysOld} days), last game ${hoursSinceGame} hours ago`;
+          }
         }
       }
-      // Delete teams older than 1 hour with no activity at all
-      else if (teamAge > ONE_HOUR && !hasActiveUsers && lastGameAccess === 0) {
-        shouldDelete = true;
-        deleteReason = `Old team (${Math.floor(teamAge / ONE_HOUR)} hours old), never used, no active users`;
+      // Priority 3: Delete old teams (1-3 days) if no active users AND no recent game access
+      else if (teamAge > ONE_DAY) {
+        if (!hasActiveUsers && !hasRecentGameAccess) {
+          shouldDelete = true;
+          const daysOld = Math.floor(teamAge / ONE_DAY);
+          const hoursSinceGame = lastGameAccess > 0 ? Math.floor(timeSinceLastGame / ONE_HOUR) : null;
+          if (hoursSinceGame !== null) {
+            deleteReason = `Old team (${daysOld} days), no active users, last game ${hoursSinceGame} hours ago`;
+          } else {
+            deleteReason = `Old team (${daysOld} days), no active users, never played a game`;
+          }
+        }
+      }
+      // Priority 4: Delete newer teams (less than 1 day) if no active users AND no recent game access AND older than 1 hour
+      else if (teamAge > ONE_HOUR) {
+        if (!hasActiveUsers && !hasRecentGameAccess) {
+          shouldDelete = true;
+          const hoursOld = Math.floor(teamAge / ONE_HOUR);
+          const minsSinceGame = lastGameAccess > 0 ? Math.floor(timeSinceLastGame / 60000) : null;
+          if (minsSinceGame !== null) {
+            deleteReason = `Inactive team (${hoursOld} hours old), no active users, last game ${minsSinceGame} min ago`;
+          } else {
+            deleteReason = `Inactive team (${hoursOld} hours old), no active users, never played a game`;
+          }
+        }
       }
       
       if (shouldDelete) {
@@ -851,6 +875,8 @@ async function cleanupInactiveTeams(): Promise<void> {
     
     if (teamsToDelete.length > 0) {
       console.log(`🧹 Cleanup complete: Deleted ${teamsToDelete.length} inactive team(s)`);
+    } else {
+      console.log(`🧹 Cleanup complete: No inactive teams to delete`);
     }
   } catch (error) {
     console.error('Error cleaning up inactive teams:', error);
