@@ -312,8 +312,50 @@ function CodenamesPageContent() {
           
           // Check if game status changed from waiting to playing
           if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            // Game was started - move to setup phase
-            setPhase("setup");
+            // Game was started - if we have room with players already assigned, start directly
+            // Otherwise go to setup phase
+            const hasPlayers = newRoom.currentPlayers && newRoom.currentPlayers.length >= (newRoom.minPlayers || 4);
+            
+            if (hasPlayers) {
+              // Extract team information from room if available
+              if (newRoom.teams && newRoom.teams.length >= 2) {
+                const redTeamData = newRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+                const blueTeamData = newRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+                
+                if (redTeamData) {
+                  setRedTeamName(redTeamData.name || "RED TEAM");
+                }
+                if (blueTeamData) {
+                  setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+                  // Check if current user's team matches blue team
+                  const currentTeamData = localStorage.getItem("currentTeam");
+                  if (currentTeamData) {
+                    try {
+                      const teamInfo = JSON.parse(currentTeamData);
+                      if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+                        setBlueTeamId(teamInfo.id || null);
+                      }
+                    } catch (e) {
+                      // Ignore parse errors
+                    }
+                  }
+                }
+              }
+              
+              // Extract difficulty from room settings if available
+              if (newRoom.settings && newRoom.settings.difficulty) {
+                setDifficulty(newRoom.settings.difficulty);
+              }
+              
+              // Start game directly - skip setup phase
+              startGame();
+            } else {
+              // Not enough players - for room-based games, stay in waiting
+              // Only go to setup for non-room games
+              if (!gameRoom) {
+                setPhase("setup");
+              }
+            }
           }
           
           // Update room state (players, etc.)
@@ -1031,7 +1073,11 @@ function CodenamesPageContent() {
               
               if (remoteState.phase && remoteState.phase !== "waiting") {
                 // Game started by another player
-                if (remoteState.phase === "setup" || remoteState.phase === "playing") {
+                // If we're in a room-based game with teams assigned, skip setup phase
+                if (gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && remoteState.phase === "setup") {
+                  // Skip setup, go directly to playing/role selection
+                  setPhase("playing");
+                } else if (remoteState.phase === "setup" || remoteState.phase === "playing") {
                   setPhase(remoteState.phase);
                 }
               }
@@ -1687,6 +1733,41 @@ function CodenamesPageContent() {
     // Keep difficulty setting
   };
 
+  // Auto-skip setup phase if we're in a room with teams already assigned
+  useEffect(() => {
+    if (phase === "setup" && gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
+      // Extract team information from room
+      const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+      const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+      
+      if (redTeamData) {
+        setRedTeamName(redTeamData.name || "RED TEAM");
+      }
+      if (blueTeamData) {
+        setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+        const currentTeamData = localStorage.getItem("currentTeam");
+        if (currentTeamData) {
+          try {
+            const teamInfo = JSON.parse(currentTeamData);
+            if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+              setBlueTeamId(teamInfo.id || null);
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+      
+      // Extract difficulty from room settings if available
+      if (gameRoom.settings && gameRoom.settings.difficulty) {
+        setDifficulty(gameRoom.settings.difficulty);
+      }
+      
+      // Start game directly - skip setup phase
+      startGame();
+    }
+  }, [phase, gameRoom, currentUser]);
+
   if (!currentUser) return null;
 
   const activeTeam = currentTeam === "red" ? redTeam : blueTeam;
@@ -1739,12 +1820,61 @@ function CodenamesPageContent() {
           currentUser={currentUser}
           roomCode={gameRoom.code}
           room={gameRoom}
-          onStartGame={() => {
-            setPhase("setup");
+          onStartGame={async () => {
+            // If we have room with players already assigned, start directly
+            // Otherwise go to setup phase
+            const hasPlayers = gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4);
+            
+            if (hasPlayers) {
+              // Extract team information from room if available
+              if (gameRoom.teams && gameRoom.teams.length >= 2) {
+                const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+                const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+                
+                if (redTeamData) {
+                  setRedTeamName(redTeamData.name || "RED TEAM");
+                }
+                if (blueTeamData) {
+                  setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+                  // Check if current user's team matches blue team
+                  const currentTeamData = localStorage.getItem("currentTeam");
+                  if (currentTeamData) {
+                    try {
+                      const teamInfo = JSON.parse(currentTeamData);
+                      if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+                        setBlueTeamId(teamInfo.id || null);
+                      }
+                    } catch (e) {
+                      // Ignore parse errors
+                    }
+                  }
+                }
+              }
+              
+              // Extract difficulty from room settings if available
+              if (gameRoom.settings && gameRoom.settings.difficulty) {
+                setDifficulty(gameRoom.settings.difficulty);
+              }
+              
+              // Start game directly - skip setup phase
+              await startGame();
+            } else {
+              // Not enough players - for room-based games, stay in waiting
+              // Only go to setup for non-room games
+              if (!gameRoom) {
+                setPhase("setup");
+              }
+            }
           }}
           onPlayAgainstComputer={() => {
             setIsPlayingAgainstComputer(true);
-            setPhase("setup");
+            // Only go to setup if not in a room
+            if (!gameRoom) {
+              setPhase("setup");
+            } else {
+              // For room games, start directly
+              startGame();
+            }
           }}
           onLeaveRoom={() => {
             setGameRoom(null);
@@ -1977,8 +2107,48 @@ function CodenamesPageContent() {
     );
   }
 
-  // SETUP PHASE
+  // Auto-skip setup phase if we're in a room with teams already assigned
+  useEffect(() => {
+    if (phase === "setup" && gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
+      // Extract team information from room
+      const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+      const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+      
+      if (redTeamData) {
+        setRedTeamName(redTeamData.name || "RED TEAM");
+      }
+      if (blueTeamData) {
+        setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+        const currentTeamData = localStorage.getItem("currentTeam");
+        if (currentTeamData) {
+          try {
+            const teamInfo = JSON.parse(currentTeamData);
+            if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+              setBlueTeamId(teamInfo.id || null);
+            }
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+      }
+      
+      // Extract difficulty from room settings if available
+      if (gameRoom.settings && gameRoom.settings.difficulty) {
+        setDifficulty(gameRoom.settings.difficulty);
+      }
+      
+      // Start game directly - skip setup phase
+      startGame();
+    }
+  }, [phase, gameRoom, currentUser]);
+
+  // SETUP PHASE - Skip if we're in a room with teams already assigned
   if (phase === "setup") {
+    // If we're in a room-based game with teams assigned, don't render setup screen
+    if (gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
+      return null; // Don't render setup screen, useEffect will handle starting the game
+    }
+    
     const currentTeamData = localStorage.getItem("currentTeam");
     let teamInfo = null;
     if (currentTeamData) {
@@ -2196,30 +2366,53 @@ function CodenamesPageContent() {
     // Auto-select team based on waiting room setup
     // If blueTeamId is set and matches current user's team, they're blue, otherwise red (host)
     if (!selectedTeam && currentUser) {
-      const currentTeamData = localStorage.getItem("currentTeam");
-      let currentTeamId = null;
-      if (currentTeamData) {
-        try {
-          currentTeamId = JSON.parse(currentTeamData).id;
-        } catch (e) {
-          // Ignore parse errors
+      // If we're in a room, determine team from room data
+      if (gameRoom && gameRoom.teams && gameRoom.teams.length >= 2) {
+        const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+        const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+        const currentTeamData = localStorage.getItem("currentTeam");
+        let currentTeamId = null;
+        if (currentTeamData) {
+          try {
+            currentTeamId = JSON.parse(currentTeamData).id;
+          } catch (e) {
+            // Ignore parse errors
+          }
         }
-      }
-      
-      // If blueTeamId matches current user's team, they're on blue team
-      // Otherwise, they're on red team (the host)
-      if (blueTeamId && currentTeamId === blueTeamId) {
-        setSelectedTeam("blue");
+        
+        // Check if current user is in blue team
+        if (blueTeamData && blueTeamData.players && blueTeamData.players.some((p: any) => p.id === currentUser.id || p.id === currentTeamId)) {
+          setSelectedTeam("blue");
+        } else {
+          setSelectedTeam("red");
+        }
       } else {
-        setSelectedTeam("red");
+        // Legacy logic for non-room games
+        const currentTeamData = localStorage.getItem("currentTeam");
+        let currentTeamId = null;
+        if (currentTeamData) {
+          try {
+            currentTeamId = JSON.parse(currentTeamData).id;
+          } catch (e) {
+            // Ignore parse errors
+          }
+        }
+        
+        // If blueTeamId matches current user's team, they're on blue team
+        // Otherwise, they're on red team (the host)
+        if (blueTeamId && currentTeamId === blueTeamId) {
+          setSelectedTeam("blue");
+        } else {
+          setSelectedTeam("red");
+        }
       }
     }
     
     return (
       <div className="min-h-screen p-4 md:p-8">
         <div className="max-w-4xl mx-auto">
-          {/* Available Teams to Join (if no blue team yet) */}
-          {!blueTeamId && availableTeams.length > 0 && (
+          {/* Available Teams to Join (only show if not in room or no blue team yet) */}
+          {!gameRoom && !blueTeamId && availableTeams.length > 0 && (
             <div className="neon-card neon-box-cyan p-4 mb-6 card-3d">
               <h3 className="text-sm font-bold text-cyan-400 mb-2 flex items-center gap-2">
                 <Users className="w-4 h-4" />

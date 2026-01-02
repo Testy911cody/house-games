@@ -307,7 +307,12 @@ function MonopolyPageContent() {
       console.error("Error updating room status:", error);
     }
     
-    setGamePhase("setup");
+    // Skip setup phase for room-based games - go directly to playing
+    if (gameRoom.currentPlayers.length >= gameRoom.minPlayers) {
+      initializeGame();
+    } else {
+      setGamePhase("setup");
+    }
   };
 
   // Handle leaving room
@@ -909,7 +914,13 @@ function MonopolyPageContent() {
         onStartGame={handleStartOnlineGame}
         onPlayAgainstComputer={() => {
           setIsOnlineGame(false);
-          setGamePhase("setup");
+          // Only go to setup if not in a room
+          if (!gameRoom) {
+            setGamePhase("setup");
+          } else {
+            // For room games, start directly
+            initializeGame();
+          }
         }}
         onLeaveRoom={handleLeaveRoom}
         minPlayers={2}
@@ -921,8 +932,32 @@ function MonopolyPageContent() {
     );
   }
 
-  // Setup screen
+  // Auto-skip setup phase if we're in a room with players already assigned
+  useEffect(() => {
+    if (gameState === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+      // Extract player information from room
+      const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+      while (roomPlayerNames.length < 6) {
+        roomPlayerNames.push("");
+      }
+      setPlayerNames(roomPlayerNames);
+      setPlayerCount(Math.min(gameRoom.currentPlayers.length, 6));
+      
+      const myIndex = gameRoom.currentPlayers.findIndex(p => p.id === currentUser?.id);
+      setMyPlayerIndex(myIndex >= 0 ? myIndex : 0);
+      
+      // Start game directly - skip setup phase
+      initializeGame();
+    }
+  }, [gameState, gameRoom, currentUser]);
+
+  // Setup screen - Skip if we're in a room with players already assigned
   if (gameState === "setup") {
+    // If we're in a room-based game with players assigned, don't render setup screen
+    if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+      return null; // Don't render setup screen, useEffect will handle starting the game
+    }
+    
     const currentTeamData = localStorage.getItem("currentTeam");
     let teamInfo = null;
     if (currentTeamData) {

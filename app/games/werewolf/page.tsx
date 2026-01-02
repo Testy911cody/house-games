@@ -215,7 +215,12 @@ function WerewolfPageContent() {
       console.error("Error updating room status:", error);
     }
     
-    setGameState("setup");
+    // Skip setup phase for room-based games - go directly to playing
+    if (gameRoom.currentPlayers.length >= gameRoom.minPlayers) {
+      initializeGame();
+    } else {
+      setGameState("setup");
+    }
   };
   
   // Save game state to Supabase whenever it changes (for multiplayer sync)
@@ -682,7 +687,13 @@ function WerewolfPageContent() {
         onStartGame={handleStartOnlineGame}
         onPlayAgainstComputer={() => {
           setIsOnlineGame(false);
-          setGameState("setup");
+          // Only go to setup if not in a room
+          if (!gameRoom) {
+            setGameState("setup");
+          } else {
+            // For room games, start directly
+            initializeGame();
+          }
         }}
         onLeaveRoom={handleLeaveRoom}
         minPlayers={5}

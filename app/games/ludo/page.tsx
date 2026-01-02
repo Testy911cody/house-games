@@ -376,7 +376,12 @@ function LudoPageContent() {
       console.error("Error updating room status:", error);
     }
     
-    setGamePhase("setup");
+    // Skip setup phase for room-based games - go directly to playing
+    if (gameRoom.currentPlayers.length >= gameRoom.minPlayers) {
+      initializeGame();
+    } else {
+      setGamePhase("setup");
+    }
   };
 
   // Handle leaving room
@@ -394,6 +399,26 @@ function LudoPageContent() {
     setGamePhase("lobby");
     router.push("/games/ludo");
   };
+
+  // Auto-skip setup phase if we're in a room with players already assigned
+  useEffect(() => {
+    if (gamePhase === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+      // Extract player information from room
+      const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+      while (roomPlayerNames.length < 4) {
+        roomPlayerNames.push("");
+      }
+      setPlayerNames(roomPlayerNames);
+      setPlayerCount(Math.min(gameRoom.currentPlayers.length, 4));
+      
+      const myIndex = gameRoom.currentPlayers.findIndex(p => p.id === currentUser?.id);
+      setMyPlayerIndex(myIndex >= 0 ? myIndex : 0);
+      
+      // Start game directly - skip setup phase
+      initializeGame();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gamePhase, gameRoom, currentUser]);
 
   const initializeGame = async () => {
     const newPlayers: Player[] = [];
@@ -866,7 +891,13 @@ function LudoPageContent() {
         onStartGame={handleStartOnlineGame}
         onPlayAgainstComputer={() => {
           setIsOnlineGame(false);
-          setGamePhase("setup");
+          // Only go to setup if not in a room
+          if (!gameRoom) {
+            setGamePhase("setup");
+          } else {
+            // For room games, start directly
+            initializeGame();
+          }
         }}
         onLeaveRoom={handleLeaveRoom}
         minPlayers={2}
@@ -943,7 +974,7 @@ function LudoPageContent() {
           ) : null;
         })()}
 
-        {gameState === "setup" && (
+        {gameState === "setup" && !(gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) && (
           <div className="neon-card neon-box-yellow p-6 sm:p-8 max-w-2xl mx-auto card-3d">
             <h2 className="text-xl sm:text-2xl font-bold text-yellow-400 mb-6 text-center">Game Setup</h2>
             

@@ -221,8 +221,23 @@ function TabooPageContent() {
           
           // Check if game status changed from waiting to playing
           if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            // Game was started - move to setup phase
-            setPhase("setup");
+            // Game was started - if we have room with players already assigned, start directly
+            // Otherwise go to setup phase
+            const hasPlayers = newRoom.currentPlayers && newRoom.currentPlayers.length >= (newRoom.minPlayers || 2);
+            
+            if (hasPlayers) {
+              // Extract team information from room if available
+              if (newRoom.teams && newRoom.teams.length >= 2) {
+                // Teams are already assigned, start game directly
+                startGame();
+              } else {
+                // No teams, but players are assigned - start game directly
+                startGame();
+              }
+            } else {
+              // Not enough players, go to setup phase
+              setPhase("setup");
+            }
           }
           
           // Update room state (players, etc.)
@@ -886,12 +901,23 @@ function TabooPageContent() {
             }
           }
         }}
-        onStartGame={() => {
-          setPhase("setup");
+        onStartGame={async () => {
+          // If we have room with players already assigned, start directly
+          if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+            startGame();
+          } else {
+            setPhase("setup");
+          }
         }}
         onPlayAgainstComputer={() => {
           setIsPlayingAgainstComputer(true);
-          setPhase("setup");
+          // Only go to setup if not in a room
+          if (!gameRoom) {
+            setPhase("setup");
+          } else {
+            // For room games, start directly
+            startGame();
+          }
         }}
         minPlayers={2}
         maxPlayers={6}
@@ -901,8 +927,22 @@ function TabooPageContent() {
     );
   }
 
-  // SETUP PHASE
+  // Auto-skip setup phase if we're in a room with teams/players already assigned
+  useEffect(() => {
+    if (phase === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+      // Start game directly - skip setup phase
+      startGame();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, gameRoom, currentUser]);
+
+  // SETUP PHASE - Skip if we're in a room with teams/players already assigned
   if (phase === "setup") {
+    // If we're in a room-based game with players assigned, don't render setup screen
+    if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+      return null; // Don't render setup screen, useEffect will handle starting the game
+    }
+    
     const currentTeamData = localStorage.getItem("currentTeam");
     let teamInfo = null;
     if (currentTeamData) {
