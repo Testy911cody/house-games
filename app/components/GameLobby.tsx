@@ -17,6 +17,7 @@ import {
   Play,
   Crown,
   Clock,
+  Trash2,
 } from "lucide-react";
 
 interface GameRoom {
@@ -49,6 +50,22 @@ interface GameRoom {
   updatedAt: string;
 }
 
+interface TeamColor {
+  name: string;
+  bg: string;
+  border: string;
+  text: string;
+  glow: string;
+  light: string;
+}
+
+interface Team {
+  id: string;
+  name: string;
+  color: TeamColor;
+  score: number;
+}
+
 interface GameLobbyProps {
   gameType: string;
   gameName: string;
@@ -60,6 +77,15 @@ interface GameLobbyProps {
   onJoinRoom: (room: GameRoom) => void;
   onCreateRoom?: (room: GameRoom) => void;
   backUrl?: string;
+  // Team selection props
+  teams?: Team[];
+  onAddTeam?: () => void;
+  onRemoveTeam?: (id: string) => void;
+  onUpdateTeamName?: (id: string, name: string) => void;
+  onUpdateTeamColor?: (id: string, color: TeamColor) => void;
+  onStartGame?: () => void;
+  teamColors?: TeamColor[];
+  showTeamSelection?: boolean;
 }
 
 export default function GameLobby({
@@ -73,6 +99,14 @@ export default function GameLobby({
   onJoinRoom,
   onCreateRoom,
   backUrl = "/games",
+  teams = [],
+  onAddTeam,
+  onRemoveTeam,
+  onUpdateTeamName,
+  onUpdateTeamColor,
+  onStartGame,
+  teamColors = [],
+  showTeamSelection = false,
 }: GameLobbyProps) {
   const router = useRouter();
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -542,6 +576,92 @@ export default function GameLobby({
             </div>
           )}
         </div>
+
+        {/* Team Selection Section */}
+        {showTeamSelection && teamMode && (
+          <div className="neon-card neon-box-yellow p-8 mt-8">
+            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center">
+              🏆 CREATE YOUR TEAMS
+            </h2>
+
+            {/* Teams List */}
+            <div className="space-y-4 mb-6">
+              {teams.map((team, idx) => (
+                <div
+                  key={team.id}
+                  className={`${team.color.light} rounded-xl p-4 border-2 ${team.color.border} ${team.color.glow} flex items-center gap-4 transition-all hover:animate-pulse-glow`}
+                >
+                  <div className={`w-10 h-10 rounded-full ${team.color.bg} flex items-center justify-center text-black font-bold text-lg`}>
+                    {idx + 1}
+                  </div>
+                  <input
+                    type="text"
+                    value={team.name}
+                    onChange={(e) => onUpdateTeamName?.(team.id, e.target.value)}
+                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400"
+                    maxLength={20}
+                  />
+                  <div className="flex gap-1">
+                    {teamColors.map((color) => (
+                      <button
+                        key={color.name}
+                        onClick={() => onUpdateTeamColor?.(team.id, color)}
+                        className={`w-6 h-6 rounded-full ${color.bg} ${
+                          team.color.name === color.name ? "ring-2 ring-white scale-110 animate-pulse" : "opacity-50 hover:opacity-100"
+                        } transition-all hover:scale-110`}
+                        title={color.name}
+                      />
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => onRemoveTeam?.(team.id)}
+                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {teams.length < 6 && onAddTeam && (
+              <button
+                onClick={onAddTeam}
+                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-6 h-6" />
+                ADD TEAM
+              </button>
+            )}
+
+            {/* Start Button */}
+            {onStartGame && (
+              <button
+                onClick={onStartGame}
+                disabled={teams.length < 2}
+                className={`w-full mt-8 py-5 rounded-xl text-xl font-bold transition-all flex items-center justify-center gap-3 ${
+                  teams.length >= 2
+                    ? "neon-btn neon-btn-green hover:animate-button-press"
+                    : "bg-gray-800 text-gray-500 cursor-not-allowed border-2 border-gray-700"
+                }`}
+              >
+                <Play className="w-6 h-6" />
+                {teams.length < 2 ? "ADD AT LEAST 2 TEAMS" : "CHOOSE TOPIC →"}
+              </button>
+            )}
+
+            {/* How to Play */}
+            <div className="mt-8 p-6 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
+              <h3 className="font-bold text-blue-400 mb-3">📖 HOW TO PLAY</h3>
+              <ul className="text-blue-300/80 space-y-2 text-sm">
+                <li>• Choose a <span className="text-yellow-400">TOPIC</span> (Islam, Christianity, Sports, etc.)</li>
+                <li>• Pick <span className="text-pink-400">categories</span> within that topic</li>
+                <li>• Teams take turns selecting questions from the board</li>
+                <li>• Any team can <span className="text-green-400">BUZZ IN</span> to answer!</li>
+                <li>• Correct = +points, Wrong = -points</li>
+              </ul>
+            </div>
+          </div>
+        )}
 
         {/* Info Box */}
         <div className="mt-6 p-4 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">

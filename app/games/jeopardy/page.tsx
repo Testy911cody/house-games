@@ -497,37 +497,28 @@ function JeopardyPageContent() {
     }
   }, [searchParams]);
 
-  // Auto-advance from lobby to team selection (skip waiting room)
+  // Auto-initialize current team when in lobby
   useEffect(() => {
-    if (showLobby && phase === "waiting" && currentUser) {
+    if (showLobby && phase === "waiting" && currentUser && !gameRoom && teams.length === 0) {
       // Ensure current team is in teams array
       const currentTeamData = localStorage.getItem("currentTeam");
       if (currentTeamData) {
         try {
           const teamData = JSON.parse(currentTeamData);
-          setTeams(prev => {
-            const currentTeamExists = prev.some(t => t.id === `team_${teamData.id}`);
-            if (!currentTeamExists) {
-              const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
-              const gameTeam: Team = {
-                id: `team_${teamData.id}`,
-                name: teamData.name,
-                color: availableColor,
-                score: 0
-              };
-              return [gameTeam, ...prev];
-            }
-            return prev;
-          });
+          const availableColor = TEAM_COLORS[0];
+          const gameTeam: Team = {
+            id: `team_${teamData.id}`,
+            name: teamData.name,
+            color: availableColor,
+            score: 0
+          };
+          setTeams([gameTeam]);
         } catch (e) {
           console.error("Error adding current team:", e);
         }
       }
-      // Skip lobby and go directly to team selection
-      setPhase("setup");
-      setShowLobby(false);
     }
-  }, [showLobby, phase, currentUser]);
+  }, [showLobby, phase, currentUser, gameRoom, teams.length]);
 
   // Poll room status to detect when game starts (even when in waiting phase)
   useEffect(() => {
@@ -601,27 +592,28 @@ function JeopardyPageContent() {
       const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
       if (result.success && result.room) {
         setGameRoom(result.room);
-        setShowLobby(false);
+        // Keep lobby open - team selection is merged into lobby
         // Update gameId to use room code for multiplayer sync
         setGameId(`jeopardy_${result.room.code}`);
-        // Skip waiting room and go directly to team selection
-        setPhase("setup");
         // Ensure current team is in teams array
         const currentTeamData = localStorage.getItem("currentTeam");
         if (currentTeamData) {
           try {
             const teamData = JSON.parse(currentTeamData);
-            const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
-            if (!currentTeamExists) {
-              const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
-              const gameTeam: Team = {
-                id: `team_${teamData.id}`,
-                name: teamData.name,
-                color: availableColor,
-                score: 0
-              };
-              setTeams(prev => [gameTeam, ...prev]);
-            }
+            setTeams(prev => {
+              const currentTeamExists = prev.some(t => t.id === `team_${teamData.id}`);
+              if (!currentTeamExists) {
+                const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
+                const gameTeam: Team = {
+                  id: `team_${teamData.id}`,
+                  name: teamData.name,
+                  color: availableColor,
+                  score: 0
+                };
+                return [gameTeam, ...prev];
+              }
+              return prev;
+            });
           } catch (e) {
             console.error("Error adding current team:", e);
           }
@@ -635,25 +627,26 @@ function JeopardyPageContent() {
   // Handle room joined from lobby
   const handleJoinRoom = (room: GameRoom) => {
     setGameRoom(room);
-    setShowLobby(false);
-    // Skip waiting room and go directly to team selection
-    setPhase("setup");
+    // Keep lobby open - team selection is merged into lobby
     // Ensure current team is in teams array
     const currentTeamData = localStorage.getItem("currentTeam");
     if (currentTeamData) {
       try {
         const teamData = JSON.parse(currentTeamData);
-        const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
-        if (!currentTeamExists) {
-          const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
-          const gameTeam: Team = {
-            id: `team_${teamData.id}`,
-            name: teamData.name,
-            color: availableColor,
-            score: 0
-          };
-          setTeams(prev => [gameTeam, ...prev]);
-        }
+        setTeams(prev => {
+          const currentTeamExists = prev.some(t => t.id === `team_${teamData.id}`);
+          if (!currentTeamExists) {
+            const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
+            const gameTeam: Team = {
+              id: `team_${teamData.id}`,
+              name: teamData.name,
+              color: availableColor,
+              score: 0
+            };
+            return [gameTeam, ...prev];
+          }
+          return prev;
+        });
       } catch (e) {
         console.error("Error adding current team:", e);
       }
@@ -722,7 +715,8 @@ function JeopardyPageContent() {
       router.push("/");
       return;
     }
-    setCurrentUser(JSON.parse(user));
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
     
     // Create game ID (use room code if in multiplayer, otherwise use team ID)
     const currentTeam = localStorage.getItem("currentTeam");
@@ -747,6 +741,8 @@ function JeopardyPageContent() {
     if (savedCustomTopics) {
       setCustomTopics(JSON.parse(savedCustomTopics));
     }
+    
+    // Keep lobby open - team selection is now merged into lobby
   }, [router]);
 
   // Separate effect to initialize team from group
@@ -840,6 +836,7 @@ function JeopardyPageContent() {
 
   const startGame = () => {
     if (teams.length < 2) return;
+    setShowLobby(false); // Hide lobby when starting game
     setPhase("topicSelect");
   };
 
@@ -1263,17 +1260,35 @@ function JeopardyPageContent() {
   const currentTeam = teams[currentTeamIndex];
   const topicColor = currentTopicData ? COLOR_CLASSES[currentTopicData.color] : COLOR_CLASSES.cyan;
 
-  // LOBBY PHASE - Removed, skip directly to team selection
-  // The lobby is now integrated into the team selection screen
-  // This check is kept for backwards compatibility but should not be reached
+  // LOBBY PHASE - Merged with team selection
   if (showLobby && phase === "waiting") {
-    return null; // Will be handled by useEffect above
+    return (
+      <GameLobby
+        gameType="jeopardy"
+        gameName="JEOPARDY"
+        gameIcon="🎯"
+        maxPlayers={6}
+        minPlayers={2}
+        teamMode={true}
+        onJoinRoom={handleJoinRoom}
+        backUrl="/games"
+        teams={teams}
+        onAddTeam={addTeam}
+        onRemoveTeam={removeTeam}
+        onUpdateTeamName={updateTeamName}
+        onUpdateTeamColor={updateTeamColor}
+        onStartGame={startGame}
+        teamColors={TEAM_COLORS}
+        showTeamSelection={true}
+      />
+    );
   }
 
   // WAITING ROOM PHASE - Removed, skip directly to setup
   // This phase is no longer used - we go directly to team selection
 
-  // SETUP PHASE
+  // SETUP PHASE - Removed, now merged into lobby
+  // This phase is kept for backwards compatibility but should not be reached
   if (phase === "setup") {
     const currentTeamData2 = localStorage.getItem("currentTeam");
     let teamInfo = null;
