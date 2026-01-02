@@ -497,6 +497,38 @@ function JeopardyPageContent() {
     }
   }, [searchParams]);
 
+  // Auto-advance from lobby to team selection (skip waiting room)
+  useEffect(() => {
+    if (showLobby && phase === "waiting" && currentUser) {
+      // Ensure current team is in teams array
+      const currentTeamData = localStorage.getItem("currentTeam");
+      if (currentTeamData) {
+        try {
+          const teamData = JSON.parse(currentTeamData);
+          setTeams(prev => {
+            const currentTeamExists = prev.some(t => t.id === `team_${teamData.id}`);
+            if (!currentTeamExists) {
+              const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
+              const gameTeam: Team = {
+                id: `team_${teamData.id}`,
+                name: teamData.name,
+                color: availableColor,
+                score: 0
+              };
+              return [gameTeam, ...prev];
+            }
+            return prev;
+          });
+        } catch (e) {
+          console.error("Error adding current team:", e);
+        }
+      }
+      // Skip lobby and go directly to team selection
+      setPhase("setup");
+      setShowLobby(false);
+    }
+  }, [showLobby, phase, currentUser]);
+
   // Poll room status to detect when game starts (even when in waiting phase)
   useEffect(() => {
     if (!gameRoom || !currentUser || phase !== "waiting") return;
@@ -572,6 +604,28 @@ function JeopardyPageContent() {
         setShowLobby(false);
         // Update gameId to use room code for multiplayer sync
         setGameId(`jeopardy_${result.room.code}`);
+        // Skip waiting room and go directly to team selection
+        setPhase("setup");
+        // Ensure current team is in teams array
+        const currentTeamData = localStorage.getItem("currentTeam");
+        if (currentTeamData) {
+          try {
+            const teamData = JSON.parse(currentTeamData);
+            const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
+            if (!currentTeamExists) {
+              const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
+              const gameTeam: Team = {
+                id: `team_${teamData.id}`,
+                name: teamData.name,
+                color: availableColor,
+                score: 0
+              };
+              setTeams(prev => [gameTeam, ...prev]);
+            }
+          } catch (e) {
+            console.error("Error adding current team:", e);
+          }
+        }
       }
     } catch (error) {
       console.error("Error joining room:", error);
@@ -582,6 +636,28 @@ function JeopardyPageContent() {
   const handleJoinRoom = (room: GameRoom) => {
     setGameRoom(room);
     setShowLobby(false);
+    // Skip waiting room and go directly to team selection
+    setPhase("setup");
+    // Ensure current team is in teams array
+    const currentTeamData = localStorage.getItem("currentTeam");
+    if (currentTeamData) {
+      try {
+        const teamData = JSON.parse(currentTeamData);
+        const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
+        if (!currentTeamExists) {
+          const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
+          const gameTeam: Team = {
+            id: `team_${teamData.id}`,
+            name: teamData.name,
+            color: availableColor,
+            score: 0
+          };
+          setTeams(prev => [gameTeam, ...prev]);
+        }
+      } catch (e) {
+        console.error("Error adding current team:", e);
+      }
+    }
   };
 
   // Handle leaving room
@@ -1187,123 +1263,15 @@ function JeopardyPageContent() {
   const currentTeam = teams[currentTeamIndex];
   const topicColor = currentTopicData ? COLOR_CLASSES[currentTopicData.color] : COLOR_CLASSES.cyan;
 
-  // LOBBY PHASE - Show game lobby for online multiplayer
+  // LOBBY PHASE - Removed, skip directly to team selection
+  // The lobby is now integrated into the team selection screen
+  // This check is kept for backwards compatibility but should not be reached
   if (showLobby && phase === "waiting") {
-    return (
-      <GameLobby
-        gameType="jeopardy"
-        gameName="JEOPARDY"
-        gameIcon="🎯"
-        maxPlayers={6}
-        minPlayers={2}
-        teamMode={true}
-        onJoinRoom={handleJoinRoom}
-        backUrl="/games"
-      />
-    );
+    return null; // Will be handled by useEffect above
   }
 
-  // WAITING ROOM PHASE
-  if (phase === "waiting") {
-    const currentTeamData = localStorage.getItem("currentTeam");
-    let teamInfo = null;
-    if (currentTeamData) {
-      try {
-        teamInfo = JSON.parse(currentTeamData);
-      } catch (e) {
-        // Ignore parse errors
-      }
-    }
-    
-    const currentTeamName = teamInfo?.name || "Solo Player";
-    const currentTeamId = teamInfo?.id || null;
-
-    return (
-      <WaitingRoom
-        gameType="jeopardy"
-        gameName="JEOPARDY"
-        gameIcon="🎯"
-        currentTeamName={currentTeamName}
-        currentTeamId={currentTeamId}
-        gameId={gameRoom ? `jeopardy_${gameRoom.code}` : gameId || ""}
-        currentUser={currentUser}
-        roomCode={gameRoom?.code}
-        room={gameRoom || undefined}
-        onLeaveRoom={handleLeaveRoom}
-        onTeamJoined={async (teamId, teamName) => {
-          setJoinedTeamIds(prev => [...prev, teamId]);
-          setIsPlayingAgainstComputer(false);
-          // Add team to teams list
-          const { teamsAPI } = await import('@/lib/api-utils');
-          const result = await teamsAPI.getTeams();
-          if (result.success && result.teams) {
-            const team = result.teams.find((t: any) => t.id === teamId);
-            if (team) {
-              const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
-              const newTeam: Team = {
-                id: `team_${team.id}`,
-                name: team.name,
-                color: availableColor,
-                score: 0
-              };
-              setTeams(prev => [...prev, newTeam]);
-            }
-          }
-        }}
-        onStartGame={() => {
-          // Ensure current team is in teams array
-          const currentTeamData = localStorage.getItem("currentTeam");
-          if (currentTeamData) {
-            try {
-              const teamData = JSON.parse(currentTeamData);
-              const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
-              if (!currentTeamExists) {
-                const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
-                const gameTeam: Team = {
-                  id: `team_${teamData.id}`,
-                  name: teamData.name,
-                  color: availableColor,
-                  score: 0
-                };
-                setTeams(prev => [gameTeam, ...prev]);
-              }
-            } catch (e) {
-              console.error("Error adding current team:", e);
-            }
-          }
-          setPhase("setup");
-        }}
-        onPlayAgainstComputer={() => {
-          setIsPlayingAgainstComputer(true);
-          // Ensure current team is in teams array
-          const currentTeamData = localStorage.getItem("currentTeam");
-          if (currentTeamData) {
-            try {
-              const teamData = JSON.parse(currentTeamData);
-              const currentTeamExists = teams.some(t => t.id === `team_${teamData.id}`);
-              if (!currentTeamExists) {
-                const availableColor = TEAM_COLORS[teams.length % TEAM_COLORS.length];
-                const gameTeam: Team = {
-                  id: `team_${teamData.id}`,
-                  name: teamData.name,
-                  color: availableColor,
-                  score: 0
-                };
-                setTeams(prev => [gameTeam, ...prev]);
-              }
-            } catch (e) {
-              console.error("Error adding current team:", e);
-            }
-          }
-          setPhase("setup");
-        }}
-        minPlayers={2}
-        maxPlayers={6}
-        waitTime={30}
-        showAvailableGames={true}
-      />
-    );
-  }
+  // WAITING ROOM PHASE - Removed, skip directly to setup
+  // This phase is no longer used - we go directly to team selection
 
   // SETUP PHASE
   if (phase === "setup") {
