@@ -326,6 +326,38 @@ export interface Team {
 // Fallback in-memory storage (only used if Supabase is not configured)
 let teamsStorage: Team[] = [];
 
+async function getTeamFromDB(teamId: string): Promise<Team | null> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('teams')
+        .select('*')
+        .eq('id', teamId)
+        .single();
+      
+      if (error || !data) return null;
+      
+      return {
+        id: data.id,
+        name: data.name,
+        code: data.code,
+        adminId: data.admin_id,
+        adminName: data.admin_name,
+        members: data.members || [],
+        createdAt: data.created_at,
+        description: data.description,
+        lastGameAccess: data.last_game_access || null,
+      };
+    } catch (error) {
+      console.error('Error getting team from DB:', error);
+      return null;
+    }
+  }
+  
+  // Fallback to local storage
+  return teamsStorage.find(t => t.id === teamId) || null;
+}
+
 async function getTeamsFromDB(): Promise<Team[]> {
   if (isSupabaseConfigured() && supabase) {
     try {
@@ -764,12 +796,17 @@ async function cleanupInactiveTeams(): Promise<void> {
       let shouldDelete = false;
       let deleteReason = '';
       
+      // DELETE IMMEDIATELY if admin is not online (admin left)
+      if (!adminOnline) {
+        shouldDelete = true;
+        deleteReason = `Admin is not online (admin left)`;
+      }
       // Delete team if it has no members (empty team)
-      if (!team.members || team.members.length === 0) {
+      else if (!team.members || team.members.length === 0) {
         // Only delete if older than 10 minutes (give time to add members)
-        if (teamAge > TEN_MINUTES && !hasActiveUsers) {
+        if (teamAge > TEN_MINUTES) {
           shouldDelete = true;
-          deleteReason = `Empty team (no members) older than 10 minutes, no active admin`;
+          deleteReason = `Empty team (no members) older than 10 minutes`;
         }
       }
       // Delete team if no active users and no recent game access and older than 10 minutes
@@ -845,6 +882,19 @@ export const teamsAPI = {
   
   async updateTeam(teamId: string, updates: Partial<Team>): Promise<{ success: boolean; team?: Team; deleted?: boolean; error?: string }> {
     try {
+      // Get current team to check if admin is being changed
+      const currentTeam = await getTeamFromDB(teamId);
+      if (!currentTeam) {
+        return { success: false, error: 'Team not found' };
+      }
+      
+      // If adminId is being changed (admin is leaving), delete the team immediately
+      if (updates.adminId !== undefined && updates.adminId !== currentTeam.adminId) {
+        console.log(`🗑️ Deleting team ${currentTeam.name} because admin left (adminId changed)`);
+        await deleteTeamFromDB(teamId);
+        return { success: true, deleted: true };
+      }
+      
       const updatedTeam = await updateTeamInDB(teamId, updates);
       if (!updatedTeam) {
         return { success: false, error: 'Team not found' };
@@ -1695,20 +1745,18 @@ export const gameRoomsAPI = {
         room.teams = room.teams.filter(team => team.players.length > 0);
       }
       
+      // If the host left, delete the room immediately (don't assign new host)
+      if (room.hostId === userId) {
+        console.log(`🗑️ Deleting room ${room.code} because host left`);
+        await deleteRoomFromDB(roomId);
+        return { success: true };
+      }
+      
       // If room is empty, delete it immediately
       if (room.currentPlayers.length === 0) {
         console.log(`🗑️ Deleting empty room ${room.code} after last player left`);
         await deleteRoomFromDB(roomId);
         return { success: true };
-      }
-      
-      // If the host left, assign new host
-      if (room.hostId === userId) {
-        const newHost = room.currentPlayers[0];
-        room.hostId = newHost.id;
-        room.hostName = newHost.name;
-        newHost.isHost = true;
-        console.log(`👑 New host assigned: ${newHost.name} for room ${room.code}`);
       }
       
       const savedRoom = await saveRoomToDB(room);
