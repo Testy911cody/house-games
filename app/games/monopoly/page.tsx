@@ -965,7 +965,6 @@ function MonopolyPageContent() {
             <button
               onClick={() => {
                 setGamePhase("waiting");
-                setGameState("waiting");
               }}
               className="neon-btn neon-btn-green w-full btn-3d"
             >
