@@ -1043,22 +1043,13 @@ function DrawGuessPageContent() {
           }
         }}
         onStartGame={async () => {
-          // If we have room with players already assigned, start directly
-          if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-            startGame();
-          } else {
-            setPhase("setup");
-          }
+          // Setup phase removed - start game directly
+          startGame();
         }}
         onPlayAgainstComputer={() => {
           setIsPlayingAgainstComputer(true);
-          // Only go to setup if not in a room
-          if (!gameRoom) {
-            setPhase("setup");
-          } else {
-            // For room games, start directly
-            startGame();
-          }
+          // Setup phase removed - start game directly
+          startGame();
         }}
         minPlayers={2}
         maxPlayers={8}
@@ -1068,157 +1059,17 @@ function DrawGuessPageContent() {
     );
   }
 
-  // Auto-skip setup phase if we're in a room with players already assigned
-  useEffect(() => {
-    if (phase === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-      // Start game directly - skip setup phase
-      startGame();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, gameRoom, currentUser]);
-
-  // SETUP PHASE - Skip if we're in a room with players already assigned
+  // SETUP PHASE - Completely removed, player selection happens in lobby/waiting room
   if (phase === "setup") {
-    // If we're in a room-based game with players assigned, don't render setup screen
+    // Setup phase no longer exists - redirect to waiting or start game directly
     if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-      return null; // Don't render setup screen, useEffect will handle starting the game
+      // If in a room with players, start game directly
+      startGame();
+      return null;
     }
-    const currentTeamData = localStorage.getItem("currentTeam");
-    let teamInfo = null;
-    if (currentTeamData) {
-      try {
-        teamInfo = JSON.parse(currentTeamData);
-      } catch (e) {
-        // Ignore parse errors
-      }
-    }
-
-    return (
-      <div className="min-h-screen p-4 md:p-8 page-enter">
-        <div className="max-w-4xl mx-auto">
-          <Link
-            href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold animate-fade-in-left hover:animate-pulse-glow"
-          >
-            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
-            BACK TO GAMES
-          </Link>
-
-          <div className="text-center mb-8 animate-fade-in-down delay-200">
-            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float animate-glow-pulse">
-              🎨 DRAW & GUESS
-            </h1>
-            <p className="text-cyan-300 animate-fade-in-up delay-300">
-              Take turns drawing words while others guess!
-            </p>
-          </div>
-
-          {teamInfo && (
-            <div className="neon-card neon-box-purple p-4 mb-6 card-3d animate-slide-fade-in delay-300">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <Users className="w-5 h-5 text-purple-400" />
-                  <div>
-                    <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
-                    <div className="text-cyan-300/70 text-sm">
-                      {teamInfo.members.length + 1} player{teamInfo.members.length !== 0 ? "s" : ""}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="neon-card neon-box-pink p-8 card-3d animate-scale-in delay-400">
-            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center animate-fade-in-up">
-              👥 PLAYERS
-            </h2>
-
-            <div className="space-y-4 mb-6">
-              {players.map((player, idx) => (
-                <div
-                  key={player.id}
-                  className="bg-purple-900/30 rounded-xl p-4 border-2 border-purple-500 neon-box-purple flex items-center gap-4 transition-all card-enter hover:animate-pulse-glow"
-                  style={{ animationDelay: `${idx * 0.1}s` }}
-                >
-                  <div className="w-10 h-10 rounded-full bg-purple-500 flex items-center justify-center text-black font-bold text-lg animate-bounce-in">
-                    {idx + 1}
-                  </div>
-                  <input
-                    type="text"
-                    value={player.name}
-                    onChange={(e) => updatePlayerName(player.id, e.target.value)}
-                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400 input-3d focus:animate-pulse-glow"
-                    maxLength={20}
-                  />
-                  <button
-                    onClick={() => removePlayer(player.id)}
-                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors hover:animate-shake"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {players.length < 8 && (
-              <button
-                onClick={addPlayer}
-                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2 animate-fade-in-up delay-500 hover:animate-pulse-glow"
-              >
-                <Users className="w-6 h-6 animate-rotate-in" />
-                ADD PLAYER
-              </button>
-            )}
-
-            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50 animate-fade-in delay-600">
-              <label className="block text-yellow-400 font-semibold mb-3">
-                ROUNDS PER PLAYER
-              </label>
-              <div className="flex items-center gap-3">
-                {[1, 2, 3, 4, 5].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => setRoundsPerPlayer(num)}
-                    className={`w-12 h-12 rounded-lg font-bold text-lg transition-all hover:animate-scale-up ${
-                      roundsPerPlayer === num
-                        ? "bg-yellow-500 text-black neon-box-yellow animate-pulse"
-                        : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-yellow-500"
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <button
-              onClick={startGame}
-              disabled={players.length < 2}
-              className={`w-full mt-8 py-5 rounded-xl text-xl font-bold transition-all flex items-center justify-center gap-3 ${
-                players.length >= 2
-                  ? "neon-btn neon-btn-green hover:animate-button-press"
-                  : "bg-gray-800 text-gray-500 cursor-not-allowed border-2 border-gray-700"
-              } animate-fade-in-up delay-700`}
-            >
-              <Play className="w-6 h-6 animate-pulse" />
-              {players.length < 2 ? "ADD AT LEAST 2 PLAYERS" : "START GAME!"}
-            </button>
-
-            <div className="mt-8 p-6 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
-              <h3 className="font-bold text-blue-400 mb-3">📖 HOW TO PLAY</h3>
-              <ul className="text-blue-300/80 space-y-2 text-sm">
-                <li>• Players take turns drawing a randomly chosen word</li>
-                <li>• The <span className="text-pink-400">DRAWER</span> gets 60 seconds to draw</li>
-                <li>• Other players try to <span className="text-cyan-400">GUESS</span> what's being drawn</li>
-                <li>• Correct guessers get 10 points, drawer gets 5 points per correct guess</li>
-                <li>• Most points wins!</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // For non-room games, go back to waiting (setup is now in waiting room)
+    setPhase("waiting");
+    return null;
   }
 
   // WAITING PHASE - Role Selection

@@ -215,12 +215,11 @@ function WerewolfPageContent() {
       console.error("Error updating room status:", error);
     }
     
-    // Skip setup phase for room-based games - go directly to playing
+    // Setup phase removed - start game directly if enough players
     if (gameRoom.currentPlayers.length >= gameRoom.minPlayers) {
       initializeGame();
-    } else {
-      setGameState("setup");
     }
+    // Otherwise stay in waiting room
   };
   
   // Save game state to Supabase whenever it changes (for multiplayer sync)
@@ -687,13 +686,8 @@ function WerewolfPageContent() {
         onStartGame={handleStartOnlineGame}
         onPlayAgainstComputer={() => {
           setIsOnlineGame(false);
-          // Only go to setup if not in a room
-          if (!gameRoom) {
-            setGameState("setup");
-          } else {
-            // For room games, start directly
-            initializeGame();
-          }
+          // Setup phase removed - start game directly
+          initializeGame();
         }}
         onLeaveRoom={handleLeaveRoom}
         minPlayers={5}
@@ -705,138 +699,24 @@ function WerewolfPageContent() {
     );
   }
 
-  // Setup screen
+  // SETUP PHASE - Completely removed, player selection happens in lobby/waiting room
   if (gameState === "setup") {
-    return (
-      <div className="min-h-screen p-8">
-        <div className="max-w-4xl mx-auto">
-          {/* Online Game Info Banner */}
-          {isOnlineGame && gameRoom && (
-            <div className="neon-card neon-box-yellow p-4 mb-6">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <Globe className="w-5 h-5 text-yellow-400" />
-                  <div>
-                    <div className="text-yellow-400 font-bold">Online Game • Room: {gameRoom.code}</div>
-                    <div className="text-cyan-300/70 text-sm">
-                      {gameRoom.currentPlayers.length} players connected
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Link
-            href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            BACK TO GAMES
-          </Link>
-
-          <div className="text-center mb-8">
-            <h1 className="pixel-font text-3xl md:text-4xl font-bold text-red-400 neon-glow-red mb-4">
-              🐺 WEREWOLF 🐺
-            </h1>
-            <p className="text-cyan-300">A social deduction game of trust and betrayal</p>
-          </div>
-
-          {/* Group Info Banner */}
-          {(() => {
-            const currentTeamData = localStorage.getItem("currentTeam");
-            let teamInfo = null;
-            if (currentTeamData) {
-              try {
-                teamInfo = JSON.parse(currentTeamData);
-              } catch (e) {
-                // Ignore parse errors
-              }
-            }
-            return teamInfo ? (
-              <div className="neon-card neon-box-purple p-4 mb-6 card-3d max-w-lg mx-auto">
-                <div className="flex items-center justify-between flex-wrap gap-3">
-                  <div className="flex items-center gap-3">
-                    <Users className="w-5 h-5 text-purple-400" />
-                    <div>
-                      <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
-                      <div className="text-cyan-300/70 text-sm">
-                        {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as players
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : null;
-          })()}
-
-          <div className="neon-card neon-box-red p-8 max-w-lg mx-auto card-3d">
-            <div className="space-y-6">
-              <div>
-                <label className="block text-red-400 mb-2 pixel-font text-xs">NUMBER OF PLAYERS</label>
-                <div className="flex gap-2 flex-wrap">
-                  {[5, 6, 7, 8].map(num => (
-                    <button
-                      key={num}
-                      onClick={() => setPlayerCount(num)}
-                      className={`px-4 py-2 rounded-lg font-bold transition-all ${
-                        playerCount === num 
-                          ? "bg-red-500 text-black" 
-                          : "bg-red-900/50 text-red-400 border border-red-500 hover:bg-red-800/50"
-                      }`}
-                    >
-                      {num}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <label className="block text-red-400 mb-2 pixel-font text-xs">PLAYER NAMES</label>
-                {Array.from({ length: playerCount }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-3">
-                    <span className="text-2xl">{PLAYER_ICONS[i]}</span>
-                    <input
-                      type="text"
-                      value={playerNames[i]}
-                      onChange={(e) => {
-                        const newNames = [...playerNames];
-                        newNames[i] = e.target.value;
-                        setPlayerNames(newNames);
-                      }}
-                      className="flex-1 p-3 rounded-lg text-lg bg-gray-800 text-white border border-gray-700"
-                      placeholder={`Player ${i + 1}`}
-                    />
-                    <div 
-                      className="w-6 h-6 rounded-full" 
-                      style={{ backgroundColor: PLAYER_COLORS[i] }}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <div className="bg-gray-900/50 p-4 rounded-lg border border-gray-700">
-                <p className="text-yellow-400 text-sm font-bold mb-2">ROLES:</p>
-                <ul className="text-cyan-300 text-xs space-y-1">
-                  <li>🐺 Werewolves: Eliminate all villagers</li>
-                  <li>👤 Villagers: Find and vote out werewolves</li>
-                  <li>🧙 Seer: Check if someone is a werewolf each night</li>
-                  <li>🛡️ Guardian: Protect one player each night</li>
-                </ul>
-              </div>
-
-              <button
-                onClick={initializeGame}
-                className="neon-btn neon-btn-red w-full text-lg btn-3d"
-              >
-                <Moon className="w-5 h-5 inline mr-2" />
-                START GAME
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // Setup phase no longer exists - redirect to waiting or start game directly
+    if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 5)) {
+      // Extract player information from room and start game
+      const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
+      while (roomPlayerNames.length < 8) {
+        roomPlayerNames.push("");
+      }
+      setPlayerNames(roomPlayerNames);
+      setPlayerCount(gameRoom.currentPlayers.length);
+      
+      initializeGame();
+      return null;
+    }
+    // For non-room games, go back to waiting
+    setGameState("waiting");
+    return null;
   }
 
   // Game Over screen
@@ -864,7 +744,7 @@ function WerewolfPageContent() {
           <div className="space-y-4">
             <button
               onClick={() => {
-                setGameState("setup");
+                setGameState("waiting");
                 setPlayers([]);
               }}
               className="neon-btn neon-btn-green w-full btn-3d"

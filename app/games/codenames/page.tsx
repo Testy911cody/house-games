@@ -350,11 +350,8 @@ function CodenamesPageContent() {
               // Start game directly - skip setup phase
               startGame();
             } else {
-              // Not enough players - for room-based games, stay in waiting
-              // Only go to setup for non-room games
-              if (!gameRoom) {
-                setPhase("setup");
-              }
+              // Not enough players - stay in waiting room
+              // Setup phase removed, team selection happens in waiting room
             }
           }
           
@@ -678,11 +675,8 @@ function CodenamesPageContent() {
     return () => clearInterval(interval);
   }, [phase, currentUser]);
   
-  // Function to proceed to setup phase
-  const proceedToSetup = () => {
-    setPhase("setup");
-    setCountdown(null);
-  };
+  // Function removed - setup phase no longer exists
+  // Games start directly from waiting room
   
   // Countdown timer for waiting room
   useEffect(() => {
@@ -701,14 +695,14 @@ function CodenamesPageContent() {
         
         if (newRemaining === 0 && isPlayingAgainstComputer) {
           // Auto-start if no team joined
-          proceedToSetup();
+          startGame();
         }
       }, 1000);
       
       return () => clearInterval(timer);
     } else {
       if (isPlayingAgainstComputer) {
-        proceedToSetup();
+        startGame();
       }
     }
   }, [phase, waitingRoomStartTime, isPlayingAgainstComputer]);
@@ -1073,11 +1067,11 @@ function CodenamesPageContent() {
               
               if (remoteState.phase && remoteState.phase !== "waiting") {
                 // Game started by another player
-                // If we're in a room-based game with teams assigned, skip setup phase
-                if (gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && remoteState.phase === "setup") {
-                  // Skip setup, go directly to playing/role selection
+                // Setup phase no longer exists - skip it
+                if (remoteState.phase === "setup") {
+                  // Setup is removed, go directly to playing
                   setPhase("playing");
-                } else if (remoteState.phase === "setup" || remoteState.phase === "playing") {
+                } else if (remoteState.phase === "playing") {
                   setPhase(remoteState.phase);
                 }
               }
@@ -1859,22 +1853,14 @@ function CodenamesPageContent() {
               // Start game directly - skip setup phase
               await startGame();
             } else {
-              // Not enough players - for room-based games, stay in waiting
-              // Only go to setup for non-room games
-              if (!gameRoom) {
-                setPhase("setup");
-              }
+              // Not enough players - stay in waiting room
+              // Setup phase removed, team selection happens in waiting room
             }
           }}
           onPlayAgainstComputer={() => {
             setIsPlayingAgainstComputer(true);
-            // Only go to setup if not in a room
-            if (!gameRoom) {
-              setPhase("setup");
-            } else {
-              // For room games, start directly
-              startGame();
-            }
+            // Setup phase removed - start game directly
+            startGame();
           }}
           onLeaveRoom={() => {
             setGameRoom(null);
@@ -2064,7 +2050,7 @@ function CodenamesPageContent() {
             <div className="flex gap-4">
               {blueTeamId && (
                 <button
-                  onClick={proceedToSetup}
+                  onClick={startGame}
                   className="flex-1 neon-btn neon-btn-green py-4 text-lg font-bold"
                 >
                   START GAME WITH {blueTeamName.toUpperCase()}
@@ -2072,7 +2058,7 @@ function CodenamesPageContent() {
               )}
               {isPlayingAgainstComputer && (
                 <button
-                  onClick={proceedToSetup}
+                  onClick={startGame}
                   className="flex-1 neon-btn neon-btn-yellow py-4 text-lg font-bold"
                 >
                   START GAME VS COMPUTER
@@ -2107,258 +2093,48 @@ function CodenamesPageContent() {
     );
   }
 
-  // Auto-skip setup phase if we're in a room with teams already assigned
-  useEffect(() => {
-    if (phase === "setup" && gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
-      // Extract team information from room
-      const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-      const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
-      
-      if (redTeamData) {
-        setRedTeamName(redTeamData.name || "RED TEAM");
-      }
-      if (blueTeamData) {
-        setBlueTeamName(blueTeamData.name || "BLUE TEAM");
-        const currentTeamData = localStorage.getItem("currentTeam");
-        if (currentTeamData) {
-          try {
-            const teamInfo = JSON.parse(currentTeamData);
-            if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
-              setBlueTeamId(teamInfo.id || null);
+  // SETUP PHASE - Completely removed, team selection happens in lobby/waiting room
+  // All setup functionality is now integrated into WaitingRoom component
+  if (phase === "setup") {
+    // Setup phase no longer exists - redirect to waiting or start game directly
+    if (gameRoom) {
+      // If in a room, extract team info and start game
+      if (gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
+        const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+        const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+        
+        if (redTeamData) {
+          setRedTeamName(redTeamData.name || "RED TEAM");
+        }
+        if (blueTeamData) {
+          setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+          const currentTeamData = localStorage.getItem("currentTeam");
+          if (currentTeamData) {
+            try {
+              const teamInfo = JSON.parse(currentTeamData);
+              if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+                setBlueTeamId(teamInfo.id || null);
+              }
+            } catch (e) {
+              // Ignore parse errors
             }
-          } catch (e) {
-            // Ignore parse errors
           }
         }
+        
+        if (gameRoom.settings && gameRoom.settings.difficulty) {
+          setDifficulty(gameRoom.settings.difficulty);
+        }
+        
+        startGame();
+        return null;
       }
-      
-      // Extract difficulty from room settings if available
-      if (gameRoom.settings && gameRoom.settings.difficulty) {
-        setDifficulty(gameRoom.settings.difficulty);
-      }
-      
-      // Start game directly - skip setup phase
-      startGame();
+      // If in room but not ready, go back to waiting
+      setPhase("waiting");
+      return null;
     }
-  }, [phase, gameRoom, currentUser]);
-
-  // SETUP PHASE - Skip if we're in a room with teams already assigned
-  if (phase === "setup") {
-    // If we're in a room-based game with teams assigned, don't render setup screen
-    if (gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
-      return null; // Don't render setup screen, useEffect will handle starting the game
-    }
-    
-    const currentTeamData = localStorage.getItem("currentTeam");
-    let teamInfo = null;
-    if (currentTeamData) {
-      try {
-        teamInfo = JSON.parse(currentTeamData);
-      } catch (e) {
-        // Ignore parse errors
-      }
-    }
-
-    return (
-      <div className="min-h-screen p-4 md:p-8">
-        <div className="max-w-4xl mx-auto">
-          <Link
-            href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold"
-          >
-            <ArrowLeft className="w-5 h-5" />
-            BACK TO GAMES
-          </Link>
-
-          <div className="text-center mb-8">
-            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float">
-              🔍 CODENAMES
-            </h1>
-            <p className="text-cyan-300">
-              Two teams compete to find all their words first!
-            </p>
-          </div>
-
-          {/* Group Info Banner */}
-          {teamInfo && (
-            <div className="neon-card neon-box-purple p-4 mb-6 card-3d">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <Users className="w-5 h-5 text-purple-400" />
-                  <div>
-                    <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
-                    <div className={`text-sm ${getUserTeam() === "blue" ? "text-blue-300/70" : "text-cyan-300/70"}`}>
-                      {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as {getUserTeam() === "blue" ? "BLUE" : "RED"} TEAM
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Available Teams to Join (if no blue team yet) */}
-          {!blueTeamId && availableTeams.length > 0 && (
-            <div className="neon-card neon-box-cyan p-6 mb-6 card-3d">
-              <h3 className="text-lg font-bold text-cyan-400 mb-3 flex items-center gap-2">
-                <Users className="w-5 h-5" />
-                AVAILABLE TEAMS TO JOIN AS BLUE TEAM
-              </h3>
-              <div className="space-y-3 max-h-64 overflow-y-auto">
-                {(() => {
-                  const currentTeamData = localStorage.getItem("currentTeam");
-                  const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
-                  // Find the first available team that is not the current team
-                  const firstAvailableTeamIndex = availableTeams.findIndex(t => currentTeamId !== t.id);
-                  
-                  return availableTeams.map((team, index) => {
-                    const isCurrentTeam = currentTeamId === team.id;
-                    const canJoinAsBlue = index === firstAvailableTeamIndex && !isCurrentTeam;
-                  
-                  return (
-                    <div
-                      key={team.id}
-                      className="bg-gray-800/50 rounded-xl p-4 border-2 border-gray-600 hover:border-blue-500 transition-all flex items-center justify-between"
-                    >
-                      <div className="flex-1">
-                        <div className="text-white font-semibold">{team.name}</div>
-                        <div className="text-gray-400 text-sm">
-                          {team.memberCount} member{team.memberCount !== 1 ? "s" : ""} • Admin: {team.adminName}
-                        </div>
-                        <div className="text-cyan-400 text-xs font-mono mt-1">Code: {team.code}</div>
-                      </div>
-                      {isCurrentTeam ? (
-                        <div className="px-4 py-2 bg-gray-700 text-gray-500 font-bold text-sm rounded">
-                          YOUR TEAM
-                        </div>
-                      ) : canJoinAsBlue ? (
-                        <button
-                          onClick={() => joinAsBlueTeam(team.id)}
-                          className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white font-bold rounded transition-all hover:scale-105"
-                        >
-                          JOIN AS BLUE
-                        </button>
-                      ) : (
-                        <div className="px-4 py-2 bg-gray-700 text-gray-500 font-bold text-sm rounded">
-                          WAITING
-                        </div>
-                      )}
-                    </div>
-                  );
-                  });
-                })()}
-              </div>
-            </div>
-          )}
-
-          <div className="neon-card neon-box-pink p-8 mb-6 card-3d">
-            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center">
-              🎯 SETUP YOUR TEAMS
-            </h2>
-
-            {/* Difficulty Selection */}
-            <div className="mb-6 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50">
-              <label className="block text-yellow-400 font-semibold mb-3">
-                DIFFICULTY LEVEL
-              </label>
-              <div className="flex gap-3">
-                {(["easy", "medium", "hard"] as Difficulty[]).map((diff) => (
-                  <button
-                    key={diff}
-                    onClick={() => setDifficulty(diff)}
-                    className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all hover:scale-105 ${
-                      difficulty === diff
-                        ? "bg-yellow-500 text-black neon-box-yellow"
-                        : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-yellow-500"
-                    }`}
-                  >
-                    {diff.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-2 text-xs text-gray-400 text-center">
-                {difficulty === "easy" && "Simple, common words"}
-                {difficulty === "medium" && "Mix of simple and complex words"}
-                {difficulty === "hard" && "Complex and abstract words"}
-              </div>
-            </div>
-
-            <div className="space-y-4 mb-6">
-              <div className="bg-red-900/30 rounded-xl p-4 border-2 border-red-500 neon-box-pink">
-                <label className="block text-red-400 font-semibold mb-2">RED TEAM NAME</label>
-                <input
-                  type="text"
-                  value={redTeamName}
-                  onChange={(e) => {
-                    const userTeam = getUserTeam();
-                    // Only allow red team (host) to edit red team name
-                    if (userTeam === "red") {
-                      setRedTeamName(e.target.value.toUpperCase());
-                    }
-                  }}
-                  disabled={getUserTeam() !== "red"}
-                  className={`w-full px-4 py-2 rounded-lg bg-black/50 border-2 text-white font-semibold focus:outline-none ${
-                    getUserTeam() === "red" 
-                      ? "border-gray-600 focus:border-red-400 cursor-text" 
-                      : "border-gray-700 text-gray-500 cursor-not-allowed"
-                  }`}
-                  maxLength={20}
-                />
-                {getUserTeam() !== "red" && (
-                  <div className="text-xs text-gray-400 mt-1">Only the red team can edit this name</div>
-                )}
-              </div>
-
-              <div className="bg-blue-900/30 rounded-xl p-4 border-2 border-blue-500 neon-box-cyan">
-                <label className="block text-blue-400 font-semibold mb-2">BLUE TEAM NAME</label>
-                <input
-                  type="text"
-                  value={blueTeamName}
-                  onChange={(e) => {
-                    const userTeam = getUserTeam();
-                    // Only allow blue team to edit blue team name
-                    if (userTeam === "blue") {
-                      setBlueTeamName(e.target.value.toUpperCase());
-                    }
-                  }}
-                  disabled={getUserTeam() !== "blue" || !blueTeamId}
-                  className={`w-full px-4 py-2 rounded-lg bg-black/50 border-2 text-white font-semibold focus:outline-none ${
-                    getUserTeam() === "blue" && blueTeamId
-                      ? "border-gray-600 focus:border-blue-400 cursor-text" 
-                      : "border-gray-700 text-gray-500 cursor-not-allowed"
-                  }`}
-                  maxLength={20}
-                />
-                {getUserTeam() !== "blue" && (
-                  <div className="text-xs text-gray-400 mt-1">
-                    {blueTeamId ? "Only the blue team can edit this name" : "Blue team name will be set when a team joins"}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <button
-              onClick={startGame}
-              className="w-full mt-8 py-5 rounded-xl text-xl font-bold transition-all flex items-center justify-center gap-3 neon-btn neon-btn-green btn-3d"
-            >
-              START GAME!
-            </button>
-
-            <div className="mt-8 p-6 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
-              <h3 className="font-bold text-blue-400 mb-3">📖 HOW TO PLAY</h3>
-              <ul className="text-blue-300/80 space-y-2 text-sm">
-                <li>• Two teams compete: <span className="text-red-400">RED</span> (9 words) and <span className="text-blue-400">BLUE</span> (8 words)</li>
-                <li>• Each team has a <span className="text-pink-400">SPYMASTER</span> who sees all card colors</li>
-                <li>• <span className="text-cyan-400">OPERATIVES</span> only see the words on the board</li>
-                <li>• Spymaster gives clues: <span className="text-yellow-400">ONE WORD + NUMBER</span> (e.g., "Animal 2")</li>
-                <li>• Operatives guess words - correct guesses reveal the color</li>
-                <li>• <span className="text-red-400 font-bold">⚠️ Avoid the ASSASSIN!</span> If found, your team loses!</li>
-                <li>• First team to find all their words wins!</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // For non-room games, go back to waiting (setup is now in waiting room)
+    setPhase("waiting");
+    return null;
   }
 
   // PLAYING PHASE - Role Selection

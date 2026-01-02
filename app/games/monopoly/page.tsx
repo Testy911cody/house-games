@@ -191,7 +191,7 @@ function MonopolyPageContent() {
   // Legacy gameState for compatibility
   const gameState = gamePhase === "setup" ? "setup" : gamePhase === "playing" ? "playing" : gamePhase === "ended" ? "ended" : "setup";
   const setGameState = (state: "setup" | "playing" | "ended") => {
-    if (state === "setup") setGamePhase("setup");
+    if (state === "setup") setGamePhase("waiting"); // Setup phase removed
     else if (state === "playing") setGamePhase("playing");
     else if (state === "ended") setGamePhase("ended");
   };
@@ -307,12 +307,11 @@ function MonopolyPageContent() {
       console.error("Error updating room status:", error);
     }
     
-    // Skip setup phase for room-based games - go directly to playing
+    // Setup phase removed - start game directly if enough players
     if (gameRoom.currentPlayers.length >= gameRoom.minPlayers) {
       initializeGame();
-    } else {
-      setGamePhase("setup");
     }
+    // Otherwise stay in waiting room
   };
 
   // Handle leaving room
@@ -914,13 +913,8 @@ function MonopolyPageContent() {
         onStartGame={handleStartOnlineGame}
         onPlayAgainstComputer={() => {
           setIsOnlineGame(false);
-          // Only go to setup if not in a room
-          if (!gameRoom) {
-            setGamePhase("setup");
-          } else {
-            // For room games, start directly
-            initializeGame();
-          }
+          // Setup phase removed - start game directly
+          initializeGame();
         }}
         onLeaveRoom={handleLeaveRoom}
         minPlayers={2}
@@ -932,10 +926,11 @@ function MonopolyPageContent() {
     );
   }
 
-  // Auto-skip setup phase if we're in a room with players already assigned
-  useEffect(() => {
-    if (gameState === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-      // Extract player information from room
+  // SETUP PHASE - Completely removed, player selection happens in lobby/waiting room
+  if (gameState === "setup") {
+    // Setup phase no longer exists - redirect to waiting or start game directly
+    if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
+      // Extract player information from room and start game
       const roomPlayerNames = gameRoom.currentPlayers.map(p => p.name);
       while (roomPlayerNames.length < 6) {
         roomPlayerNames.push("");
@@ -946,142 +941,12 @@ function MonopolyPageContent() {
       const myIndex = gameRoom.currentPlayers.findIndex(p => p.id === currentUser?.id);
       setMyPlayerIndex(myIndex >= 0 ? myIndex : 0);
       
-      // Start game directly - skip setup phase
       initializeGame();
+      return null;
     }
-  }, [gameState, gameRoom, currentUser]);
-
-  // Setup screen - Skip if we're in a room with players already assigned
-  if (gameState === "setup") {
-    // If we're in a room-based game with players assigned, don't render setup screen
-    if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-      return null; // Don't render setup screen, useEffect will handle starting the game
-    }
-    
-    const currentTeamData = localStorage.getItem("currentTeam");
-    let teamInfo = null;
-    if (currentTeamData) {
-      try {
-        teamInfo = JSON.parse(currentTeamData);
-      } catch (e) {
-        // Ignore parse errors
-      }
-    }
-
-    return (
-      <div className="min-h-screen p-4 sm:p-8 page-enter">
-        <div className="max-w-4xl mx-auto">
-          {/* Online Game Info Banner */}
-          {isOnlineGame && gameRoom && (
-            <div className="neon-card neon-box-yellow p-4 mb-6 card-3d">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <Globe className="w-5 h-5 text-yellow-400" />
-                  <div>
-                    <div className="text-yellow-400 font-bold">Online Game • Room: {gameRoom.code}</div>
-                    <div className="text-cyan-300/70 text-sm">
-                      {gameRoom.currentPlayers.length} players connected
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <Link
-            href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 active:opacity-80 mb-4 sm:mb-8 font-semibold min-h-[44px] animate-fade-in-left hover:animate-pulse-glow"
-          >
-            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
-            <span className="text-sm sm:text-base">BACK TO GAMES</span>
-          </Link>
-
-          <div className="text-center mb-4 sm:mb-8 animate-fade-in-down delay-200">
-            <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2 sm:mb-4 animate-glow-pulse" style={{ 
-              color: "#DC143C",
-              textShadow: "2px 2px 0px #fff, -2px -2px 0px #fff, 2px -2px 0px #fff, -2px 2px 0px #fff",
-              letterSpacing: "0.1em"
-            }}>
-              MONOPOLY
-            </h1>
-            <p className="text-sm sm:text-base text-cyan-300 animate-fade-in-up delay-300">Set up your multiplayer game</p>
-          </div>
-
-          {/* Group Info Banner */}
-          {teamInfo && (
-            <div className="neon-card neon-box-purple p-4 mb-6 card-3d max-w-lg mx-auto animate-slide-fade-in delay-400">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3 animate-fade-in-left">
-                  <Users className="w-5 h-5 text-purple-400 animate-pulse" />
-                  <div>
-                    <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
-                    <div className="text-cyan-300/70 text-sm">
-                      {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as players
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="neon-card neon-box-green p-4 sm:p-6 lg:p-8 max-w-lg mx-auto card-3d animate-scale-in delay-400">
-            <div className="space-y-4 sm:space-y-6">
-              <div className="animate-fade-in-up delay-500">
-                <label className="block text-green-400 mb-2 pixel-font text-xs">NUMBER OF PLAYERS</label>
-                <div className="flex gap-2 flex-wrap">
-                  {[2, 3, 4, 5, 6].map((num, idx) => (
-                    <button
-                      key={num}
-                      onClick={() => setPlayerCount(num)}
-                      className={`px-4 py-2 rounded-lg font-bold transition-all min-h-[44px] min-w-[44px] active:scale-95 hover:animate-scale-up ${
-                        playerCount === num 
-                          ? "bg-green-500 text-black animate-pulse" 
-                          : "bg-green-900/50 text-green-400 border border-green-500 active:bg-green-800/50"
-                      }`}
-                      style={{ animationDelay: `${idx * 0.1}s` }}
-                    >
-                      {num}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-3 animate-fade-in-up delay-600">
-                <label className="block text-green-400 mb-2 pixel-font text-xs">PLAYER NAMES</label>
-                {Array.from({ length: playerCount }).map((_, i) => (
-                  <div key={i} className="flex items-center gap-2 sm:gap-3 card-enter" style={{ animationDelay: `${i * 0.1}s` }}>
-                    <span className="text-xl sm:text-2xl flex-shrink-0 animate-bounce-in">{PLAYER_TOKENS[i]}</span>
-                    <input
-                      type="text"
-                      value={playerNames[i]}
-                      onChange={(e) => {
-                        const newNames = [...playerNames];
-                        newNames[i] = e.target.value;
-                        setPlayerNames(newNames);
-                      }}
-                      className="flex-1 p-2 sm:p-3 rounded-lg text-base sm:text-lg min-h-[48px] input-3d focus:animate-pulse-glow"
-                      placeholder={`Player ${i + 1}`}
-                    />
-                    <div 
-                      className="w-5 h-5 sm:w-6 sm:h-6 rounded-full flex-shrink-0 animate-bounce-in" 
-                      style={{ backgroundColor: PLAYER_COLORS[i], animationDelay: `${i * 0.1 + 0.2}s` }}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={initializeGame}
-                className="neon-btn neon-btn-green w-full text-base sm:text-lg min-h-[48px] btn-3d animate-fade-in-up delay-700 hover:animate-button-press"
-              >
-                <Zap className="w-4 h-4 sm:w-5 sm:h-5 inline mr-2 animate-spin-pulse" />
-                START GAME
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // For non-room games, go back to waiting (setup is now in waiting room)
+    setGamePhase("waiting");
+    return null;
   }
 
   // Winner screen
@@ -1098,7 +963,10 @@ function MonopolyPageContent() {
           <p className="text-green-400 text-xl mb-8">Final Worth: ${winner.money}</p>
           <div className="space-y-4">
             <button
-              onClick={() => setGameState("setup")}
+              onClick={() => {
+                setGamePhase("waiting");
+                setGameState("waiting");
+              }}
               className="neon-btn neon-btn-green w-full btn-3d"
             >
               PLAY AGAIN

@@ -124,7 +124,7 @@ function LudoPageContent() {
   // Legacy gameState for compatibility
   const gameState = gamePhase === "setup" ? "setup" : gamePhase === "playing" ? "playing" : gamePhase === "ended" ? "ended" : "setup";
   const setGameState = (state: "setup" | "playing" | "ended") => {
-    if (state === "setup") setGamePhase("setup");
+    if (state === "setup") setGamePhase("waiting"); // Setup phase removed
     else if (state === "playing") setGamePhase("playing");
     else if (state === "ended") setGamePhase("ended");
   };
@@ -376,12 +376,11 @@ function LudoPageContent() {
       console.error("Error updating room status:", error);
     }
     
-    // Skip setup phase for room-based games - go directly to playing
+    // Setup phase removed - start game directly if enough players
     if (gameRoom.currentPlayers.length >= gameRoom.minPlayers) {
       initializeGame();
-    } else {
-      setGamePhase("setup");
     }
+    // Otherwise stay in waiting room
   };
 
   // Handle leaving room
@@ -400,7 +399,8 @@ function LudoPageContent() {
     router.push("/games/ludo");
   };
 
-  // Auto-skip setup phase if we're in a room with players already assigned
+  // SETUP PHASE - Completely removed, player selection happens in lobby/waiting room
+  // Auto-start game if we're in a room with players already assigned
   useEffect(() => {
     if (gamePhase === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
       // Extract player information from room
@@ -414,8 +414,11 @@ function LudoPageContent() {
       const myIndex = gameRoom.currentPlayers.findIndex(p => p.id === currentUser?.id);
       setMyPlayerIndex(myIndex >= 0 ? myIndex : 0);
       
-      // Start game directly - skip setup phase
+      // Start game directly
       initializeGame();
+    } else if (gamePhase === "setup") {
+      // For non-room games, go back to waiting
+      setGamePhase("waiting");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [gamePhase, gameRoom, currentUser]);
@@ -891,13 +894,8 @@ function LudoPageContent() {
         onStartGame={handleStartOnlineGame}
         onPlayAgainstComputer={() => {
           setIsOnlineGame(false);
-          // Only go to setup if not in a room
-          if (!gameRoom) {
-            setGamePhase("setup");
-          } else {
-            // For room games, start directly
-            initializeGame();
-          }
+          // Setup phase removed - start game directly
+          initializeGame();
         }}
         onLeaveRoom={handleLeaveRoom}
         minPlayers={2}
@@ -974,7 +972,8 @@ function LudoPageContent() {
           ) : null;
         })()}
 
-        {gameState === "setup" && !(gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) && (
+        {/* Setup phase removed - player selection happens in waiting room */}
+        {false && gameState === "setup" && (
           <div className="neon-card neon-box-yellow p-6 sm:p-8 max-w-2xl mx-auto card-3d">
             <h2 className="text-xl sm:text-2xl font-bold text-yellow-400 mb-6 text-center">Game Setup</h2>
             

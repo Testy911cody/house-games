@@ -902,22 +902,13 @@ function TabooPageContent() {
           }
         }}
         onStartGame={async () => {
-          // If we have room with players already assigned, start directly
-          if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-            startGame();
-          } else {
-            setPhase("setup");
-          }
+          // Setup phase removed - start game directly
+          startGame();
         }}
         onPlayAgainstComputer={() => {
           setIsPlayingAgainstComputer(true);
-          // Only go to setup if not in a room
-          if (!gameRoom) {
-            setPhase("setup");
-          } else {
-            // For room games, start directly
-            startGame();
-          }
+          // Setup phase removed - start game directly
+          startGame();
         }}
         minPlayers={2}
         maxPlayers={6}
@@ -927,202 +918,17 @@ function TabooPageContent() {
     );
   }
 
-  // Auto-skip setup phase if we're in a room with teams/players already assigned
-  useEffect(() => {
-    if (phase === "setup" && gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-      // Start game directly - skip setup phase
-      startGame();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, gameRoom, currentUser]);
-
-  // SETUP PHASE - Skip if we're in a room with teams/players already assigned
+  // SETUP PHASE - Completely removed, team selection happens in lobby/waiting room
   if (phase === "setup") {
-    // If we're in a room-based game with players assigned, don't render setup screen
+    // Setup phase no longer exists - redirect to waiting or start game directly
     if (gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 2)) {
-      return null; // Don't render setup screen, useEffect will handle starting the game
+      // If in a room with players, start game directly
+      startGame();
+      return null;
     }
-    
-    const currentTeamData = localStorage.getItem("currentTeam");
-    let teamInfo = null;
-    if (currentTeamData) {
-      try {
-        teamInfo = JSON.parse(currentTeamData);
-      } catch (e) {
-        // Ignore parse errors
-      }
-    }
-
-    return (
-      <div className="min-h-screen p-4 md:p-8 page-enter">
-        <div className="max-w-4xl mx-auto">
-          <Link
-            href="/games"
-            className="inline-flex items-center gap-2 text-cyan-400 hover:text-cyan-300 mb-8 font-semibold animate-fade-in-left hover:animate-pulse-glow"
-          >
-            <ArrowLeft className="w-5 h-5 animate-fade-in-right" />
-            BACK TO GAMES
-          </Link>
-
-          <div className="text-center mb-8 animate-fade-in-down delay-200">
-            <h1 className="pixel-font text-3xl md:text-5xl font-bold text-pink-400 neon-glow-pink mb-4 float animate-glow-pulse">
-              🚫 TABOO
-            </h1>
-            <p className="text-cyan-300 animate-fade-in-up delay-300">
-              Teams compete to guess words without saying them!
-            </p>
-          </div>
-
-          {/* Group Info Banner */}
-          {teamInfo && (
-            <div className="neon-card neon-box-purple p-4 mb-6 card-3d animate-slide-fade-in delay-300">
-              <div className="flex items-center justify-between flex-wrap gap-3">
-                <div className="flex items-center gap-3">
-                  <Users className="w-5 h-5 text-purple-400" />
-                  <div>
-                    <div className="text-purple-400 font-bold">Playing as Team: {teamInfo.name}</div>
-                    <div className="text-cyan-300/70 text-sm">
-                      {teamInfo.members.length + 1} member{teamInfo.members.length !== 0 ? "s" : ""} as one team
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="neon-card neon-box-pink p-8 card-3d animate-scale-in delay-400">
-            <h2 className="pixel-font text-xl text-cyan-400 neon-glow-cyan mb-6 text-center animate-fade-in-up">
-              🏆 CREATE YOUR TEAMS
-            </h2>
-
-            {/* Teams List */}
-            <div className="space-y-4 mb-6">
-              {teams.map((team, idx) => (
-                <div
-                  key={team.id}
-                  className={`${team.color.light} rounded-xl p-4 border-2 ${team.color.border} ${team.color.glow} flex items-center gap-4 transition-all card-enter hover:animate-pulse-glow`}
-                  style={{ animationDelay: `${idx * 0.1}s` }}
-                >
-                  <div className={`w-10 h-10 rounded-full ${team.color.bg} flex items-center justify-center text-black font-bold text-lg animate-bounce-in`} style={{ animationDelay: `${idx * 0.1 + 0.2}s` }}>
-                    {idx + 1}
-                  </div>
-                  <input
-                    type="text"
-                    value={team.name}
-                    onChange={(e) => updateTeamName(team.id, e.target.value)}
-                    className="flex-1 px-4 py-2 rounded-lg bg-black/50 border-2 border-gray-600 text-white font-semibold focus:outline-none focus:border-cyan-400 input-3d focus:animate-pulse-glow"
-                    maxLength={20}
-                  />
-                  <div className="flex gap-1">
-                    {TEAM_COLORS.map((color) => (
-                      <button
-                        key={color.name}
-                        onClick={() => updateTeamColor(team.id, color)}
-                        className={`w-6 h-6 rounded-full ${color.bg} ${
-                          team.color.name === color.name ? "ring-2 ring-white scale-110 animate-pulse" : "opacity-50 hover:opacity-100"
-                        } transition-all hover:animate-scale-up`}
-                        title={color.name}
-                      />
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => removeTeam(team.id)}
-                    className="p-2 text-red-400 hover:text-red-300 hover:bg-red-900/50 rounded-lg transition-colors hover:animate-shake"
-                  >
-                    <Trash2 className="w-5 h-5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            {teams.length < 6 && (
-              <button
-                onClick={addTeam}
-                className="w-full py-4 border-2 border-dashed border-cyan-500/50 rounded-xl text-cyan-400 font-bold hover:bg-cyan-900/20 transition-colors flex items-center justify-center gap-2 animate-fade-in-up delay-500 hover:animate-pulse-glow"
-              >
-                <Plus className="w-6 h-6 animate-rotate-in" />
-                ADD TEAM
-              </button>
-            )}
-
-            {/* Difficulty Selection */}
-            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-purple-500/50 animate-fade-in delay-600">
-              <label className="block text-purple-400 font-semibold mb-3">
-                DIFFICULTY LEVEL
-              </label>
-              <div className="flex gap-3">
-                {(["easy", "medium", "hard"] as Difficulty[]).map((diff) => (
-                  <button
-                    key={diff}
-                    onClick={() => setDifficulty(diff)}
-                    className={`flex-1 py-3 rounded-lg font-bold text-sm transition-all hover:scale-105 ${
-                      difficulty === diff
-                        ? "bg-purple-500 text-black neon-box-purple"
-                        : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-purple-500"
-                    }`}
-                  >
-                    {diff.toUpperCase()}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-2 text-xs text-gray-400 text-center">
-                {difficulty === "easy" && "Simple, concrete words"}
-                {difficulty === "medium" && "Mix of simple and moderate words"}
-                {difficulty === "hard" && "Abstract and complex words"}
-              </div>
-            </div>
-
-            {/* Rounds Setting */}
-            <div className="mt-8 p-4 bg-black/30 rounded-xl border-2 border-yellow-500/50 animate-fade-in delay-700">
-              <label className="block text-yellow-400 font-semibold mb-3">
-                ROUNDS PER TEAM
-              </label>
-              <div className="flex items-center gap-3">
-                {[1, 2, 3, 4, 5].map((num) => (
-                  <button
-                    key={num}
-                    onClick={() => setRoundsPerTeam(num)}
-                    className={`w-12 h-12 rounded-lg font-bold text-lg transition-all hover:animate-scale-up ${
-                      roundsPerTeam === num
-                        ? "bg-yellow-500 text-black neon-box-yellow animate-pulse"
-                        : "bg-black/50 text-gray-400 border-2 border-gray-600 hover:border-yellow-500"
-                    }`}
-                  >
-                    {num}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Start Button */}
-            <button
-              onClick={startGame}
-              disabled={teams.length < 2}
-              className={`w-full mt-8 py-5 rounded-xl text-xl font-bold transition-all flex items-center justify-center gap-3 ${
-                teams.length >= 2
-                  ? "neon-btn neon-btn-green hover:animate-button-press"
-                  : "bg-gray-800 text-gray-500 cursor-not-allowed border-2 border-gray-700"
-              } animate-fade-in-up delay-700`}
-            >
-              <Play className="w-6 h-6 animate-pulse" />
-              {teams.length < 2 ? "ADD AT LEAST 2 TEAMS" : "START GAME!"}
-            </button>
-
-            {/* How to Play */}
-            <div className="mt-8 p-6 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
-              <h3 className="font-bold text-blue-400 mb-3">📖 HOW TO PLAY</h3>
-              <ul className="text-blue-300/80 space-y-2 text-sm">
-                <li>• Each team takes turns - one <span className="text-pink-400">DESCRIBER</span>, rest are <span className="text-cyan-400">GUESSERS</span></li>
-                <li>• The Describer picks words from a grid and describes them</li>
-                <li>• <span className="text-red-400 font-bold">You cannot say the word itself!</span> It's TABOO!</li>
-                <li>• Guessers type their guesses - correct guesses score points</li>
-                <li>• 60 seconds per round - get as many words as possible!</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    // For non-room games, go back to waiting (setup is now in waiting room)
+    setPhase("waiting");
+    return null;
   }
 
   // PLAYING PHASE - Role Selection
