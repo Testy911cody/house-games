@@ -157,12 +157,25 @@ export default function WaitingRoom({
           // Get current previous players from ref
           const previousPlayers = previousPlayersRef.current;
           
+          // Log player changes for debugging
+          if (newRoom.currentPlayers.length !== previousPlayers.length) {
+            console.log('👥 Player count changed:', {
+              previous: previousPlayers.length,
+              current: newRoom.currentPlayers.length,
+              previousPlayers: previousPlayers.map(p => p.name),
+              currentPlayers: newRoom.currentPlayers.map(p => p.name)
+            });
+          }
+          
           // Check if new players joined
           if (onPlayerJoined) {
             const joinedPlayers = newRoom.currentPlayers.filter(
               p => !previousPlayers.some(existing => existing.id === p.id) && p.id !== currentUser.id
             );
-            joinedPlayers.forEach(player => onPlayerJoined(player));
+            if (joinedPlayers.length > 0) {
+              console.log('👥 New players joined:', joinedPlayers.map(p => p.name));
+              joinedPlayers.forEach(player => onPlayerJoined(player));
+            }
           }
           
           // Sync my ready status from server
@@ -456,18 +469,39 @@ export default function WaitingRoom({
 
   // Start the game (host only)
   const handleStartGame = async () => {
+    console.log('🎮 handleStartGame called', { 
+      room: room?.code, 
+      hostId: room?.hostId, 
+      currentUserId: currentUser?.id,
+      isHost: room && currentUser?.id === room.hostId,
+      playerCount: room?.currentPlayers?.length 
+    });
+    
     if (room && currentUser?.id === room.hostId) {
       try {
         const { gameRoomsAPI } = await import('@/lib/api-utils');
+        console.log('🎮 Updating room status to playing...');
         const result = await gameRoomsAPI.updateRoomStatus(room.id, 'playing');
+        console.log('🎮 Room status update result:', result);
         if (result.success) {
+          // Update local room state
+          setRoom(prevRoom => prevRoom ? { ...prevRoom, status: 'playing' } : prevRoom);
           // Wait a bit for other clients to receive the update
           await new Promise(resolve => setTimeout(resolve, 500));
+        } else {
+          console.error('❌ Failed to update room status:', result.error);
         }
       } catch (error) {
-        console.error('Error starting game:', error);
+        console.error('❌ Error starting game:', error);
       }
+    } else {
+      console.warn('⚠️ Not host or no room:', { 
+        hasRoom: !!room, 
+        isHost: room && currentUser?.id === room.hostId 
+      });
     }
+    
+    console.log('🎮 Calling onStartGame callback');
     onStartGame();
   };
 

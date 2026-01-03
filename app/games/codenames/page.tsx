@@ -1412,27 +1412,31 @@ function CodenamesPageContent() {
   };
 
   const startGame = async () => {
-    // Only load existing game state if room status is "playing" (host clicked start)
-    // Don't auto-load old game state - wait for host to explicitly start
-    if (gameId && currentUser) {
+    console.log('🎮 startGame() called', { gameId, gameRoom: gameRoom?.code, currentUser: currentUser?.id });
+    
+    // When host clicks start, always start a NEW game (don't load old state)
+    // Only load existing state if we're joining a game that's already in progress
+    if (gameId && currentUser && gameRoom) {
       try {
-        const { gameStateAPI } = await import('@/lib/api-utils');
-        const result = await gameStateAPI.getGameState(gameId);
+        // Get latest room status to check if game was just started
+        const { gameRoomsAPI } = await import('@/lib/api-utils');
+        const roomResult = await gameRoomsAPI.getRoomByCode(gameRoom.code);
+        const isGameJustStarted = roomResult.success && roomResult.room?.status === "playing";
         
-        // Only load game state if:
-        // 1. There's existing game state with phase="playing"
-        // 2. AND we're in a room AND room status is "playing" (host clicked start)
-        // OR we're not in a room (single player mode)
-        if (result.success && result.state && result.state.state.phase === "playing") {
-          const shouldLoadState = !gameRoom || (gameRoom && gameRoom.status === "playing");
+        // Only load existing state if game is already in progress AND we're not the host starting it
+        // If we're the host and just clicked start, always start new game
+        const isHost = gameRoom.hostId === currentUser.id;
+        
+        if (!isHost || !isGameJustStarted) {
+          const { gameStateAPI } = await import('@/lib/api-utils');
+          const result = await gameStateAPI.getGameState(gameId);
           
-          if (shouldLoadState) {
-            // Load existing game state
+          if (result.success && result.state && result.state.state.phase === "playing") {
+            // Load existing game state (we're joining a game in progress)
+            console.log('🎮 Loading existing game state');
             const savedState = result.state.state;
             setPhase(savedState.phase || "playing");
             setDifficulty(savedState.difficulty || difficulty);
-            // When loading a game in progress, restore both team names (they're locked at this point)
-            // But only if we don't already have them set (to avoid overwriting user's own team name)
             if (savedState.redTeamName && (!redTeamName || redTeamName === "RED TEAM")) {
               setRedTeamName(savedState.redTeamName);
             }
@@ -1451,14 +1455,14 @@ function CodenamesPageContent() {
             })));
             return;
           }
-          // If room status is not "playing", don't load old state - stay in waiting
         }
       } catch (error) {
-        console.error('Error loading game state:', error);
+        console.error('Error checking game state:', error);
       }
     }
     
     // Start new game
+    console.log('🎮 Starting NEW game');
     generateBoard();
     setPhase("playing");
     setCurrentTeam("red");
@@ -1829,46 +1833,78 @@ function CodenamesPageContent() {
             console.log("Player joined:", player.name);
           }}
           onStartGame={async () => {
-            // If we have room with players already assigned, start directly
-            // Otherwise go to setup phase
-            const hasPlayers = gameRoom && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4);
+            console.log('🎮 onStartGame called', { gameRoom, currentUser });
             
-            if (hasPlayers) {
-              // Extract team information from room if available
-              if (gameRoom.teams && gameRoom.teams.length >= 2) {
-                const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-                const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
-                
-                if (redTeamData) {
-                  setRedTeamName(redTeamData.name || "RED TEAM");
+            try {
+              // Get latest room state to ensure we have current player count
+              let latestRoom = gameRoom;
+              if (gameRoom?.code) {
+                try {
+                  const { gameRoomsAPI } = await import('@/lib/api-utils');
+                  const roomResult = await gameRoomsAPI.getRoomByCode(gameRoom.code);
+                  if (roomResult.success && roomResult.room) {
+                    latestRoom = roomResult.room;
+                    setGameRoom(latestRoom);
+                  }
+                } catch (error) {
+                  console.error('Error fetching latest room:', error);
                 }
-                if (blueTeamData) {
-                  setBlueTeamName(blueTeamData.name || "BLUE TEAM");
-                  // Check if current user's team matches blue team
-                  const currentTeamData = localStorage.getItem("currentTeam");
-                  if (currentTeamData) {
-                    try {
-                      const teamInfo = JSON.parse(currentTeamData);
-                      if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
-                        setBlueTeamId(teamInfo.id || null);
+              }
+              
+              // Check if we have enough players
+              const playerCount = latestRoom?.currentPlayers?.length || 0;
+              const minPlayersRequired = latestRoom?.minPlayers || 4;
+              const hasPlayers = playerCount >= minPlayersRequired;
+              
+              console.log('🎮 Start game check:', { 
+                playerCount, 
+                minPlayersRequired, 
+                hasPlayers,
+                roomStatus: latestRoom?.status 
+              });
+              
+              if (hasPlayers) {
+                // Extract team information from room if available
+                if (latestRoom?.teams && latestRoom.teams.length >= 2) {
+                  const redTeamData = latestRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+                  const blueTeamData = latestRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+                  
+                  if (redTeamData) {
+                    setRedTeamName(redTeamData.name || "RED TEAM");
+                  }
+                  if (blueTeamData) {
+                    setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+                    // Check if current user's team matches blue team
+                    const currentTeamData = localStorage.getItem("currentTeam");
+                    if (currentTeamData) {
+                      try {
+                        const teamInfo = JSON.parse(currentTeamData);
+                        if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+                          setBlueTeamId(teamInfo.id || null);
+                        }
+                      } catch (e) {
+                        console.error('Error parsing team data:', e);
                       }
-                    } catch (e) {
-                      // Ignore parse errors
                     }
                   }
                 }
+                
+                // Extract difficulty from room settings if available
+                if (latestRoom?.settings && latestRoom.settings.difficulty) {
+                  setDifficulty(latestRoom.settings.difficulty);
+                }
+                
+                console.log('🎮 Starting game...');
+                // Start game directly - skip setup phase
+                await startGame();
+                console.log('🎮 Game started successfully');
+              } else {
+                console.warn('⚠️ Not enough players to start:', { playerCount, minPlayersRequired });
+                // Not enough players - stay in waiting room
+                // Setup phase removed, team selection happens in waiting room
               }
-              
-              // Extract difficulty from room settings if available
-              if (gameRoom.settings && gameRoom.settings.difficulty) {
-                setDifficulty(gameRoom.settings.difficulty);
-              }
-              
-              // Start game directly - skip setup phase
-              await startGame();
-            } else {
-              // Not enough players - stay in waiting room
-              // Setup phase removed, team selection happens in waiting room
+            } catch (error) {
+              console.error('❌ Error in onStartGame:', error);
             }
           }}
           onPlayAgainstComputer={() => {
