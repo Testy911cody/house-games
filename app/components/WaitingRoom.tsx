@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Users, Clock, Zap, Copy, Check, Crown, ArrowLeft, Share2 } from "lucide-react";
 import Link from "next/link";
 
@@ -91,6 +91,10 @@ export default function WaitingRoom({
   const [availableGames, setAvailableGames] = useState<any[]>([]);
   const [copiedCode, setCopiedCode] = useState(false);
   const [isReady, setIsReady] = useState(false);
+  
+  // Use refs to track previous state without causing re-renders
+  const previousPlayersRef = useRef<RoomPlayer[]>(initialRoom?.currentPlayers || []);
+  const previousStatusRef = useRef<string>(initialRoom?.status || 'waiting');
 
   // Get effective room code
   const effectiveRoomCode = roomCode || room?.code || null;
@@ -121,12 +125,18 @@ export default function WaitingRoom({
     }
   }, []);
 
+  // Sync room state when initialRoom changes
+  useEffect(() => {
+    if (initialRoom) {
+      setRoom(initialRoom);
+      previousPlayersRef.current = initialRoom.currentPlayers || [];
+      previousStatusRef.current = initialRoom.status || 'waiting';
+    }
+  }, [initialRoom]);
+
   // Poll room state for real-time sync (new room system)
   useEffect(() => {
     if (!effectiveRoomCode || !currentUser) return;
-    
-    let previousPlayers: RoomPlayer[] = room?.currentPlayers || [];
-    let previousStatus = room?.status || 'waiting';
     
     const pollRoom = async () => {
       try {
@@ -144,6 +154,9 @@ export default function WaitingRoom({
             });
           }
           
+          // Get current previous players from ref
+          const previousPlayers = previousPlayersRef.current;
+          
           // Check if new players joined
           if (onPlayerJoined) {
             const joinedPlayers = newRoom.currentPlayers.filter(
@@ -154,8 +167,13 @@ export default function WaitingRoom({
           
           // Sync my ready status from server
           const myPlayer = newRoom.currentPlayers.find(p => p.id === currentUser.id);
-          if (myPlayer && myPlayer.isReady !== isReady) {
-            setIsReady(myPlayer.isReady);
+          if (myPlayer) {
+            setIsReady(prevReady => {
+              if (myPlayer.isReady !== prevReady) {
+                return myPlayer.isReady;
+              }
+              return prevReady;
+            });
           }
           
           // Don't auto-start game - only update room state
@@ -163,8 +181,12 @@ export default function WaitingRoom({
           // The onStartGame callback will be called by the host's click action, not here
           
           // Update state - always update to ensure allReady calculation is correct
-          previousPlayers = newRoom.currentPlayers;
-          previousStatus = newRoom.status;
+          // Update refs before setting state to avoid stale closures
+          previousPlayersRef.current = newRoom.currentPlayers;
+          previousStatusRef.current = newRoom.status;
+          
+          // Always update room state to ensure UI reflects latest player list
+          // This ensures players are displayed immediately when they join
           setRoom(newRoom);
         }
       } catch (error) {
@@ -176,7 +198,7 @@ export default function WaitingRoom({
     pollRoom(); // Initial poll
     
     return () => clearInterval(intervalId);
-  }, [effectiveRoomCode, currentUser, onPlayerJoined, onStartGame, room, isReady]);
+  }, [effectiveRoomCode, currentUser, onPlayerJoined, onStartGame]);
 
   // Load available teams for this game (legacy mode)
   const loadAvailableTeams = async () => {
