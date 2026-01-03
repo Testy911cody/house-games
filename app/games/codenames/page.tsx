@@ -296,11 +296,10 @@ function CodenamesPageContent() {
     }
   }, [searchParams]);
 
-  // Poll room status to detect when game starts (even when in waiting phase)
+  // Poll room status to update room state (players, teams, etc.) but don't auto-start game
+  // Game should only start when host explicitly clicks start button
   useEffect(() => {
     if (!gameRoom || !currentUser || phase !== "waiting") return;
-    
-    let previousStatus = gameRoom.status;
     
     const pollRoomStatus = async () => {
       try {
@@ -310,53 +309,38 @@ function CodenamesPageContent() {
         if (result.success && result.room) {
           const newRoom = result.room;
           
-          // Check if game status changed from waiting to playing
-          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            // Game was started - if we have room with players already assigned, start directly
-            // Otherwise go to setup phase
-            const hasPlayers = newRoom.currentPlayers && newRoom.currentPlayers.length >= (newRoom.minPlayers || 4);
+          // Update team information from room if available (but don't start game)
+          if (newRoom.teams && newRoom.teams.length >= 2) {
+            const redTeamData = newRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
+            const blueTeamData = newRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
             
-            if (hasPlayers) {
-              // Extract team information from room if available
-              if (newRoom.teams && newRoom.teams.length >= 2) {
-                const redTeamData = newRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-                const blueTeamData = newRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
-                
-                if (redTeamData) {
-                  setRedTeamName(redTeamData.name || "RED TEAM");
-                }
-                if (blueTeamData) {
-                  setBlueTeamName(blueTeamData.name || "BLUE TEAM");
-                  // Check if current user's team matches blue team
-                  const currentTeamData = localStorage.getItem("currentTeam");
-                  if (currentTeamData) {
-                    try {
-                      const teamInfo = JSON.parse(currentTeamData);
-                      if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
-                        setBlueTeamId(teamInfo.id || null);
-                      }
-                    } catch (e) {
-                      // Ignore parse errors
-                    }
+            if (redTeamData) {
+              setRedTeamName(redTeamData.name || "RED TEAM");
+            }
+            if (blueTeamData) {
+              setBlueTeamName(blueTeamData.name || "BLUE TEAM");
+              // Check if current user's team matches blue team
+              const currentTeamData = localStorage.getItem("currentTeam");
+              if (currentTeamData) {
+                try {
+                  const teamInfo = JSON.parse(currentTeamData);
+                  if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
+                    setBlueTeamId(teamInfo.id || null);
                   }
+                } catch (e) {
+                  // Ignore parse errors
                 }
               }
-              
-              // Extract difficulty from room settings if available
-              if (newRoom.settings && newRoom.settings.difficulty) {
-                setDifficulty(newRoom.settings.difficulty);
-              }
-              
-              // Start game directly - skip setup phase
-              startGame();
-            } else {
-              // Not enough players - stay in waiting room
-              // Setup phase removed, team selection happens in waiting room
             }
           }
           
-          // Update room state (players, etc.)
-          previousStatus = newRoom.status;
+          // Extract difficulty from room settings if available
+          if (newRoom.settings && newRoom.settings.difficulty) {
+            setDifficulty(newRoom.settings.difficulty);
+          }
+          
+          // Update room state (players, etc.) - but don't auto-start game
+          // Game will only start when host clicks start button via onStartGame handler
           setGameRoom(newRoom);
         }
       } catch (error) {
@@ -679,8 +663,12 @@ function CodenamesPageContent() {
   // Games start directly from waiting room
   
   // Countdown timer for waiting room
+  // Only auto-start in single-player mode (no gameRoom), never in multiplayer rooms
   useEffect(() => {
     if (phase !== "waiting" || !waitingRoomStartTime) return;
+    
+    // Don't auto-start if in a multiplayer room - host must click start
+    if (gameRoom) return;
     
     const WAIT_TIME = 30; // 30 seconds to wait for teams
     const elapsed = Math.floor((Date.now() - waitingRoomStartTime) / 1000);
@@ -694,7 +682,7 @@ function CodenamesPageContent() {
         setCountdown(newRemaining);
         
         if (newRemaining === 0 && isPlayingAgainstComputer) {
-          // Auto-start if no team joined
+          // Auto-start only in single-player mode (no gameRoom)
           startGame();
         }
       }, 1000);
@@ -702,10 +690,11 @@ function CodenamesPageContent() {
       return () => clearInterval(timer);
     } else {
       if (isPlayingAgainstComputer) {
+        // Auto-start only in single-player mode (no gameRoom)
         startGame();
       }
     }
-  }, [phase, waitingRoomStartTime, isPlayingAgainstComputer]);
+  }, [phase, waitingRoomStartTime, isPlayingAgainstComputer, gameRoom]);
   
   // Function to join as blue team
   const joinAsBlueTeam = async (teamId: string) => {
@@ -741,8 +730,19 @@ function CodenamesPageContent() {
             const remoteState = gameStateResult.state.state;
             
             // Sync all game state to the joining player
+            // Only sync phase to "playing" if room status is actually "playing" (host clicked start)
             if (remoteState.phase) {
-              setPhase(remoteState.phase); // Preserve current phase (setup, playing, etc.)
+              if (remoteState.phase === "playing") {
+                // Only sync to "playing" if room status is "playing" (host started the game)
+                // Check room status to ensure host has actually started
+                if (gameRoom && gameRoom.status === "playing") {
+                  setPhase(remoteState.phase);
+                }
+                // If room status is not "playing", stay in waiting phase
+              } else {
+                // Sync other phases (waiting, gameOver) normally
+                setPhase(remoteState.phase);
+              }
             }
             if (remoteState.difficulty) {
               setDifficulty(remoteState.difficulty);
@@ -1065,15 +1065,21 @@ function CodenamesPageContent() {
                 setRedTeamName(remoteState.redTeamName);
               }
               
+              // Only sync phase to "playing" if room status is actually "playing" (host clicked start)
+              // Don't auto-start just because game state has phase="playing" - wait for host to start
               if (remoteState.phase && remoteState.phase !== "waiting") {
-                // Game started by another player
-                // Setup phase no longer exists - skip it
-                if (remoteState.phase === "setup") {
-                  // Setup is removed, go directly to playing
-                  setPhase("playing");
-                } else if (remoteState.phase === "playing") {
-                  setPhase(remoteState.phase);
+                // Check if room status is "playing" (host clicked start button)
+                if (gameRoom && gameRoom.status === "playing") {
+                  // Host has started the game - sync phase
+                  if (remoteState.phase === "setup") {
+                    // Setup is removed, go directly to playing
+                    setPhase("playing");
+                  } else if (remoteState.phase === "playing") {
+                    setPhase(remoteState.phase);
+                  }
                 }
+                // If not in a room or room status is not "playing", don't sync phase
+                // Game should only start when host clicks start button
               }
             }
           }
@@ -1727,40 +1733,8 @@ function CodenamesPageContent() {
     // Keep difficulty setting
   };
 
-  // Auto-skip setup phase if we're in a room with teams already assigned
-  useEffect(() => {
-    if (phase === "setup" && gameRoom && gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
-      // Extract team information from room
-      const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-      const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
-      
-      if (redTeamData) {
-        setRedTeamName(redTeamData.name || "RED TEAM");
-      }
-      if (blueTeamData) {
-        setBlueTeamName(blueTeamData.name || "BLUE TEAM");
-        const currentTeamData = localStorage.getItem("currentTeam");
-        if (currentTeamData) {
-          try {
-            const teamInfo = JSON.parse(currentTeamData);
-            if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
-              setBlueTeamId(teamInfo.id || null);
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-      }
-      
-      // Extract difficulty from room settings if available
-      if (gameRoom.settings && gameRoom.settings.difficulty) {
-        setDifficulty(gameRoom.settings.difficulty);
-      }
-      
-      // Start game directly - skip setup phase
-      startGame();
-    }
-  }, [phase, gameRoom, currentUser]);
+  // Setup phase has been removed - game should only start when host clicks start button
+  // No auto-start logic needed here
 
   if (!currentUser) return null;
 
@@ -1814,6 +1788,12 @@ function CodenamesPageContent() {
           currentUser={currentUser}
           roomCode={gameRoom.code}
           room={gameRoom}
+          onPlayerJoined={(player) => {
+            // When a player joins, ensure they're added to the game state
+            // Players are managed through teams in codenames, so this is mainly for room sync
+            // The game state will sync players from the room when the game starts
+            console.log("Player joined:", player.name);
+          }}
           onStartGame={async () => {
             // If we have room with players already assigned, start directly
             // Otherwise go to setup phase
@@ -2096,43 +2076,8 @@ function CodenamesPageContent() {
   // SETUP PHASE - Completely removed, team selection happens in lobby/waiting room
   // All setup functionality is now integrated into WaitingRoom component
   if (phase === "setup") {
-    // Setup phase no longer exists - redirect to waiting or start game directly
-    if (gameRoom) {
-      // If in a room, extract team info and start game
-      if (gameRoom.teams && gameRoom.teams.length >= 2 && gameRoom.currentPlayers && gameRoom.currentPlayers.length >= (gameRoom.minPlayers || 4)) {
-        const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-        const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
-        
-        if (redTeamData) {
-          setRedTeamName(redTeamData.name || "RED TEAM");
-        }
-        if (blueTeamData) {
-          setBlueTeamName(blueTeamData.name || "BLUE TEAM");
-          const currentTeamData = localStorage.getItem("currentTeam");
-          if (currentTeamData) {
-            try {
-              const teamInfo = JSON.parse(currentTeamData);
-              if (blueTeamData.players && blueTeamData.players.some((p: any) => p.id === teamInfo.id || p.id === currentUser.id)) {
-                setBlueTeamId(teamInfo.id || null);
-              }
-            } catch (e) {
-              // Ignore parse errors
-            }
-          }
-        }
-        
-        if (gameRoom.settings && gameRoom.settings.difficulty) {
-          setDifficulty(gameRoom.settings.difficulty);
-        }
-        
-        startGame();
-        return null;
-      }
-      // If in room but not ready, go back to waiting
-      setPhase("waiting");
-      return null;
-    }
-    // For non-room games, go back to waiting (setup is now in waiting room)
+    // Setup phase no longer exists - redirect to waiting phase
+    // Game should only start when host clicks start button
     setPhase("waiting");
     return null;
   }

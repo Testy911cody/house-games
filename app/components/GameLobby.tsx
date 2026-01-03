@@ -254,46 +254,7 @@ export default function GameLobby({
     }
   };
 
-  // Quick match
-  const handleQuickMatch = async () => {
-    if (!currentUser || isCreating) return;
-    
-    setIsCreating(true);
-    setJoinError("");
-    
-    try {
-      const { gameRoomsAPI } = await import("@/lib/api-utils");
-      const result = await gameRoomsAPI.quickMatch({
-        gameType,
-        userId: currentUser.id,
-        userName: currentUser.name,
-        maxPlayers,
-        minPlayers,
-      });
-      
-      if (result.success && result.room) {
-        onJoinRoom(result.room);
-      } else {
-        const errorMsg = result.error || "Failed to find match";
-        // Check if it's a database table error
-        if (errorMsg.includes("game_rooms") || errorMsg.includes("schema cache")) {
-          setJoinError("Database not set up. Please run SUPABASE_GAME_ROOMS.sql in your Supabase SQL editor.");
-        } else {
-          setJoinError(errorMsg);
-        }
-      }
-    } catch (error: any) {
-      console.error("Error in quick match:", error);
-      const errorMsg = error.message || "Failed to find match";
-      if (errorMsg.includes("game_rooms") || errorMsg.includes("schema cache")) {
-        setJoinError("Database not set up. Please run SUPABASE_GAME_ROOMS.sql in your Supabase SQL editor.");
-      } else {
-        setJoinError(errorMsg);
-      }
-    } finally {
-      setIsCreating(false);
-    }
-  };
+  // Quick match removed - it's the same as public room
 
   // Join existing room
   const handleJoinRoom = async (room: GameRoom) => {
@@ -368,20 +329,7 @@ export default function GameLobby({
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {/* Quick Match */}
-          <button
-            onClick={handleQuickMatch}
-            disabled={isCreating}
-            className="neon-card neon-box-green p-6 text-center transition-all hover:scale-105 active:scale-95 cursor-pointer"
-          >
-            <Zap className="w-12 h-12 mx-auto mb-3 text-green-400" />
-            <h3 className="text-xl font-bold text-green-400 mb-2">QUICK MATCH</h3>
-            <p className="text-green-300/70 text-sm">
-              Join or create a public game instantly
-            </p>
-          </button>
-
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           {/* Create Public Room */}
           <button
             onClick={() => handleCreateRoom(false)}
@@ -667,7 +615,6 @@ export default function GameLobby({
         <div className="mt-6 p-4 bg-blue-900/20 rounded-xl border-2 border-blue-500/50">
           <h3 className="font-bold text-blue-400 mb-2">ℹ️ HOW IT WORKS</h3>
           <ul className="text-blue-300/80 space-y-1 text-sm">
-            <li>• <strong>Quick Match:</strong> Instantly join an available game or create a new one</li>
             <li>• <strong>Public Room:</strong> Anyone can see and join your game</li>
             <li>• <strong>Private Room:</strong> Share the 6-digit code with friends to let them join</li>
             <li>• Players: {minPlayers}-{maxPlayers} players per game</li>

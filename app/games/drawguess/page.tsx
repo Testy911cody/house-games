@@ -96,11 +96,10 @@ function DrawGuessPageContent() {
     }
   }, [searchParams]);
 
-  // Poll room status to detect when game starts (even when in waiting phase)
+  // Poll room status to update room state (players, etc.) but don't auto-start game
+  // Game should only start when host explicitly clicks start button via WaitingRoom's onStartGame
   useEffect(() => {
     if (!gameRoom || !currentUser || phase !== "waitingRoom") return;
-    
-    let previousStatus = gameRoom.status;
     
     const pollRoomStatus = async () => {
       try {
@@ -110,22 +109,8 @@ function DrawGuessPageContent() {
         if (result.success && result.room) {
           const newRoom = result.room;
           
-          // Check if game status changed from waiting to playing
-          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            // Game was started - if we have room with players already assigned, start directly
-            const hasPlayers = newRoom.currentPlayers && newRoom.currentPlayers.length >= (newRoom.minPlayers || 2);
-            
-            if (hasPlayers) {
-              // Start game directly - skip setup phase
-              startGame();
-            } else {
-              // Not enough players, go to setup phase
-              setPhase("setup");
-            }
-          }
-          
-          // Update room state (players, etc.)
-          previousStatus = newRoom.status;
+          // Update room state (players, etc.) - but don't auto-start game
+          // Game will only start when host clicks start button via onStartGame handler
           setGameRoom(newRoom);
         }
       } catch (error) {

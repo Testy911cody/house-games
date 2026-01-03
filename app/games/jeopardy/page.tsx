@@ -520,11 +520,10 @@ function JeopardyPageContent() {
     }
   }, [showLobby, phase, currentUser, gameRoom, teams.length]);
 
-  // Poll room status to detect when game starts (even when in waiting phase)
+  // Poll room status to update room state (players, etc.) but don't auto-start game
+  // Game should only start when host explicitly clicks start button via WaitingRoom's onStartGame
   useEffect(() => {
     if (!gameRoom || !currentUser || phase !== "waiting") return;
-    
-    let previousStatus = gameRoom.status;
     
     const pollRoomStatus = async () => {
       try {
@@ -534,36 +533,8 @@ function JeopardyPageContent() {
         if (result.success && result.room) {
           const newRoom = result.room;
           
-          // Check if game status changed from waiting to playing
-          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            // Game was started - trigger the start game handler
-            const currentTeamData = localStorage.getItem("currentTeam");
-            if (currentTeamData) {
-              try {
-                const teamData = JSON.parse(currentTeamData);
-                setTeams(prev => {
-                  const currentTeamExists = prev.some(t => t.id === `team_${teamData.id}`);
-                  if (!currentTeamExists) {
-                    const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
-                    const gameTeam: Team = {
-                      id: `team_${teamData.id}`,
-                      name: teamData.name,
-                      color: availableColor,
-                      score: 0
-                    };
-                    return [gameTeam, ...prev];
-                  }
-                  return prev;
-                });
-              } catch (e) {
-                console.error("Error adding current team:", e);
-              }
-            }
-            setPhase("setup");
-          }
-          
-          // Update room state (players, etc.)
-          previousStatus = newRoom.status;
+          // Update room state (players, etc.) - but don't auto-start game
+          // Game will only start when host clicks start button via onStartGame handler
           setGameRoom(newRoom);
         }
       } catch (error) {
@@ -1259,6 +1230,77 @@ function JeopardyPageContent() {
 
   const currentTeam = teams[currentTeamIndex];
   const topicColor = currentTopicData ? COLOR_CLASSES[currentTopicData.color] : COLOR_CLASSES.cyan;
+
+  // If using new room system, use WaitingRoom component
+  if (gameRoom && phase === "waiting") {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo = null;
+    if (currentTeamData) {
+      try {
+        teamInfo = JSON.parse(currentTeamData);
+      } catch (e) {
+        // Ignore parse errors
+      }
+    }
+    const currentTeamName = teamInfo?.name || "Solo Player";
+    const currentTeamId = teamInfo?.id || null;
+
+    return (
+      <WaitingRoom
+        gameType="jeopardy"
+        gameName="JEOPARDY"
+        gameIcon="🎯"
+        currentTeamName={currentTeamName}
+        currentTeamId={currentTeamId}
+        gameId={`jeopardy_${gameRoom.code}`}
+        currentUser={currentUser}
+        roomCode={gameRoom.code}
+        room={gameRoom}
+        onPlayerJoined={(player) => {
+          // When a player joins, add them to teams if not already present
+          // This ensures all players in the room are represented in teams
+          const playerTeamName = player.name + "'s Team";
+          setTeams(prev => {
+            // Check if this player's team already exists
+            const existingTeam = prev.find(t => t.name === playerTeamName);
+            if (!existingTeam) {
+              const availableColor = TEAM_COLORS[prev.length % TEAM_COLORS.length];
+              const newTeam: Team = {
+                id: `team_${player.id}`,
+                name: playerTeamName,
+                color: availableColor,
+                score: 0
+              };
+              return [...prev, newTeam];
+            }
+            return prev;
+          });
+        }}
+        onStartGame={async () => {
+          // Start game when host clicks start
+          if (teams.length >= 2) {
+            setPhase("topicSelect");
+          }
+        }}
+        onPlayAgainstComputer={() => {
+          setIsPlayingAgainstComputer(true);
+          if (teams.length >= 2) {
+            setPhase("topicSelect");
+          }
+        }}
+        onLeaveRoom={() => {
+          setGameRoom(null);
+          setShowLobby(true);
+          router.push("/games/jeopardy");
+        }}
+        minPlayers={2}
+        maxPlayers={6}
+        waitTime={30}
+        showAvailableGames={true}
+        showAvailableTeams={false}
+      />
+    );
+  }
 
   // LOBBY PHASE - Merged with team selection
   if (showLobby && phase === "waiting") {

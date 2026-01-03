@@ -250,11 +250,10 @@ function MonopolyPageContent() {
     setGamePhase("waiting");
   };
 
-  // Poll room status to detect when game starts (even when in waiting phase)
+  // Poll room status to update room state (players, etc.) but don't auto-start game
+  // Game should only start when host explicitly clicks start button via WaitingRoom's onStartGame
   useEffect(() => {
     if (!gameRoom || !currentUser || gamePhase !== "waiting" || !isOnlineGame) return;
-    
-    let previousStatus = gameRoom.status;
     
     const pollRoomStatus = async () => {
       try {
@@ -264,14 +263,8 @@ function MonopolyPageContent() {
         if (result.success && result.room) {
           const newRoom = result.room;
           
-          // Check if game status changed from waiting to playing
-          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            // Game was started - trigger the start handler
-            handleStartOnlineGame();
-          }
-          
-          // Update room state (players, etc.)
-          previousStatus = newRoom.status;
+          // Update room state (players, etc.) - but don't auto-start game
+          // Game will only start when host clicks start button via onStartGame handler
           setGameRoom(newRoom);
         }
       } catch (error) {

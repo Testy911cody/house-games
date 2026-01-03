@@ -158,10 +158,9 @@ export default function WaitingRoom({
             setIsReady(myPlayer.isReady);
           }
           
-          // Check if game started
-          if (previousStatus === 'waiting' && newRoom.status === 'playing') {
-            onStartGame();
-          }
+          // Don't auto-start game - only update room state
+          // Game should only start when host explicitly clicks start button
+          // The onStartGame callback will be called by the host's click action, not here
           
           // Update state - always update to ensure allReady calculation is correct
           previousPlayers = newRoom.currentPlayers;
