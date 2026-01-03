@@ -508,7 +508,9 @@ function CodenamesPageContent() {
             if (savedState.redTeamName) {
               setRedTeamName(savedState.redTeamName);
             }
-            if (savedState.waitingRoomStartTime) {
+            // Don't load waitingRoomStartTime from old state if we're in a room
+            // In rooms, host must click start - no auto-countdown
+            if (savedState.waitingRoomStartTime && !gameRoom) {
               setWaitingRoomStartTime(savedState.waitingRoomStartTime);
             }
           }
@@ -538,7 +540,9 @@ function CodenamesPageContent() {
                       if (otherState.redTeamName) {
                         setRedTeamName(otherState.redTeamName);
                       }
-                      if (otherState.waitingRoomStartTime) {
+                      // Don't load waitingRoomStartTime from old state if we're in a room
+                      // In rooms, host must click start - no auto-countdown
+                      if (otherState.waitingRoomStartTime && !gameRoom) {
                         setWaitingRoomStartTime(otherState.waitingRoomStartTime);
                       }
                       setIsPlayingAgainstComputer(false);
@@ -570,8 +574,11 @@ function CodenamesPageContent() {
       setGameId(id);
     }
     
-    // Initialize waiting room
-    setWaitingRoomStartTime(Date.now());
+    // Initialize waiting room - only set timer if NOT in a room
+    // In multiplayer rooms, host must click start - no auto-countdown
+    if (!gameRoom) {
+      setWaitingRoomStartTime(Date.now());
+    }
     loadAvailableTeams();
   }, [router]);
   
@@ -670,6 +677,13 @@ function CodenamesPageContent() {
     // Don't auto-start if in a multiplayer room - host must click start
     if (gameRoom) return;
     
+    // Don't auto-start if there's a room code in URL (we're joining a room)
+    const roomCode = searchParams.get('code');
+    if (roomCode) return;
+    
+    // Don't auto-start if showLobby is false (we're in a room flow)
+    if (!showLobby) return;
+    
     const WAIT_TIME = 30; // 30 seconds to wait for teams
     const elapsed = Math.floor((Date.now() - waitingRoomStartTime) / 1000);
     const remaining = Math.max(0, WAIT_TIME - elapsed);
@@ -677,24 +691,32 @@ function CodenamesPageContent() {
     if (remaining > 0) {
       setCountdown(remaining);
       const timer = setInterval(() => {
+        // Re-check conditions on each interval
+        if (gameRoom || searchParams.get('code') || !showLobby) {
+          setCountdown(null);
+          return;
+        }
+        
         const newElapsed = Math.floor((Date.now() - waitingRoomStartTime) / 1000);
         const newRemaining = Math.max(0, WAIT_TIME - newElapsed);
         setCountdown(newRemaining);
         
         if (newRemaining === 0 && isPlayingAgainstComputer) {
-          // Auto-start only in single-player mode (no gameRoom)
-          startGame();
+          // Auto-start only in single-player mode (no gameRoom, no room code)
+          if (!gameRoom && !searchParams.get('code') && showLobby) {
+            startGame();
+          }
         }
       }, 1000);
       
       return () => clearInterval(timer);
     } else {
-      if (isPlayingAgainstComputer) {
-        // Auto-start only in single-player mode (no gameRoom)
+      if (isPlayingAgainstComputer && !gameRoom && !searchParams.get('code') && showLobby) {
+        // Auto-start only in single-player mode (no gameRoom, no room code)
         startGame();
       }
     }
-  }, [phase, waitingRoomStartTime, isPlayingAgainstComputer, gameRoom]);
+  }, [phase, waitingRoomStartTime, isPlayingAgainstComputer, gameRoom, showLobby, searchParams]);
   
   // Function to join as blue team
   const joinAsBlueTeam = async (teamId: string) => {
@@ -777,7 +799,9 @@ function CodenamesPageContent() {
                 timestamp: new Date(entry.timestamp)
               })));
             }
-            if (remoteState.waitingRoomStartTime) {
+            // Don't load waitingRoomStartTime from remote state if we're in a room
+            // In rooms, host must click start - no auto-countdown
+            if (remoteState.waitingRoomStartTime && !gameRoom) {
               setWaitingRoomStartTime(remoteState.waitingRoomStartTime);
             }
           } else {
@@ -1388,36 +1412,46 @@ function CodenamesPageContent() {
   };
 
   const startGame = async () => {
-    // Try to load existing game state first
+    // Only load existing game state if room status is "playing" (host clicked start)
+    // Don't auto-load old game state - wait for host to explicitly start
     if (gameId && currentUser) {
       try {
         const { gameStateAPI } = await import('@/lib/api-utils');
         const result = await gameStateAPI.getGameState(gameId);
         
+        // Only load game state if:
+        // 1. There's existing game state with phase="playing"
+        // 2. AND we're in a room AND room status is "playing" (host clicked start)
+        // OR we're not in a room (single player mode)
         if (result.success && result.state && result.state.state.phase === "playing") {
-          // Load existing game state
-          const savedState = result.state.state;
-          setPhase(savedState.phase || "playing");
-          setDifficulty(savedState.difficulty || difficulty);
-          // When loading a game in progress, restore both team names (they're locked at this point)
-          // But only if we don't already have them set (to avoid overwriting user's own team name)
-          if (savedState.redTeamName && (!redTeamName || redTeamName === "RED TEAM")) {
-            setRedTeamName(savedState.redTeamName);
+          const shouldLoadState = !gameRoom || (gameRoom && gameRoom.status === "playing");
+          
+          if (shouldLoadState) {
+            // Load existing game state
+            const savedState = result.state.state;
+            setPhase(savedState.phase || "playing");
+            setDifficulty(savedState.difficulty || difficulty);
+            // When loading a game in progress, restore both team names (they're locked at this point)
+            // But only if we don't already have them set (to avoid overwriting user's own team name)
+            if (savedState.redTeamName && (!redTeamName || redTeamName === "RED TEAM")) {
+              setRedTeamName(savedState.redTeamName);
+            }
+            if (savedState.blueTeamName && (!blueTeamName || blueTeamName === "BLUE TEAM")) {
+              setBlueTeamName(savedState.blueTeamName);
+            }
+            setCards(savedState.cards || []);
+            setCurrentTeam(savedState.currentTeam || "red");
+            setClue(savedState.clue || { word: "", number: 0 });
+            setGuessesRemaining(savedState.guessesRemaining || 0);
+            setGameOverReason(savedState.gameOverReason || "");
+            setPlayers(savedState.players || []);
+            setGameLog((savedState.gameLog || []).map((entry: any) => ({
+              ...entry,
+              timestamp: new Date(entry.timestamp)
+            })));
+            return;
           }
-          if (savedState.blueTeamName && (!blueTeamName || blueTeamName === "BLUE TEAM")) {
-            setBlueTeamName(savedState.blueTeamName);
-          }
-          setCards(savedState.cards || []);
-          setCurrentTeam(savedState.currentTeam || "red");
-          setClue(savedState.clue || { word: "", number: 0 });
-          setGuessesRemaining(savedState.guessesRemaining || 0);
-          setGameOverReason(savedState.gameOverReason || "");
-          setPlayers(savedState.players || []);
-          setGameLog((savedState.gameLog || []).map((entry: any) => ({
-            ...entry,
-            timestamp: new Date(entry.timestamp)
-          })));
-          return;
+          // If room status is not "playing", don't load old state - stay in waiting
         }
       } catch (error) {
         console.error('Error loading game state:', error);
