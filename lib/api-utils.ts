@@ -311,6 +311,22 @@ export function generateIconSVG(size: string = '192'): string {
  */
 import { supabase, isSupabaseConfigured } from './supabase';
 
+// Track if Supabase is unreachable to avoid spamming errors
+let supabaseUnreachable = false;
+let lastUnreachableCheck = 0;
+const UNREACHABLE_CHECK_INTERVAL = 60000; // Check again after 1 minute
+
+function isNetworkError(error: any): boolean {
+  const errorMsg = error?.message || error?.toString() || '';
+  return errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
+         errorMsg.includes('Failed to fetch') ||
+         errorMsg.includes('NetworkError') ||
+         errorMsg.includes('Network request failed') ||
+         errorMsg.includes('ERR_INTERNET_DISCONNECTED') ||
+         errorMsg.includes('ERR_CONNECTION_REFUSED') ||
+         errorMsg.includes('ERR_CONNECTION_TIMED_OUT');
+}
+
 export interface Team {
   id: string;
   name: string;
@@ -1512,6 +1528,12 @@ let roomsStorage: GameRoom[] = [];
 
 async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
   if (isSupabaseConfigured() && supabase) {
+    // Skip if Supabase is unreachable
+    const now = Date.now();
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+      return roomsStorage.find(r => r.id === roomId) || null; // Fallback to local
+    }
+    
     try {
       const { data, error } = await supabase
         .from('game_rooms')
@@ -1520,6 +1542,12 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
         .single();
       
       if (error) {
+        // Check for network errors
+        if (isNetworkError(error)) {
+          supabaseUnreachable = true;
+          lastUnreachableCheck = now;
+          return roomsStorage.find(r => r.id === roomId) || null; // Fallback to local
+        }
         // Handle specific error codes gracefully
         if (error.code === 'PGRST116') return null; // Not found
         if ((error as any).status === 406 || (error as any).status === 409) {
@@ -1532,6 +1560,9 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
         return null;
       }
       
+      // Reset unreachable flag on success
+      supabaseUnreachable = false;
+      
       if (!data) return null;
       
       const room = mapDBRoomToGameRoom(data);
@@ -1559,7 +1590,13 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
       }
       
       return room;
-    } catch (error) {
+    } catch (error: any) {
+      // Check for network errors
+      if (isNetworkError(error)) {
+        supabaseUnreachable = true;
+        lastUnreachableCheck = Date.now();
+        return roomsStorage.find(r => r.id === roomId) || null; // Fallback to local
+      }
       console.error('Supabase error getting room:', error);
       return null;
     }
@@ -1571,6 +1608,12 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
 
 async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
   if (isSupabaseConfigured() && supabase) {
+    // Skip if Supabase is unreachable
+    const now = Date.now();
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+      return roomsStorage.find(r => r.code.toUpperCase() === code.toUpperCase()) || null;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('game_rooms')
@@ -1579,6 +1622,12 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
         .single();
       
       if (error) {
+        // Check for network errors
+        if (isNetworkError(error)) {
+          supabaseUnreachable = true;
+          lastUnreachableCheck = now;
+          return roomsStorage.find(r => r.code.toUpperCase() === code.toUpperCase()) || null;
+        }
         // Handle specific error codes gracefully
         if (error.code === 'PGRST116') return null; // Not found
         if ((error as any).status === 406 || (error as any).status === 409) {
@@ -1591,6 +1640,9 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
         return null;
       }
       
+      // Reset unreachable flag on success
+      supabaseUnreachable = false;
+      
       if (!data) return null;
       
       const room = mapDBRoomToGameRoom(data);
@@ -1618,7 +1670,13 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
       }
       
       return room;
-    } catch (error) {
+    } catch (error: any) {
+      // Check for network errors
+      if (isNetworkError(error)) {
+        supabaseUnreachable = true;
+        lastUnreachableCheck = Date.now();
+        return roomsStorage.find(r => r.code.toUpperCase() === code.toUpperCase()) || null;
+      }
       console.error('Supabase error getting room by code:', error);
       return null;
     }
@@ -1626,22 +1684,6 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
   
   // Fallback to local storage
   return roomsStorage.find(r => r.code === code.toUpperCase()) || null;
-}
-
-// Track if Supabase is unreachable to avoid spamming errors
-let supabaseUnreachable = false;
-let lastUnreachableCheck = 0;
-const UNREACHABLE_CHECK_INTERVAL = 60000; // Check again after 1 minute
-
-function isNetworkError(error: any): boolean {
-  const errorMsg = error?.message || error?.toString() || '';
-  return errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
-         errorMsg.includes('Failed to fetch') ||
-         errorMsg.includes('NetworkError') ||
-         errorMsg.includes('Network request failed') ||
-         errorMsg.includes('ERR_INTERNET_DISCONNECTED') ||
-         errorMsg.includes('ERR_CONNECTION_REFUSED') ||
-         errorMsg.includes('ERR_CONNECTION_TIMED_OUT');
 }
 
 async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
@@ -1747,6 +1789,19 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
 
 async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
   if (isSupabaseConfigured() && supabase) {
+    // Skip if Supabase is unreachable - use local storage instead
+    const now = Date.now();
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+      // Fallback to local storage
+      const index = roomsStorage.findIndex(r => r.id === room.id);
+      if (index >= 0) {
+        roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
+      } else {
+        roomsStorage.push(room);
+      }
+      return room;
+    }
+    
     try {
       const dbRoom = {
         id: room.id,
@@ -1775,6 +1830,20 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
         .select()
         .single();
       
+      // Check for network errors
+      if (error && isNetworkError(error)) {
+        supabaseUnreachable = true;
+        lastUnreachableCheck = now;
+        // Fallback to local storage
+        const index = roomsStorage.findIndex(r => r.id === room.id);
+        if (index >= 0) {
+          roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
+        } else {
+          roomsStorage.push(room);
+        }
+        return room;
+      }
+      
       // If conflict, update instead
       if (error && (error.code === '23505' || error.message?.includes('duplicate'))) {
         const { data: updateData, error: updateError } = await supabase
@@ -1787,6 +1856,19 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
           .select()
           .single();
         
+        // Check for network errors on update
+        if (updateError && isNetworkError(updateError)) {
+          supabaseUnreachable = true;
+          lastUnreachableCheck = now;
+          const index = roomsStorage.findIndex(r => r.id === room.id);
+          if (index >= 0) {
+            roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
+          } else {
+            roomsStorage.push(room);
+          }
+          return room;
+        }
+        
         if (updateError) throw updateError;
         data = updateData;
       } else if (error) {
@@ -1795,8 +1877,24 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
       
       if (!data) throw new Error('No data returned from Supabase');
       
+      // Reset unreachable flag on success
+      supabaseUnreachable = false;
+      
       return mapDBRoomToGameRoom(data);
-    } catch (error) {
+    } catch (error: any) {
+      // Check for network errors
+      if (isNetworkError(error)) {
+        supabaseUnreachable = true;
+        lastUnreachableCheck = Date.now();
+        // Fallback to local storage
+        const index = roomsStorage.findIndex(r => r.id === room.id);
+        if (index >= 0) {
+          roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
+        } else {
+          roomsStorage.push(room);
+        }
+        return room;
+      }
       console.error('Supabase error saving room:', error);
       throw error;
     }
