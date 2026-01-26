@@ -797,17 +797,21 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
 
 async function cleanupInactiveTeams(): Promise<void> {
   try {
+    console.log('🧹 Starting aggressive team cleanup...');
     // Get ALL teams from database (including empty ones) for cleanup
     const allTeams = await getAllTeamsForCleanup();
     
     if (!Array.isArray(allTeams)) {
+      console.log('⚠️ No teams found or invalid response');
       return;
     }
 
+    console.log(`📊 Found ${allTeams.length} teams to check for cleanup`);
     const teamsToDelete: string[] = [];
     const now = Date.now();
     const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
     const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+    const THREE_HOURS = 3 * ONE_HOUR; // 3 hours - delete teams older than this even if created today
     
     // Get today's date at midnight for comparison
     const today = new Date();
@@ -837,18 +841,24 @@ async function cleanupInactiveTeams(): Promise<void> {
       let shouldDelete = false;
       let deleteReason = '';
       
-      // Delete teams from previous days IMMEDIATELY (regardless of online status)
+      // PRIORITY 1: Delete ALL teams from previous days IMMEDIATELY (no exceptions)
       if (isFromPreviousDay) {
         shouldDelete = true;
         const daysOld = Math.floor(teamAge / ONE_DAY);
-        deleteReason = `Team from previous day (${daysOld} day${daysOld !== 1 ? 's' : ''} old)`;
+        deleteReason = `Team from previous day (${daysOld} day${daysOld !== 1 ? 's' : ''} old) - AGGRESSIVE CLEANUP`;
       }
-      // Delete empty teams (no members) immediately
+      // PRIORITY 2: Delete empty teams (no members) immediately
       else if (!team.members || team.members.length === 0) {
         shouldDelete = true;
         deleteReason = `Empty team (no members)`;
       }
-      // Delete teams immediately if no members are online (regardless of age)
+      // PRIORITY 3: Delete teams older than 3 hours even if created today (if no active users)
+      else if (teamAge > THREE_HOURS && !hasActiveUsers) {
+        shouldDelete = true;
+        const hoursOld = Math.floor(teamAge / ONE_HOUR);
+        deleteReason = `Team older than 3 hours with no active users (${hoursOld} hours old)`;
+      }
+      // PRIORITY 4: Delete teams immediately if no members are online (regardless of age)
       else if (!hasActiveUsers) {
         shouldDelete = true;
         const daysOld = Math.floor(teamAge / ONE_DAY);
@@ -864,34 +874,74 @@ async function cleanupInactiveTeams(): Promise<void> {
       
       if (shouldDelete) {
         teamsToDelete.push(team.id);
-        console.log(`🗑️ Marking team for deletion: ${team.name} (${deleteReason})`);
+        console.log(`🗑️ Marking team for deletion: ${team.name} (ID: ${team.id}) - ${deleteReason}`);
+      } else {
+        console.log(`✓ Keeping team: ${team.name} (ID: ${team.id}) - has active users or is new`);
       }
     }
 
-    // Delete inactive teams
-    for (const teamId of teamsToDelete) {
+    console.log(`🗑️ Deleting ${teamsToDelete.length} team(s)...`);
+    
+    // Delete inactive teams from Supabase
+    if (teamsToDelete.length > 0 && isSupabaseConfigured() && supabase) {
       try {
-        await deleteTeamFromDB(teamId);
-        console.log(`✅ Auto-deleted inactive team: ${teamId}`);
+        // Delete all teams in batch for better performance
+        const { error: batchError } = await supabase
+          .from('teams')
+          .delete()
+          .in('id', teamsToDelete);
         
-        // Also remove from localStorage
-        if (typeof window !== 'undefined') {
-          const localTeams = JSON.parse(localStorage.getItem("teams") || "[]");
-          const filteredTeams = localTeams.filter((t: Team) => t.id !== teamId);
-          localStorage.setItem("teams", JSON.stringify(filteredTeams));
+        if (batchError) {
+          console.error('❌ Batch delete error, trying individual deletes:', batchError);
+          // Fallback to individual deletes
+          for (const teamId of teamsToDelete) {
+            try {
+              await deleteTeamFromDB(teamId);
+            } catch (error) {
+              console.error(`❌ Error deleting team ${teamId}:`, error);
+            }
+          }
+        } else {
+          console.log(`✅ Batch deleted ${teamsToDelete.length} team(s) from Supabase`);
         }
       } catch (error) {
-        console.error(`Error deleting team ${teamId}:`, error);
+        console.error('❌ Error in batch delete, trying individual:', error);
+        // Fallback to individual deletes
+        for (const teamId of teamsToDelete) {
+          try {
+            await deleteTeamFromDB(teamId);
+          } catch (error) {
+            console.error(`❌ Error deleting team ${teamId}:`, error);
+          }
+        }
+      }
+    } else {
+      // Individual deletes for local storage or fallback
+      for (const teamId of teamsToDelete) {
+        try {
+          await deleteTeamFromDB(teamId);
+          console.log(`✅ Auto-deleted inactive team: ${teamId}`);
+        } catch (error) {
+          console.error(`❌ Error deleting team ${teamId}:`, error);
+        }
       }
     }
     
+    // Also remove from localStorage
+    if (typeof window !== 'undefined' && teamsToDelete.length > 0) {
+      const localTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+      const filteredTeams = localTeams.filter((t: Team) => !teamsToDelete.includes(t.id));
+      localStorage.setItem("teams", JSON.stringify(filteredTeams));
+      console.log(`🧹 Cleaned ${teamsToDelete.length} team(s) from localStorage`);
+    }
+    
     if (teamsToDelete.length > 0) {
-      console.log(`🧹 Cleanup complete: Deleted ${teamsToDelete.length} inactive team(s)`);
+      console.log(`✅ Cleanup complete: Deleted ${teamsToDelete.length} inactive team(s)`);
     } else {
-      console.log(`🧹 Cleanup complete: No inactive teams to delete`);
+      console.log(`✅ Cleanup complete: No inactive teams to delete`);
     }
   } catch (error) {
-    console.error('Error cleaning up inactive teams:', error);
+    console.error('❌ Error cleaning up inactive teams:', error);
   }
 }
 
@@ -981,6 +1031,52 @@ export const teamsAPI = {
 
   // Clean up inactive teams
   cleanupInactiveTeams,
+  
+  // Aggressive cleanup - delete all teams from previous days directly from Supabase
+  async aggressiveCleanupTeams(): Promise<{ success: boolean; deleted: number; error?: string }> {
+    try {
+      if (isSupabaseConfigured() && supabase) {
+        // Get today's date at midnight
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayISO = today.toISOString();
+        
+        // Delete all teams created before today
+        const { data, error } = await supabase
+          .from('teams')
+          .delete()
+          .lt('created_at', todayISO)
+          .select('id');
+        
+        if (error) {
+          console.error('❌ Error in aggressive cleanup:', error);
+          return { success: false, deleted: 0, error: error.message };
+        }
+        
+        const deletedCount = data?.length || 0;
+        console.log(`✅ Aggressive cleanup: Deleted ${deletedCount} team(s) from previous days`);
+        
+        // Also clean localStorage
+        if (typeof window !== 'undefined') {
+          const localTeams = JSON.parse(localStorage.getItem("teams") || "[]");
+          const todayStart = today.getTime();
+          const filteredTeams = localTeams.filter((t: Team) => {
+            const teamCreatedDate = new Date(t.createdAt);
+            teamCreatedDate.setHours(0, 0, 0, 0);
+            return teamCreatedDate.getTime() >= todayStart;
+          });
+          localStorage.setItem("teams", JSON.stringify(filteredTeams));
+        }
+        
+        return { success: true, deleted: deletedCount };
+      }
+      
+      return { success: false, deleted: 0, error: 'Supabase not configured' };
+    } catch (error: any) {
+      console.error('❌ Error in aggressive cleanup:', error);
+      return { success: false, deleted: 0, error: error.message };
+    }
+  },
   
   // Update team game access timestamp
   updateTeamGameAccess,
@@ -2279,6 +2375,7 @@ export const gameRoomsAPI = {
    */
   async cleanupStaleRooms(): Promise<void> {
     try {
+      console.log('🧹 Starting aggressive room cleanup...');
       if (isSupabaseConfigured() && supabase) {
         // Get all rooms to check
         const { data: allRooms } = await supabase
@@ -2286,10 +2383,19 @@ export const gameRoomsAPI = {
           .select('id, code, current_players, status, created_at, finished_at, updated_at');
         
         if (allRooms) {
+          console.log(`📊 Found ${allRooms.length} rooms to check for cleanup`);
           const now = Date.now();
           const ONE_MINUTE = 60 * 1000;
           const FIVE_MINUTES = 5 * 60 * 1000;
           const ONE_HOUR = 60 * 60 * 1000;
+          const ONE_DAY = 24 * 60 * 60 * 1000;
+          
+          // Get today's date at midnight for comparison
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const todayStart = today.getTime();
+          
+          const roomsToDelete: string[] = [];
           
           for (const room of allRooms) {
             let shouldDelete = false;
@@ -2299,35 +2405,71 @@ export const gameRoomsAPI = {
             const finishedAge = room.finished_at ? now - new Date(room.finished_at).getTime() : 0;
             const updatedAge = room.updated_at ? now - new Date(room.updated_at).getTime() : Infinity;
             
-            // Priority 1: Delete empty rooms immediately
-            if (playersArray.length === 0) {
+            // Check if room was created on a different day (before today)
+            const roomCreatedDate = new Date(room.created_at);
+            roomCreatedDate.setHours(0, 0, 0, 0);
+            const isFromPreviousDay = roomCreatedDate.getTime() < todayStart;
+            
+            // PRIORITY 1: Delete ALL rooms from previous days IMMEDIATELY (no exceptions)
+            if (isFromPreviousDay) {
+              shouldDelete = true;
+              const daysOld = Math.floor(createdAge / ONE_DAY);
+              console.log(`🗑️ Deleting room ${room.code} from previous day (${daysOld} day${daysOld !== 1 ? 's' : ''} old) - AGGRESSIVE CLEANUP`);
+            }
+            // PRIORITY 2: Delete empty rooms immediately
+            else if (playersArray.length === 0) {
               shouldDelete = true;
               console.log(`🗑️ Deleting empty room ${room.code} immediately`);
             }
-            // Priority 2: Delete finished rooms immediately (no need to keep them)
+            // PRIORITY 3: Delete finished rooms immediately (no need to keep them)
             else if (room.status === 'finished') {
               shouldDelete = true;
               console.log(`🗑️ Deleting finished room ${room.code} immediately`);
             }
-            // Priority 3: Delete waiting rooms with only 1 player after 1 minute (very aggressive)
+            // PRIORITY 4: Delete waiting rooms with only 1 player after 1 minute (very aggressive)
             else if (room.status === 'waiting' && playersArray.length === 1 && createdAge > ONE_MINUTE) {
               shouldDelete = true;
               console.log(`🗑️ Deleting abandoned waiting room ${room.code} (1 player, ${Math.floor(createdAge / 60000)} min old)`);
             }
-            // Priority 4: Delete waiting rooms older than 10 minutes (even with multiple players if inactive)
+            // PRIORITY 5: Delete waiting rooms older than 10 minutes (even with multiple players if inactive)
             else if (room.status === 'waiting' && createdAge > 10 * ONE_MINUTE && updatedAge > 5 * ONE_MINUTE) {
               shouldDelete = true;
               console.log(`🗑️ Deleting inactive waiting room ${room.code} (${Math.floor(createdAge / 60000)} min old, no updates)`);
             }
-            // Priority 5: Delete rooms playing for more than 2 hours (likely abandoned)
+            // PRIORITY 6: Delete rooms playing for more than 2 hours (likely abandoned)
             else if (room.status === 'playing' && createdAge > 2 * ONE_HOUR) {
               shouldDelete = true;
               console.log(`🗑️ Deleting abandoned playing room ${room.code} (${Math.floor(createdAge / ONE_HOUR)} hours old)`);
             }
             
             if (shouldDelete) {
-              await supabase.from('game_rooms').delete().eq('id', room.id);
+              roomsToDelete.push(room.id);
             }
+          }
+          
+          // Batch delete rooms for better performance
+          if (roomsToDelete.length > 0) {
+            console.log(`🗑️ Deleting ${roomsToDelete.length} room(s)...`);
+            const { error: batchError } = await supabase
+              .from('game_rooms')
+              .delete()
+              .in('id', roomsToDelete);
+            
+            if (batchError) {
+              console.error('❌ Batch delete error, trying individual deletes:', batchError);
+              // Fallback to individual deletes
+              for (const roomId of roomsToDelete) {
+                try {
+                  await deleteRoomFromDB(roomId);
+                } catch (error) {
+                  console.error(`❌ Error deleting room ${roomId}:`, error);
+                }
+              }
+            } else {
+              console.log(`✅ Batch deleted ${roomsToDelete.length} room(s) from Supabase`);
+            }
+          } else {
+            console.log(`✅ No rooms to delete`);
           }
         }
         

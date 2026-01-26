@@ -61,10 +61,13 @@ export default function TeamsPage() {
       };
       updateActivity();
 
-      // Run cleanup on initial load
+      // Run aggressive cleanup on initial load
       const runCleanup = async () => {
         try {
           const { teamsAPI } = await import('@/lib/api-utils');
+          // First run aggressive cleanup to delete all teams from previous days
+          await teamsAPI.aggressiveCleanupTeams();
+          // Then run regular cleanup for other inactive teams
           await teamsAPI.cleanupInactiveTeams();
         } catch (e) {
           // Silently fail
@@ -81,17 +84,22 @@ export default function TeamsPage() {
         updateActivity();
       }, 1000);
       
-      // Run cleanup every 30 seconds to quickly remove inactive/empty teams
+      // Run cleanup every 10 seconds to aggressively remove inactive/empty teams and old teams
       const cleanupInterval = setInterval(async () => {
         try {
-          const { teamsAPI } = await import('@/lib/api-utils');
+          const { teamsAPI, gameRoomsAPI } = await import('@/lib/api-utils');
+          // First aggressive cleanup to delete all teams from previous days
+          await teamsAPI.aggressiveCleanupTeams();
+          // Then regular cleanup for other inactive teams
           await teamsAPI.cleanupInactiveTeams();
+          // Cleanup rooms
+          await gameRoomsAPI.cleanupStaleRooms();
           // Reload teams after cleanup
           loadTeams();
         } catch (e) {
           // Silently fail
         }
-      }, 30000); // Every 30 seconds
+      }, 10000); // Every 10 seconds - more aggressive cleanup
       
       // Refresh when page becomes visible (user switches back to tab)
       const handleVisibilityChange = () => {
@@ -122,9 +130,12 @@ export default function TeamsPage() {
   const loadTeams = async () => {
     // Show ALL available teams - anyone online can join
     try {
-      // Run cleanup FIRST to remove old teams before loading
+      // Run aggressive cleanup FIRST to remove old teams before loading
       try {
         const { teamsAPI } = await import('@/lib/api-utils');
+        // First aggressive cleanup to delete all teams from previous days
+        await teamsAPI.aggressiveCleanupTeams();
+        // Then regular cleanup
         await teamsAPI.cleanupInactiveTeams();
       } catch (e) {
         // Silently fail cleanup
