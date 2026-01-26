@@ -132,11 +132,11 @@ export default function GameLobby({
   // Load public rooms
   const loadPublicRooms = useCallback(async () => {
     try {
-      const { gameRoomsAPI, isSupabaseConfigured } = await import("@/lib/api-utils");
-      const { isSupabaseConfigured: checkSupabase } = await import("@/lib/supabase");
+      const { gameRoomsAPI } = await import("@/lib/api-utils");
+      const { isSupabaseConfigured } = await import("@/lib/supabase");
       
       // Check if Supabase is configured
-      if (!checkSupabase()) {
+      if (!isSupabaseConfigured()) {
         // Supabase not configured - just show empty list, no error
         setPublicRooms([]);
         setIsLoading(false);
