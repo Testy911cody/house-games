@@ -1971,47 +1971,73 @@ export const gameRoomsAPI = {
     try {
       // Check if user already has a room for this game type
       if (isSupabaseConfigured() && supabase) {
-        const { data: existingRooms } = await supabase
-          .from('game_rooms')
-          .select('*')
-          .eq('host_id', options.hostId)
-          .eq('game_type', options.gameType)
-          .in('status', ['waiting', 'playing']);
-        
-        if (existingRooms && existingRooms.length > 0) {
-          // User already has a room - check if they're still in it
-          for (const existingRoom of existingRooms) {
-            const room = mapDBRoomToGameRoom(existingRoom);
-            const isUserInRoom = room.currentPlayers.some(p => p.id === options.hostId);
+        // Skip if Supabase is unreachable
+        const now = Date.now();
+        if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+          // Fall through to local storage logic below
+        } else {
+          try {
+            const { data: existingRooms, error } = await supabase
+              .from('game_rooms')
+              .select('*')
+              .eq('host_id', options.hostId)
+              .eq('game_type', options.gameType)
+              .in('status', ['waiting', 'playing']);
             
-            if (isUserInRoom) {
-              // User is still in their existing room, return it instead of creating a new one
-              console.log(`♻️ User ${options.hostId} already has room ${room.code}, returning existing room`);
-              return { success: true, room };
-            } else {
-              // User left their room, delete it
-              console.log(`🗑️ Deleting abandoned room ${room.code} for user ${options.hostId}`);
-              await deleteRoomFromDB(room.id);
+            // Check for network errors
+            if (error && isNetworkError(error)) {
+              supabaseUnreachable = true;
+              lastUnreachableCheck = now;
+              // Fall through to local storage logic
+            } else if (error) {
+              console.error('Error checking existing rooms:', error);
+              // Fall through to local storage logic
+            } else if (existingRooms && existingRooms.length > 0) {
+              // Reset unreachable flag on success
+              supabaseUnreachable = false;
+              
+              // User already has a room - check if they're still in it
+              for (const existingRoom of existingRooms) {
+                const room = mapDBRoomToGameRoom(existingRoom);
+                const isUserInRoom = room.currentPlayers.some(p => p.id === options.hostId);
+                
+                if (isUserInRoom) {
+                  // User is still in their existing room, return it instead of creating a new one
+                  console.log(`♻️ User ${options.hostId} already has room ${room.code}, returning existing room`);
+                  return { success: true, room };
+                } else {
+                  // User left their room, delete it
+                  console.log(`🗑️ Deleting abandoned room ${room.code} for user ${options.hostId}`);
+                  await deleteRoomFromDB(room.id);
+                }
+              }
             }
+          } catch (error: any) {
+            // Check for network errors in catch block
+            if (isNetworkError(error)) {
+              supabaseUnreachable = true;
+              lastUnreachableCheck = Date.now();
+            }
+            // Fall through to local storage logic
           }
         }
-      } else {
-        // Local storage check
-        const existingRoom = roomsStorage.find(r => 
-          r.hostId === options.hostId && 
-          r.gameType === options.gameType && 
-          (r.status === 'waiting' || r.status === 'playing')
-        );
-        
-        if (existingRoom) {
-          const isUserInRoom = existingRoom.currentPlayers.some(p => p.id === options.hostId);
-          if (isUserInRoom) {
-            console.log(`♻️ User ${options.hostId} already has room ${existingRoom.code}, returning existing room`);
-            return { success: true, room: existingRoom };
-          } else {
-            // Remove abandoned room
-            roomsStorage = roomsStorage.filter(r => r.id !== existingRoom.id);
-          }
+      }
+      
+      // Local storage check (used if Supabase is unreachable or not configured)
+      const existingRoom = roomsStorage.find(r => 
+        r.hostId === options.hostId && 
+        r.gameType === options.gameType && 
+        (r.status === 'waiting' || r.status === 'playing')
+      );
+      
+      if (existingRoom) {
+        const isUserInRoom = existingRoom.currentPlayers.some(p => p.id === options.hostId);
+        if (isUserInRoom) {
+          console.log(`♻️ User ${options.hostId} already has room ${existingRoom.code}, returning existing room`);
+          return { success: true, room: existingRoom };
+        } else {
+          // Remove abandoned room
+          roomsStorage = roomsStorage.filter(r => r.id !== existingRoom.id);
         }
       }
       
@@ -2566,12 +2592,19 @@ export const gameRoomsAPI = {
           
           // Check if it's a network error
           if (queryError && isNetworkError(queryError)) {
+            const wasUnreachable = supabaseUnreachable;
             supabaseUnreachable = true;
             lastUnreachableCheck = now;
-            if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+            // Only log if this is the first time we're detecting it (wasn't already unreachable)
+            if (!wasUnreachable) {
               console.warn('⚠️ Supabase unreachable. Skipping cleanup.');
             }
             return;
+          }
+          
+          // Reset unreachable flag on success
+          if (!queryError) {
+            supabaseUnreachable = false;
           }
           
           if (queryError) {
