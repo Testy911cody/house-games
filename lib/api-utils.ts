@@ -771,9 +771,22 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
         .order('created_at', { ascending: false });
       
       if (error) {
+        // Check if it's a network error
+        if (isNetworkError(error)) {
+          const now = Date.now();
+          supabaseUnreachable = true;
+          lastUnreachableCheck = now;
+          if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+            console.warn('⚠️ Supabase unreachable. Skipping team cleanup.');
+          }
+          return [];
+        }
         console.error('❌ Supabase query error during cleanup:', error);
         return [];
       }
+      
+      // Reset unreachable flag on success
+      supabaseUnreachable = false;
       
       return (data || []).map((team: any) => ({
         id: team.id,
@@ -786,7 +799,17 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
         description: team.description,
         lastGameAccess: team.last_game_access || null,
       }));
-    } catch (error) {
+    } catch (error: any) {
+      // Check if it's a network error
+      if (isNetworkError(error)) {
+        const now = Date.now();
+        supabaseUnreachable = true;
+        lastUnreachableCheck = now;
+        if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+          console.warn('⚠️ Supabase unreachable. Skipping team cleanup.');
+        }
+        return [];
+      }
       console.error('Error fetching teams for cleanup:', error);
       return [];
     }
@@ -797,6 +820,12 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
 
 async function cleanupInactiveTeams(): Promise<void> {
   try {
+    // Skip cleanup if Supabase is unreachable
+    const now = Date.now();
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+      return; // Silently skip, don't spam errors
+    }
+    
     console.log('🧹 Starting aggressive team cleanup...');
     // Get ALL teams from database (including empty ones) for cleanup
     const allTeams = await getAllTeamsForCleanup();
@@ -808,7 +837,7 @@ async function cleanupInactiveTeams(): Promise<void> {
 
     console.log(`📊 Found ${allTeams.length} teams to check for cleanup`);
     const teamsToDelete: string[] = [];
-    const now = Date.now();
+    // Reuse 'now' from above
     const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
     const ONE_DAY = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
     const THREE_HOURS = 3 * ONE_HOUR; // 3 hours - delete teams older than this even if created today
@@ -1599,8 +1628,30 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
   return roomsStorage.find(r => r.code === code.toUpperCase()) || null;
 }
 
+// Track if Supabase is unreachable to avoid spamming errors
+let supabaseUnreachable = false;
+let lastUnreachableCheck = 0;
+const UNREACHABLE_CHECK_INTERVAL = 60000; // Check again after 1 minute
+
+function isNetworkError(error: any): boolean {
+  const errorMsg = error?.message || error?.toString() || '';
+  return errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
+         errorMsg.includes('Failed to fetch') ||
+         errorMsg.includes('NetworkError') ||
+         errorMsg.includes('Network request failed') ||
+         errorMsg.includes('ERR_INTERNET_DISCONNECTED') ||
+         errorMsg.includes('ERR_CONNECTION_REFUSED') ||
+         errorMsg.includes('ERR_CONNECTION_TIMED_OUT');
+}
+
 async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
   if (isSupabaseConfigured() && supabase) {
+    // Skip if we recently detected Supabase is unreachable
+    const now = Date.now();
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+      return []; // Silently return empty, don't spam errors
+    }
+    
     try {
       let query = supabase
         .from('game_rooms')
@@ -1615,7 +1666,23 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
       
       const { data, error } = await query;
       
+      // Reset unreachable flag on success
+      if (!error) {
+        supabaseUnreachable = false;
+      }
+      
       if (error) {
+        // Check if it's a network/unreachable error
+        if (isNetworkError(error)) {
+          supabaseUnreachable = true;
+          lastUnreachableCheck = now;
+          // Only log once per interval
+          if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+            console.warn('⚠️ Supabase unreachable (network error). Will retry in 1 minute.');
+          }
+          return [];
+        }
+        
         // Handle RLS/conflict errors gracefully
         if ((error as any).status === 406 || (error as any).status === 409) {
           console.warn('Supabase query blocked (RLS or conflict) for public rooms:', error.message);
@@ -1627,7 +1694,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
       }
       
       // Filter out empty rooms and very old rooms aggressively
-      const now = Date.now();
+      const now2 = Date.now();
       const TEN_MINUTES = 10 * 60 * 1000;
       const rooms = (data || [])
         .map(mapDBRoomToGameRoom)
@@ -1637,7 +1704,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
             return false;
           }
           // Filter out very old waiting rooms (older than 10 minutes)
-          const createdAge = now - new Date(room.createdAt).getTime();
+          const createdAge = now2 - new Date(room.createdAt).getTime();
           if (room.status === 'waiting' && createdAge > TEN_MINUTES) {
             return false;
           }
@@ -1645,7 +1712,17 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         });
       
       return rooms;
-    } catch (error) {
+    } catch (error: any) {
+      // Check if it's a network/unreachable error
+      if (isNetworkError(error)) {
+        supabaseUnreachable = true;
+        lastUnreachableCheck = now;
+        // Only log once per interval
+        if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+          console.warn('⚠️ Supabase unreachable (network error). Will retry in 1 minute.');
+        }
+        return [];
+      }
       console.error('Supabase error getting public rooms:', error);
       return [];
     }
@@ -2375,12 +2452,34 @@ export const gameRoomsAPI = {
    */
   async cleanupStaleRooms(): Promise<void> {
     try {
+      // Skip cleanup if Supabase is unreachable
+      const now = Date.now();
+      if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+        return; // Silently skip, don't spam errors
+      }
+      
       console.log('🧹 Starting aggressive room cleanup...');
       if (isSupabaseConfigured() && supabase) {
-        // Get all rooms to check
-        const { data: allRooms } = await supabase
-          .from('game_rooms')
-          .select('id, code, current_players, status, created_at, finished_at, updated_at');
+        try {
+          // Get all rooms to check
+          const { data: allRooms, error: queryError } = await supabase
+            .from('game_rooms')
+            .select('id, code, current_players, status, created_at, finished_at, updated_at');
+          
+          // Check if it's a network error
+          if (queryError && isNetworkError(queryError)) {
+            supabaseUnreachable = true;
+            lastUnreachableCheck = now;
+            if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+              console.warn('⚠️ Supabase unreachable. Skipping cleanup.');
+            }
+            return;
+          }
+          
+          if (queryError) {
+            console.error('Error fetching rooms for cleanup:', queryError);
+            return;
+          }
         
         if (allRooms) {
           console.log(`📊 Found ${allRooms.length} rooms to check for cleanup`);
@@ -2473,12 +2572,30 @@ export const gameRoomsAPI = {
           }
         }
         
-        // Also run the stored procedure for any additional cleanup
-        try {
-          await supabase.rpc('cleanup_stale_game_rooms');
-        } catch (rpcError) {
-          // RPC might not exist, that's okay
-          console.warn('Could not run cleanup_stale_game_rooms RPC:', rpcError);
+          // Also run the stored procedure for any additional cleanup
+          try {
+            await supabase.rpc('cleanup_stale_game_rooms');
+          } catch (rpcError: any) {
+            // Check if it's a network error
+            if (isNetworkError(rpcError)) {
+              supabaseUnreachable = true;
+              lastUnreachableCheck = now;
+              return;
+            }
+            // RPC might not exist, that's okay
+            console.warn('Could not run cleanup_stale_game_rooms RPC:', rpcError);
+          }
+        } catch (error: any) {
+          // Check if it's a network error
+          if (isNetworkError(error)) {
+            supabaseUnreachable = true;
+            lastUnreachableCheck = now;
+            if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
+              console.warn('⚠️ Supabase unreachable. Skipping cleanup.');
+            }
+            return;
+          }
+          throw error; // Re-throw non-network errors
         }
       } else {
         // Local cleanup - very aggressive
