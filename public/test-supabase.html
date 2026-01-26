@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Supabase Connection</title>
+</head>
+<body>
+    <h1>Supabase Connection Test</h1>
+    <button onclick="testConnection()">Test Connection</button>
+    <button onclick="testInsert()">Test Insert Team</button>
+    <button onclick="testSelect()">Test Select Teams</button>
+    <div id="results"></div>
+
+    <script type="module">
+        // Get Supabase URL and key from environment (you'll need to set these)
+        const SUPABASE_URL = 'YOUR_SUPABASE_URL_HERE';
+        const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY_HERE';
+
+        // Import Supabase (this won't work in a static HTML file, but shows the concept)
+        // For a real test, you'd need to include the Supabase script
+        
+        window.testConnection = async function() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing connection...</p>';
+            
+            try {
+                // This is a simplified test - in reality you'd use the Supabase client
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/teams?select=*&limit=1`, {
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    results.innerHTML = `<p style="color: green;">✅ Connection successful! Found ${data.length} teams.</p>`;
+                } else {
+                    results.innerHTML = `<p style="color: red;">❌ Connection failed: ${response.status} ${response.statusText}</p>`;
+                }
+            } catch (error) {
+                results.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            }
+        };
+
+        window.testInsert = async function() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing insert...</p>';
+            
+            const testTeam = {
+                id: `test_${Date.now()}`,
+                name: 'Test Team',
+                code: 'TEST01',
+                admin_id: 'test_admin',
+                admin_name: 'Test Admin',
+                members: [],
+                created_at: new Date().toISOString()
+            };
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/teams`, {
+                    method: 'POST',
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify(testTeam)
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    results.innerHTML = `<p style="color: green;">✅ Insert successful! Team ID: ${data[0]?.id}</p>`;
+                } else {
+                    const error = await response.text();
+                    results.innerHTML = `<p style="color: red;">❌ Insert failed: ${response.status} ${error}</p>`;
+                }
+            } catch (error) {
+                results.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            }
+        };
+
+        window.testSelect = async function() {
+            const results = document.getElementById('results');
+            results.innerHTML = '<p>Testing select...</p>';
+            
+            try {
+                const response = await fetch(`${SUPABASE_URL}/rest/v1/teams?select=*`, {
+                    headers: {
+                        'apikey': SUPABASE_KEY,
+                        'Authorization': `Bearer ${SUPABASE_KEY}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    results.innerHTML = `<p style="color: green;">✅ Select successful! Found ${data.length} teams:</p><pre>${JSON.stringify(data, null, 2)}</pre>`;
+                } else {
+                    const error = await response.text();
+                    results.innerHTML = `<p style="color: red;">❌ Select failed: ${response.status} ${error}</p>`;
+                }
+            } catch (error) {
+                results.innerHTML = `<p style="color: red;">❌ Error: ${error.message}</p>`;
+            }
+        };
+    </script>
+</body>
+</html>
+

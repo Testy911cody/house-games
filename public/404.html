@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>House Games</title>
+    <script>
+      // GitHub Pages 404.html - redirect to index.html to enable client-side routing
+      // This allows dynamic routes like /teams/[id] to work with Next.js static export
+      var path = window.location.pathname;
+      sessionStorage.setItem('redirect', path);
+      window.location.replace('/');
+    </script>
+  </head>
+  <body>
+    <p>Redirecting...</p>
+  </body>
+</html>
+
