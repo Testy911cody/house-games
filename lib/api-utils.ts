@@ -1528,9 +1528,10 @@ let roomsStorage: GameRoom[] = [];
 
 async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
   if (isSupabaseConfigured() && supabase) {
-    // Skip if Supabase is unreachable
+    // For critical operations (getting room data), retry more frequently
     const now = Date.now();
-    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+    const SHORT_RETRY_INTERVAL = 5000; // 5 seconds for critical read operations
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < SHORT_RETRY_INTERVAL) {
       return roomsStorage.find(r => r.id === roomId) || null; // Fallback to local
     }
     
@@ -1608,9 +1609,10 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
 
 async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
   if (isSupabaseConfigured() && supabase) {
-    // Skip if Supabase is unreachable
+    // For critical operations (joining by code), retry more frequently
     const now = Date.now();
-    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+    const SHORT_RETRY_INTERVAL = 5000; // 5 seconds for critical read operations
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < SHORT_RETRY_INTERVAL) {
       return roomsStorage.find(r => r.code.toUpperCase() === code.toUpperCase()) || null;
     }
     
@@ -1688,9 +1690,10 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
 
 async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
   if (isSupabaseConfigured() && supabase) {
-    // Skip if we recently detected Supabase is unreachable
+    // For reads, check periodically (every 10 seconds) if Supabase is back online
     const now = Date.now();
-    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
+    const READ_RETRY_INTERVAL = 10000; // 10 seconds for read operations
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < READ_RETRY_INTERVAL) {
       return []; // Silently return empty, don't spam errors
     }
     
@@ -1789,10 +1792,12 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
 
 async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
   if (isSupabaseConfigured() && supabase) {
-    // Skip if Supabase is unreachable - use local storage instead
+    // Always try Supabase for writes (to check if it's back online)
+    // Only skip if we JUST checked and failed (within 5 seconds) to avoid rapid retries
     const now = Date.now();
-    if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
-      // Fallback to local storage
+    const SHORT_RETRY_INTERVAL = 5000; // 5 seconds for write operations
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < SHORT_RETRY_INTERVAL) {
+      // Very recent failure - skip to avoid rapid retries, but still save locally
       const index = roomsStorage.findIndex(r => r.id === room.id);
       if (index >= 0) {
         roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
@@ -1971,10 +1976,12 @@ export const gameRoomsAPI = {
     try {
       // Check if user already has a room for this game type
       if (isSupabaseConfigured() && supabase) {
-        // Skip if Supabase is unreachable
+        // Always try Supabase for critical operations (create room)
+        // Only skip if we JUST checked and failed (within 5 seconds)
         const now = Date.now();
-        if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
-          // Fall through to local storage logic below
+        const SHORT_RETRY_INTERVAL = 5000; // 5 seconds for write operations
+        if (supabaseUnreachable && (now - lastUnreachableCheck) < SHORT_RETRY_INTERVAL) {
+          // Very recent failure - fall through to local storage logic
         } else {
           try {
             const { data: existingRooms, error } = await supabase
