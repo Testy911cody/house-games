@@ -323,6 +323,7 @@ function isNetworkError(error: any): boolean {
   const errorMsg = (error?.message || error?.toString() || '').toLowerCase();
   const errorName = (error?.name || '').toLowerCase();
   const errorCode = error?.code || '';
+  const status = error?.status || (error as any)?.statusCode || 0;
   
   // Check for network-related error patterns
   return errorMsg.includes('err_name_not_resolved') ||
@@ -333,12 +334,18 @@ function isNetworkError(error: any): boolean {
          errorMsg.includes('err_connection_refused') ||
          errorMsg.includes('err_connection_timed_out') ||
          errorMsg.includes('load failed') ||
+         errorMsg.includes('cors') ||
+         errorMsg.includes('access-control-allow-origin') ||
+         errorMsg.includes('err_failed') ||
          errorName === 'typeerror' ||
          errorName === 'networkerror' ||
          errorCode === 'ERR_NAME_NOT_RESOLVED' ||
          errorCode === 'ERR_INTERNET_DISCONNECTED' ||
          errorCode === 'ERR_CONNECTION_REFUSED' ||
          errorCode === 'ERR_CONNECTION_TIMED_OUT' ||
+         errorCode === 'ERR_FAILED' ||
+         // HTTP 521 = Cloudflare "Web Server Is Down" (origin server not responding)
+         status === 521 ||
          // Check if it's a fetch error
          (error instanceof TypeError && errorMsg.includes('fetch'));
 }
