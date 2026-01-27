@@ -1690,10 +1690,10 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
 
 async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
   if (isSupabaseConfigured() && supabase) {
-    // For reads, check periodically (every 10 seconds) if Supabase is back online
+    // For public rooms, retry frequently (every 5 seconds) to ensure sync
     const now = Date.now();
-    const READ_RETRY_INTERVAL = 10000; // 10 seconds for read operations
-    if (supabaseUnreachable && (now - lastUnreachableCheck) < READ_RETRY_INTERVAL) {
+    const SHORT_RETRY_INTERVAL = 5000; // 5 seconds for public rooms to ensure sync
+    if (supabaseUnreachable && (now - lastUnreachableCheck) < SHORT_RETRY_INTERVAL) {
       return []; // Silently return empty, don't spam errors
     }
     
@@ -1714,6 +1714,10 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
       // Reset unreachable flag on success
       if (!error) {
         supabaseUnreachable = false;
+        // Log successful fetch for debugging
+        if (data && data.length > 0) {
+          console.log(`✅ Fetched ${data.length} public room(s) from Supabase`);
+        }
       }
       
       if (error) {
@@ -1885,7 +1889,10 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
       // Reset unreachable flag on success
       supabaseUnreachable = false;
       
-      return mapDBRoomToGameRoom(data);
+      const savedRoom = mapDBRoomToGameRoom(data);
+      console.log(`✅ Room ${savedRoom.code} saved to Supabase successfully (synced across devices)`);
+      
+      return savedRoom;
     } catch (error: any) {
       // Check for network errors
       if (isNetworkError(error)) {
