@@ -317,14 +317,30 @@ let lastUnreachableCheck = 0;
 const UNREACHABLE_CHECK_INTERVAL = 60000; // Check again after 1 minute
 
 function isNetworkError(error: any): boolean {
-  const errorMsg = error?.message || error?.toString() || '';
-  return errorMsg.includes('ERR_NAME_NOT_RESOLVED') ||
-         errorMsg.includes('Failed to fetch') ||
-         errorMsg.includes('NetworkError') ||
-         errorMsg.includes('Network request failed') ||
-         errorMsg.includes('ERR_INTERNET_DISCONNECTED') ||
-         errorMsg.includes('ERR_CONNECTION_REFUSED') ||
-         errorMsg.includes('ERR_CONNECTION_TIMED_OUT');
+  if (!error) return false;
+  
+  // Check error message, name, and string representation
+  const errorMsg = (error?.message || error?.toString() || '').toLowerCase();
+  const errorName = (error?.name || '').toLowerCase();
+  const errorCode = error?.code || '';
+  
+  // Check for network-related error patterns
+  return errorMsg.includes('err_name_not_resolved') ||
+         errorMsg.includes('failed to fetch') ||
+         errorMsg.includes('networkerror') ||
+         errorMsg.includes('network request failed') ||
+         errorMsg.includes('err_internet_disconnected') ||
+         errorMsg.includes('err_connection_refused') ||
+         errorMsg.includes('err_connection_timed_out') ||
+         errorMsg.includes('load failed') ||
+         errorName === 'typeerror' ||
+         errorName === 'networkerror' ||
+         errorCode === 'ERR_NAME_NOT_RESOLVED' ||
+         errorCode === 'ERR_INTERNET_DISCONNECTED' ||
+         errorCode === 'ERR_CONNECTION_REFUSED' ||
+         errorCode === 'ERR_CONNECTION_TIMED_OUT' ||
+         // Check if it's a fetch error
+         (error instanceof TypeError && errorMsg.includes('fetch'));
 }
 
 export interface Team {
@@ -1712,7 +1728,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
       const { data, error } = await query;
       
       // Reset unreachable flag on success
-      if (!error) {
+      if (!error && data !== null) {
         supabaseUnreachable = false;
         // Log successful fetch for debugging
         if (data && data.length > 0) {
@@ -1725,9 +1741,10 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         if (isNetworkError(error)) {
           supabaseUnreachable = true;
           lastUnreachableCheck = now;
-          // Only log once per interval
-          if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
-            console.warn('⚠️ Supabase unreachable (network error). Will retry in 1 minute.');
+          // Log warning (will be throttled by the check interval)
+          const timeSinceLastCheck = now - lastUnreachableCheck;
+          if (timeSinceLastCheck >= UNREACHABLE_CHECK_INTERVAL || lastUnreachableCheck === 0) {
+            console.warn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
           }
           return [];
         }
@@ -1766,9 +1783,10 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
       if (isNetworkError(error)) {
         supabaseUnreachable = true;
         lastUnreachableCheck = now;
-        // Only log once per interval
-        if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
-          console.warn('⚠️ Supabase unreachable (network error). Will retry in 1 minute.');
+        // Log warning (will be throttled by the check interval)
+        const timeSinceLastCheck = now - lastUnreachableCheck;
+        if (timeSinceLastCheck >= UNREACHABLE_CHECK_INTERVAL || lastUnreachableCheck === 0) {
+          console.warn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
         }
         return [];
       }
