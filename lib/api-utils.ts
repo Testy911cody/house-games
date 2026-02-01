@@ -1566,7 +1566,7 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
         .from('game_rooms')
         .select('*')
         .eq('id', roomId)
-        .single();
+        .maybeSingle();
       
       if (error) {
         // Check for network errors
@@ -1857,18 +1857,16 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
         finished_at: room.finishedAt,
       };
       
-      // Try insert first
-      let { data, error } = await supabase
+      // Use upsert so we never get 409 Conflict: insert when new, update when exists
+      const { data, error } = await supabase
         .from('game_rooms')
-        .insert(dbRoom)
+        .upsert(dbRoom, { onConflict: 'id' })
         .select()
-        .single();
+        .maybeSingle();
       
-      // Check for network errors
       if (error && isNetworkError(error)) {
         supabaseUnreachable = true;
         lastUnreachableCheck = now;
-        // Fallback to local storage
         const index = roomsStorage.findIndex(r => r.id === room.id);
         if (index >= 0) {
           roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
@@ -1878,38 +1876,8 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
         return room;
       }
       
-      // If conflict, update instead
-      if (error && (error.code === '23505' || error.message?.includes('duplicate'))) {
-        const { data: updateData, error: updateError } = await supabase
-          .from('game_rooms')
-          .update({
-            ...dbRoom,
-            id: undefined, // Don't update the ID
-          })
-          .eq('id', room.id)
-          .select()
-          .single();
-        
-        // Check for network errors on update
-        if (updateError && isNetworkError(updateError)) {
-          supabaseUnreachable = true;
-          lastUnreachableCheck = now;
-          const index = roomsStorage.findIndex(r => r.id === room.id);
-          if (index >= 0) {
-            roomsStorage[index] = { ...room, updatedAt: new Date().toISOString() };
-          } else {
-            roomsStorage.push(room);
-          }
-          return room;
-        }
-        
-        if (updateError) throw updateError;
-        data = updateData;
-      } else if (error) {
-        throw error;
-      }
-      
-      if (!data) throw new Error('No data returned from Supabase');
+      if (error) throw error;
+      if (!data) return room;
       
       // Reset unreachable flag on success
       supabaseUnreachable = false;
