@@ -713,8 +713,21 @@ function DrawGuessPageContent() {
   };
 
   const startGame = async () => {
-    if (players.length < 2) return;
-    
+    // When starting from room, ensure players list is populated from room (host clicked Start Game)
+    const roomPlayerCount = gameRoom?.currentPlayers?.length ?? 0;
+    const minPlayers = gameRoom?.minPlayers ?? 2;
+    if (roomPlayerCount >= minPlayers && players.length < minPlayers) {
+      const roomPlayers: Player[] = (gameRoom!.currentPlayers || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        score: 0,
+        hasDrawn: false
+      }));
+      setPlayers(roomPlayers);
+    }
+    const effectivePlayerCount = Math.max(players.length, roomPlayerCount);
+    if (effectivePlayerCount < 2) return;
+
     // Try to load existing game state
     if (gameId && currentUser) {
       try {
