@@ -6,6 +6,10 @@ export const metadata: Metadata = {
   title: "House Games - Neon Arcade",
   description: "A neon arcade where friends come to play social games together",
   manifest: "/manifest.json",
+  icons: {
+    icon: [{ url: "/icon.svg", type: "image/svg+xml" }, { url: "/icon-192.png", type: "image/png", sizes: "192x192" }],
+    apple: "/icon-192.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

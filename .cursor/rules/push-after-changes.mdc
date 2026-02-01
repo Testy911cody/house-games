@@ -1,0 +1,14 @@
+---
+description: Always push code to git after adding or changing something
+alwaysApply: true
+---
+
+# Push After Changes
+
+After adding or modifying code in this project:
+
+1. **Stage** all relevant changes: `git add` (files you changed, or `git add -A` for the session’s work).
+2. **Commit** with a clear message: `git commit -m "Brief description of what was done"`.
+3. **Push** to the remote: `git push`.
+
+Do this at the end of the session whenever you have made edits, so the repo is always up to date.

@@ -315,6 +315,10 @@ import { supabase, isSupabaseConfigured } from './supabase';
 let supabaseUnreachable = false;
 let lastUnreachableCheck = 0;
 const UNREACHABLE_CHECK_INTERVAL = 60000; // Check again after 1 minute
+// Throttle cleanup to avoid console spam and redundant work
+let lastRoomCleanupRun = 0;
+let lastTeamCleanupRun = 0;
+const CLEANUP_THROTTLE_MS = 45000; // Run at most once per 45 seconds each
 
 function isNetworkError(error: any): boolean {
   if (!error) return false;
@@ -859,22 +863,21 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
 
 async function cleanupInactiveTeams(): Promise<void> {
   try {
-    // Skip cleanup if Supabase is unreachable
     const now = Date.now();
     if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
-      return; // Silently skip, don't spam errors
+      return;
     }
-    
-    console.log('🧹 Starting aggressive team cleanup...');
+    if (now - lastTeamCleanupRun < CLEANUP_THROTTLE_MS) {
+      return; // Throttle: avoid running more than once per 45s
+    }
+    lastTeamCleanupRun = now;
+
     // Get ALL teams from database (including empty ones) for cleanup
     const allTeams = await getAllTeamsForCleanup();
     
     if (!Array.isArray(allTeams)) {
-      console.log('⚠️ No teams found or invalid response');
       return;
     }
-
-    console.log(`📊 Found ${allTeams.length} teams to check for cleanup`);
     const teamsToDelete: string[] = [];
     // Reuse 'now' from above
     const ONE_HOUR = 60 * 60 * 1000; // 1 hour in milliseconds
@@ -948,8 +951,10 @@ async function cleanupInactiveTeams(): Promise<void> {
       }
     }
 
-    console.log(`🗑️ Deleting ${teamsToDelete.length} team(s)...`);
-    
+    if (teamsToDelete.length > 0) {
+      console.log(`🧹 Team cleanup: deleting ${teamsToDelete.length} inactive team(s)...`);
+    }
+
     // Delete inactive teams from Supabase
     if (teamsToDelete.length > 0 && isSupabaseConfigured() && supabase) {
       try {
@@ -1004,9 +1009,7 @@ async function cleanupInactiveTeams(): Promise<void> {
     }
     
     if (teamsToDelete.length > 0) {
-      console.log(`✅ Cleanup complete: Deleted ${teamsToDelete.length} inactive team(s)`);
-    } else {
-      console.log(`✅ Cleanup complete: No inactive teams to delete`);
+      console.log(`✅ Team cleanup: deleted ${teamsToDelete.length} inactive team(s)`);
     }
   } catch (error) {
     console.error('❌ Error cleaning up inactive teams:', error);
@@ -1644,7 +1647,7 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
         .from('game_rooms')
         .select('*')
         .eq('code', code.toUpperCase())
-        .single();
+        .maybeSingle();
       
       if (error) {
         // Check for network errors
@@ -1713,13 +1716,10 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
 
 async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
   if (isSupabaseConfigured() && supabase) {
-    // For public rooms, retry frequently (every 5 seconds) to ensure sync
+    // Always attempt Supabase for public rooms so other devices see new rooms immediately.
+    // Do not skip based on supabaseUnreachable here - that flag may be set by other calls
+    // (e.g. getRoomByCode). We want the public list to always reflect the server.
     const now = Date.now();
-    const SHORT_RETRY_INTERVAL = 5000; // 5 seconds for public rooms to ensure sync
-    if (supabaseUnreachable && (now - lastUnreachableCheck) < SHORT_RETRY_INTERVAL) {
-      return []; // Silently return empty, don't spam errors
-    }
-    
     try {
       let query = supabase
         .from('game_rooms')
@@ -2615,13 +2615,15 @@ export const gameRoomsAPI = {
    */
   async cleanupStaleRooms(): Promise<void> {
     try {
-      // Skip cleanup if Supabase is unreachable
       const now = Date.now();
       if (supabaseUnreachable && (now - lastUnreachableCheck) < UNREACHABLE_CHECK_INTERVAL) {
-        return; // Silently skip, don't spam errors
+        return;
       }
-      
-      console.log('🧹 Starting aggressive room cleanup...');
+      if (now - lastRoomCleanupRun < CLEANUP_THROTTLE_MS) {
+        return; // Throttle: avoid running more than once per 45s
+      }
+      lastRoomCleanupRun = now;
+
       if (isSupabaseConfigured() && supabase) {
         try {
           // Get all rooms to check
@@ -2652,27 +2654,23 @@ export const gameRoomsAPI = {
           }
         
         if (allRooms) {
-          console.log(`📊 Found ${allRooms.length} rooms to check for cleanup`);
-          const now = Date.now();
+          const nowMs = Date.now();
           const ONE_MINUTE = 60 * 1000;
           const FIVE_MINUTES = 5 * 60 * 1000;
           const ONE_HOUR = 60 * 60 * 1000;
           const ONE_DAY = 24 * 60 * 60 * 1000;
-          
-          // Get today's date at midnight for comparison
           const today = new Date();
           today.setHours(0, 0, 0, 0);
           const todayStart = today.getTime();
-          
           const roomsToDelete: string[] = [];
-          
+
           for (const room of allRooms) {
             let shouldDelete = false;
             const players = room.current_players || [];
             const playersArray = Array.isArray(players) ? players : [];
-            const createdAge = now - new Date(room.created_at).getTime();
-            const finishedAge = room.finished_at ? now - new Date(room.finished_at).getTime() : 0;
-            const updatedAge = room.updated_at ? now - new Date(room.updated_at).getTime() : Infinity;
+            const createdAge = nowMs - new Date(room.created_at).getTime();
+            const finishedAge = room.finished_at ? nowMs - new Date(room.finished_at).getTime() : 0;
+            const updatedAge = room.updated_at ? nowMs - new Date(room.updated_at).getTime() : Infinity;
             
             // Check if room was created on a different day (before today)
             const roomCreatedDate = new Date(room.created_at);
@@ -2716,9 +2714,8 @@ export const gameRoomsAPI = {
             }
           }
           
-          // Batch delete rooms for better performance
           if (roomsToDelete.length > 0) {
-            console.log(`🗑️ Deleting ${roomsToDelete.length} room(s)...`);
+            console.log(`🧹 Room cleanup: deleting ${roomsToDelete.length} stale room(s)...`);
             const { error: batchError } = await supabase
               .from('game_rooms')
               .delete()
@@ -2735,10 +2732,8 @@ export const gameRoomsAPI = {
                 }
               }
             } else {
-              console.log(`✅ Batch deleted ${roomsToDelete.length} room(s) from Supabase`);
+              console.log(`✅ Room cleanup: deleted ${roomsToDelete.length} room(s)`);
             }
-          } else {
-            console.log(`✅ No rooms to delete`);
           }
         }
         
