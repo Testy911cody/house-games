@@ -1,14 +1,21 @@
 ---
-description: Always push code to git after adding or changing something
+description: Always push code to git after changes; verify success; auto-fix if push fails
 alwaysApply: true
 ---
 
 # Push After Changes
 
+**Always push. Always verify. If it fails, fix it automatically.**
+
 After adding or modifying code in this project:
 
-1. **Stage** all relevant changes: `git add` (files you changed, or `git add -A` for the session’s work).
+1. **Stage** all relevant changes: `git add` (files you changed, or `git add -A` for the session's work).
 2. **Commit** with a clear message: `git commit -m "Brief description of what was done"`.
 3. **Push** to the remote: `git push`.
+4. **Verify** the push succeeded (check exit code; run `git status` if needed).
+5. **If push fails**: fix it automatically, then push again until successful.
+   - If remote has new commits: `git pull --rebase` (or `git pull`) then `git push`.
+   - If auth issues: user must fix credentials; retry push after.
+   - Resolve conflicts if needed, then push.
 
-Do this at the end of the session whenever you have made edits, so the repo is always up to date.
+Do this at the end of every session whenever you have made edits. Never leave without a successful push.
