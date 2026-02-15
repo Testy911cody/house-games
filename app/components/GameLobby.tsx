@@ -112,6 +112,7 @@ export default function GameLobby({
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [publicRooms, setPublicRooms] = useState<GameRoom[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [connectionFailed, setConnectionFailed] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinError, setJoinError] = useState("");
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
@@ -152,25 +153,28 @@ export default function GameLobby({
       
       const result = await gameRoomsAPI.getPublicRooms(gameType);
       if (result.success) {
+        setConnectionFailed(false);
         // Additional client-side filter: only show rooms with at least 1 player
         const validRooms = result.rooms.filter((room: any) => 
           room.currentPlayers && room.currentPlayers.length > 0
         );
         setPublicRooms(validRooms);
-      } else if (result.error) {
+      } else {
+        setPublicRooms([]);
+        setConnectionFailed(!!result.connectionFailed);
         // Don't show error for missing table - just show empty list
-        if (!result.error.includes("game_rooms") && !result.error.includes("schema cache") && !result.error.includes("Failed to fetch")) {
+        if (result.error && !result.error.includes("game_rooms") && !result.error.includes("schema cache") && !result.error.includes("Failed to fetch")) {
           console.error("Error loading public rooms:", result.error);
         }
-        setPublicRooms([]);
       }
     } catch (error: any) {
-      // Don't show error for network issues or missing table - just show empty list
       const errorMsg = error?.message || "";
-      if (!errorMsg.includes("game_rooms") && !errorMsg.includes("schema cache") && !errorMsg.includes("Failed to fetch") && !errorMsg.includes("fetch")) {
+      const isNetwork = errorMsg.includes("fetch") || errorMsg.includes("CONNECTION_FAILED");
+      setConnectionFailed(isNetwork);
+      setPublicRooms([]);
+      if (!errorMsg.includes("game_rooms") && !errorMsg.includes("schema cache") && !isNetwork) {
         console.error("Error loading public rooms:", error);
       }
-      setPublicRooms([]);
     } finally {
       setIsLoading(false);
     }
@@ -179,11 +183,12 @@ export default function GameLobby({
   useEffect(() => {
     if (currentUser) {
       loadPublicRooms();
-      // Refresh every 2 seconds
-      const interval = setInterval(loadPublicRooms, 2000);
+      // Back off polling when connection fails (15s vs 2s) to reduce spam
+      const intervalMs = connectionFailed ? 15000 : 2000;
+      const interval = setInterval(loadPublicRooms, intervalMs);
       return () => clearInterval(interval);
     }
-  }, [currentUser, loadPublicRooms]);
+  }, [currentUser, loadPublicRooms, connectionFailed]);
 
   // Create a new room
   const handleCreateRoom = async (isPrivate: boolean) => {
@@ -263,8 +268,8 @@ export default function GameLobby({
         // Check if it's a database table error or network error
         if (errorMsg.includes("game_rooms") || errorMsg.includes("schema cache")) {
           setJoinError("Game rooms database not set up. Run SUPABASE_GAME_ROOMS.sql first.");
-        } else if (errorMsg.includes("Failed to fetch") || errorMsg.includes("fetch")) {
-          setJoinError("Connection error. Check your internet connection.");
+        } else if (errorMsg.includes("Failed to fetch") || errorMsg.includes("fetch") || errorMsg.includes("ERR_NAME_NOT_RESOLVED")) {
+          setJoinError("Server may be temporarily unavailable. Check your connection and try again.");
         } else {
           setJoinError(errorMsg);
         }
@@ -274,8 +279,8 @@ export default function GameLobby({
       const errorMsg = error?.message || "Failed to join room";
       if (errorMsg.includes("game_rooms") || errorMsg.includes("schema cache")) {
         setJoinError("Game rooms database not set up. Run SUPABASE_GAME_ROOMS.sql first.");
-      } else if (errorMsg.includes("Failed to fetch") || errorMsg.includes("fetch")) {
-        setJoinError("Connection error. Check your internet connection.");
+      } else if (errorMsg.includes("Failed to fetch") || errorMsg.includes("fetch") || errorMsg.includes("ERR_NAME_NOT_RESOLVED")) {
+        setJoinError("Server may be temporarily unavailable. Check your connection and try again.");
       } else {
         setJoinError(errorMsg);
       }
@@ -385,12 +390,17 @@ export default function GameLobby({
           </button>
         </div>
 
-        {/* Join by Code */}
-        <div className="neon-card neon-box-yellow p-6 mb-8">
+        {/* Join by Code - always works when server is up */}
+        <div className={`neon-card neon-box-yellow p-6 mb-8 ${connectionFailed ? 'ring-2 ring-yellow-400/50' : ''}`}>
           <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2">
             <Search className="w-5 h-5" />
             JOIN WITH CODE
           </h2>
+          {connectionFailed && (
+            <p className="text-yellow-300/80 text-sm mb-4 -mt-2">
+              Public list unavailable — enter a room code shared by your friend
+            </p>
+          )}
           <div className="flex gap-3 flex-col sm:flex-row">
             <input
               type="text"
@@ -445,9 +455,15 @@ export default function GameLobby({
           ) : publicRooms.length === 0 ? (
             <div className="text-center py-8">
               <Users className="w-16 h-16 mx-auto mb-4 text-cyan-400/50" />
-              <p className="text-cyan-300/70 mb-2">No public games available</p>
+              <p className="text-cyan-300/70 mb-2">
+                {connectionFailed ? "Having trouble connecting" : "No public games available"}
+              </p>
               <p className="text-cyan-300/50 text-sm">
-                Be the first to create one!
+                {connectionFailed ? (
+                  <>Can&apos;t load games? Use <span className="text-yellow-400 font-semibold">Join with code</span> above — get the room code from your friend!</>
+                ) : (
+                  "Be the first to create one!"
+                )}
               </p>
             </div>
           ) : (

@@ -1594,7 +1594,9 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
       
       const room = mapDBRoomToGameRoom(data);
       
-      // Update current user's activity if they're in the room (async, don't wait)
+      // Update current user's lastActive in the returned room only (for local display).
+      // Do NOT save the room here — saving on every read overwrote other clients' isReady
+      // and caused "Ready" to flip back. Activity is persisted when we already save (e.g. setPlayerReady).
       if (typeof window !== 'undefined' && room) {
         const currentUser = localStorage.getItem('currentUser');
         if (currentUser) {
@@ -1602,13 +1604,10 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
             const userData = JSON.parse(currentUser);
             const playerIndex = room.currentPlayers.findIndex(p => p.id === userData.id);
             if (playerIndex >= 0) {
-              // Update activity timestamp for current user
               room.currentPlayers[playerIndex] = {
                 ...room.currentPlayers[playerIndex],
                 lastActive: new Date().toISOString(),
               };
-              // Save updated activity (async, don't wait)
-              saveRoomToDB(room).catch(err => console.error('Error updating player activity:', err));
             }
           } catch (e) {
             // Ignore errors
@@ -1625,8 +1624,8 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
         return roomsStorage.find(r => r.id === roomId) || null; // Fallback to local
       }
       console.error('Supabase error getting room:', error);
-      return null;
-    }
+        return null;
+      }
   }
   
   // Fallback to local storage
@@ -1675,7 +1674,8 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
       
       const room = mapDBRoomToGameRoom(data);
       
-      // Update current user's activity if they're in the room (async, don't wait)
+      // Update current user's lastActive in the returned room only (for local display).
+      // Do NOT save the room here — saving on every read overwrote other clients' isReady.
       if (typeof window !== 'undefined' && room) {
         const currentUser = localStorage.getItem('currentUser');
         if (currentUser) {
@@ -1683,13 +1683,10 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
             const userData = JSON.parse(currentUser);
             const playerIndex = room.currentPlayers.findIndex(p => p.id === userData.id);
             if (playerIndex >= 0) {
-              // Update activity timestamp for current user
               room.currentPlayers[playerIndex] = {
                 ...room.currentPlayers[playerIndex],
                 lastActive: new Date().toISOString(),
               };
-              // Save updated activity (async, don't wait)
-              saveRoomToDB(room).catch(err => console.error('Error updating player activity:', err));
             }
           } catch (e) {
             // Ignore errors
@@ -1753,7 +1750,9 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
           if (timeSinceLastCheck >= UNREACHABLE_CHECK_INTERVAL || lastUnreachableCheck === 0) {
             console.warn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
           }
-          return [];
+          const err = new Error('CONNECTION_FAILED') as Error & { connectionFailed?: boolean };
+          err.connectionFailed = true;
+          throw err;
         }
         
         // Handle RLS/conflict errors gracefully
@@ -1795,7 +1794,9 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         if (timeSinceLastCheck >= UNREACHABLE_CHECK_INTERVAL || lastUnreachableCheck === 0) {
           console.warn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
         }
-        return [];
+        const err = new Error('CONNECTION_FAILED') as Error & { connectionFailed?: boolean };
+        err.connectionFailed = true;
+        throw err;
       }
       console.error('Supabase error getting public rooms:', error);
       return [];
@@ -2379,13 +2380,23 @@ export const gameRoomsAPI = {
   /**
    * Get all public rooms (optionally filtered by game type)
    */
-  async getPublicRooms(gameType?: string): Promise<{ success: boolean; rooms: GameRoom[]; error?: string }> {
+  async getPublicRooms(gameType?: string): Promise<{ success: boolean; rooms: GameRoom[]; error?: string; connectionFailed?: boolean }> {
     try {
       const rooms = await getPublicRoomsFromDB(gameType);
       return { success: true, rooms };
     } catch (error: any) {
-      console.error('Error getting public rooms:', error);
-      return { success: false, rooms: [], error: error.message || 'Failed to get public rooms' };
+      const connectionFailed = !!(error?.connectionFailed || 
+        (error?.message || '').toLowerCase().includes('fetch') ||
+        (error?.message || '').includes('CONNECTION_FAILED'));
+      if (!connectionFailed) {
+        console.error('Error getting public rooms:', error);
+      }
+      return { 
+        success: false, 
+        rooms: [], 
+        error: error.message || 'Failed to get public rooms',
+        connectionFailed 
+      };
     }
   },
   
@@ -2419,6 +2430,7 @@ export const gameRoomsAPI = {
    */
   async setPlayerReady(roomId: string, userId: string, isReady: boolean): Promise<{ success: boolean; room?: GameRoom; error?: string }> {
     try {
+      // Fetch the latest room state to ensure we have the most recent ready status for all players
       const room = await getRoomFromDB(roomId);
       if (!room) {
         return { success: false, error: 'Room not found' };
@@ -2429,9 +2441,11 @@ export const gameRoomsAPI = {
         return { success: false, error: 'Player not in room' };
       }
       
+      // Only update this player's ready status and activity - preserve all other players' states
       player.isReady = isReady;
-      player.lastActive = new Date().toISOString(); // Update activity on ready status change
+      player.lastActive = new Date().toISOString();
       
+      // Save the room with updated ready status
       const savedRoom = await saveRoomToDB(room);
       return { success: true, room: savedRoom };
     } catch (error: any) {
