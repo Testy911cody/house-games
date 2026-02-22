@@ -20,6 +20,10 @@ if (!supabaseUrl || !supabaseKey) {
   console.error('❌ Missing Supabase credentials in .env.local');
   console.error('   NEXT_PUBLIC_SUPABASE_URL:', supabaseUrl ? '✅' : '❌');
   console.error('   NEXT_PUBLIC_SUPABASE_ANON_KEY:', supabaseKey ? '✅' : '❌');
+  console.error('\n📋 To fix:');
+  console.error('   1. Copy .env.example to .env.local');
+  console.error('   2. Add your keys from Supabase Dashboard → Settings → API');
+  console.error('   3. See docs/development/SUPABASE_SETUP.md for full guide');
   process.exit(1);
 }
 

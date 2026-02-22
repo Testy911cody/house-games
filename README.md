@@ -16,7 +16,13 @@ A cozy treehouse-themed website where friends come to play social games together
    npm install
    ```
 
-2. **Run the development server:**
+2. **Set up Supabase** (for teams & multiplayer sync):
+   - Copy `.env.example` to `.env.local`
+   - Add your keys from [Supabase Dashboard](https://supabase.com/dashboard) → Settings → API
+   - Run `SUPABASE_SETUP_SQL.sql` and `SUPABASE_GAME_ROOMS.sql` in Supabase SQL Editor
+   - See [docs/development/SUPABASE_SETUP.md](docs/development/SUPABASE_SETUP.md) for details
+
+3. **Run the development server:**
    ```bash
    npm run dev
    ```
@@ -25,7 +31,7 @@ A cozy treehouse-themed website where friends come to play social games together
    scripts\start-housegames.bat
    ```
 
-3. **Open [http://localhost:3000](http://localhost:3000)** in your browser
+4. **Open [http://localhost:3000](http://localhost:3000)** in your browser
 
 ## Games
 
