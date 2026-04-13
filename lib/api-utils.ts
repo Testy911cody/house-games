@@ -1169,14 +1169,28 @@ export interface GameState {
   deviceId?: string; // Device/session ID to track which device made the update (for multi-device sync)
 }
 
+const GAME_STATE_SUPABASE_COOLDOWN_MS = 60_000;
+let gameStateSupabaseBlockedUntil = 0;
+
+function canUseSupabaseForGameState(): boolean {
+  return Date.now() >= gameStateSupabaseBlockedUntil;
+}
+
+function blockSupabaseGameStateTemporarily(reason?: string): void {
+  gameStateSupabaseBlockedUntil = Date.now() + GAME_STATE_SUPABASE_COOLDOWN_MS;
+  if (reason) {
+    devWarn(`Game state sync temporarily disabled for ${GAME_STATE_SUPABASE_COOLDOWN_MS / 1000}s:`, reason);
+  }
+}
+
 async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
-  if (isSupabaseConfigured() && supabase) {
+  if (isSupabaseConfigured() && supabase && canUseSupabaseForGameState()) {
     try {
       const { data, error } = await supabase
         .from('game_states')
         .select('*')
         .eq('id', gameId)
-        .maybeSingle();
+        .limit(1);
       
       if (error) {
         // Handle specific error codes gracefully
@@ -1184,6 +1198,7 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
         if ((error as any).status === 406 || (error as any).status === 409) {
           // RLS policy or conflict - return null instead of throwing
           devWarn('Supabase query blocked (RLS or conflict):', error.message);
+          blockSupabaseGameStateTemporarily(error.message);
           return null;
         }
         // Only throw for unexpected errors
@@ -1191,24 +1206,25 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
         return null;
       }
       
-      if (!data) return null;
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row) return null;
       
       // Extract deviceId from state metadata if present
-      const stateWithDeviceId = data.state as any;
+      const stateWithDeviceId = row.state as any;
       const deviceId = stateWithDeviceId?._deviceId || stateWithDeviceId?.deviceId;
       
       // Remove deviceId from state before returning (clean state)
-      const cleanState = { ...data.state };
+      const cleanState = { ...row.state };
       if (cleanState._deviceId) delete cleanState._deviceId;
       if (cleanState.deviceId && !stateWithDeviceId._deviceId) delete cleanState.deviceId;
       
       return {
-        id: data.id,
-        gameType: data.game_type,
-        teamId: data.team_id,
+        id: row.id,
+        gameType: row.game_type,
+        teamId: row.team_id,
         state: cleanState,
-        lastUpdated: data.last_updated,
-        updatedBy: data.updated_by,
+        lastUpdated: row.last_updated,
+        updatedBy: row.updated_by,
         deviceId: deviceId,
       };
     } catch (error) {
@@ -1232,7 +1248,7 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
 }
 
 async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
-  if (isSupabaseConfigured() && supabase) {
+  if (isSupabaseConfigured() && supabase && canUseSupabaseForGameState()) {
     try {
       // Use upsert to avoid expected 409 conflict spam on existing IDs.
       const { data, error } = await supabase
@@ -1251,6 +1267,10 @@ async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
         .single();
       
       if (error) {
+        if ((error as any).status === 406 || (error as any).status === 409) {
+          blockSupabaseGameStateTemporarily(error.message);
+          return gameState;
+        }
         console.error('❌ Supabase upsert error:', error);
         console.error('   Error code:', error.code);
         console.error('   Error message:', error.message);
@@ -1393,7 +1413,7 @@ export const gameStateAPI = {
    */
   async getWaitingGames(gameType?: string): Promise<{ success: boolean; games?: any[]; error?: string }> {
     try {
-      if (isSupabaseConfigured() && supabase) {
+      if (isSupabaseConfigured() && supabase && canUseSupabaseForGameState()) {
         let query = supabase
           .from('game_states')
           .select('*')
@@ -1409,6 +1429,7 @@ export const gameStateAPI = {
           // Handle RLS/conflict errors gracefully
           if ((error as any).status === 406 || (error as any).status === 409) {
             devWarn('Supabase query blocked (RLS or conflict) for waiting games:', error.message);
+            blockSupabaseGameStateTemporarily(error.message);
             return { success: true, games: [] };
           }
           throw error;
