@@ -644,11 +644,23 @@ function TabooPageContent() {
   };
 
   const startGame = () => {
-    if (teams.length < 2) return;
+    const minPlayers = gameRoom?.minPlayers ?? 2;
+    // When in a room with enough players, build teams from room if not yet synced
+    let effectiveTeams = teams;
+    if (teams.length < 2 && gameRoom?.currentPlayers && gameRoom.currentPlayers.length >= minPlayers) {
+      effectiveTeams = gameRoom.currentPlayers.slice(0, 6).map((p, i) => ({
+        id: `team_${p.id}`,
+        name: `${p.name}'s Team`,
+        color: TEAM_COLORS[i % TEAM_COLORS.length],
+        score: 0,
+      }));
+      setTeams(effectiveTeams);
+    }
+    if (effectiveTeams.length < 2) return;
     setPhase("playing");
     setCurrentTeamIndex(0);
     const initialRounds: Record<string, number> = {};
-    teams.forEach(t => initialRounds[t.id] = 0);
+    effectiveTeams.forEach(t => initialRounds[t.id] = 0);
     setRoundsPlayed(initialRounds);
   };
 

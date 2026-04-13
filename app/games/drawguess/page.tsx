@@ -737,7 +737,9 @@ function DrawGuessPageContent() {
         if (result.success && result.state && result.state.state.phase !== "setup") {
           // Load existing game state
           const savedState = result.state.state;
-          setPhase(savedState.phase || "waiting");
+          // Never restore "waitingRoom" when host just clicked Start - go to role selection
+          const restoredPhase = savedState.phase === "waitingRoom" ? "waiting" : (savedState.phase || "waiting");
+          setPhase(restoredPhase);
           setCurrentWord(savedState.currentWord || null);
           setTimeLeft(savedState.timeLeft || 60);
           setGuesses(savedState.guesses || []);
