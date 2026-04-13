@@ -76,7 +76,9 @@ interface GameRoom {
   updatedAt: string;
 }
 
-type FlowPhase = "lobby" | "room" | "setup" | "playing" | "ended";
+type FlowPhase = "lobby" | "room" | "setup" | "countdown" | "playing" | "ended";
+
+const COUNTDOWN_START = 5;
 
 function FlappyPageContent() {
   const router = useRouter();
@@ -94,6 +96,7 @@ function FlappyPageContent() {
   const keysPressed = useRef<Set<string>>(new Set());
   const pipeTimerRef = useRef<number>(0);
   const particlesRef = useRef<Array<{x: number, y: number, vx: number, vy: number, life: number, color: string}>>([]);
+  const [countdown, setCountdown] = useState(COUNTDOWN_START);
 
   // Player configurations
   const playerConfigs = [
@@ -143,8 +146,8 @@ function FlappyPageContent() {
     return newBirds;
   }, []);
 
-  // Start game
-  const startGame = useCallback(() => {
+  /** Runs after the 5-second countdown — spawns birds and starts the loop. */
+  const startGameplay = useCallback(() => {
     const names = gameRoom?.currentPlayers?.map((p) => p.name).slice(0, playerCount);
     setBirds(initBirds(playerCount, names));
     setPipes([]);
@@ -154,6 +157,27 @@ function FlappyPageContent() {
     pipeTimerRef.current = Date.now();
     particlesRef.current = [];
   }, [initBirds, initStars, playerCount, gameRoom]);
+
+  const beginCountdown = useCallback(() => {
+    setCountdown(COUNTDOWN_START);
+    setFlow("countdown");
+  }, []);
+
+  // 5, 4, 3, 2, 1 — then start gameplay
+  useEffect(() => {
+    if (flow !== "countdown") return;
+    const id = window.setInterval(() => {
+      setCountdown((c) => {
+        if (c <= 1) {
+          window.clearInterval(id);
+          queueMicrotask(() => startGameplay());
+          return 0;
+        }
+        return c - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [flow, startGameplay]);
 
   // Check user
   useEffect(() => {
@@ -259,7 +283,7 @@ function FlappyPageContent() {
         keysPressed.current.add(e.key);
         
         if (flow === "setup" && (e.key === " " || e.key === "Enter")) {
-          startGame();
+          beginCountdown();
           e.preventDefault();
           return;
         }
@@ -303,7 +327,7 @@ function FlappyPageContent() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [flow, startGame, flapBird]);
+  }, [flow, beginCountdown, flapBird]);
 
   // Handle touch events for mobile
   useEffect(() => {
@@ -314,7 +338,7 @@ function FlappyPageContent() {
       e.preventDefault();
       
       if (flow === "setup") {
-        startGame();
+        beginCountdown();
         return;
       }
       
@@ -353,7 +377,7 @@ function FlappyPageContent() {
       canvas.removeEventListener("touchstart", handleTouchStart);
       canvas.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [flow, startGame, playerCount, flapBird]);
+  }, [flow, beginCountdown, playerCount, flapBird]);
 
   // Game loop
   useEffect(() => {
@@ -826,10 +850,13 @@ function FlappyPageContent() {
               <br />
               <span className="text-cyan-300 text-sm">📱 On mobile: Tap your section of the screen to flap!</span>
             </p>
+            <p className="text-fuchsia-300/90 text-sm mb-4">
+              {COUNTDOWN_START}-second countdown before the round begins.
+            </p>
 
             <button
               type="button"
-              onClick={startGame}
+              onClick={beginCountdown}
               className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white px-8 py-4 rounded-xl text-xl font-bold transition-all transform hover:scale-105"
             >
               Start Game!
@@ -848,16 +875,31 @@ function FlappyPageContent() {
           </div>
         )}
 
-        {flow === "playing" && (
+        {(flow === "countdown" || flow === "playing") && (
           <div className="text-center">
-            <div className="inline-block p-1 bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-500 rounded-lg">
-              <canvas
-                ref={canvasRef}
-                width={CANVAS_WIDTH}
-                height={CANVAS_HEIGHT}
-                className="rounded-lg touch-none"
-                style={{ touchAction: 'none' }}
-              />
+            <div className="inline-block p-1 bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-500 rounded-lg relative">
+              {flow === "countdown" && countdown >= 1 && (
+                <div
+                  className="rounded-lg bg-[#0a0a0f] flex flex-col items-center justify-center gap-4 border-2 border-cyan-500/60 shadow-[0_0_40px_rgba(0,245,255,0.25)]"
+                  style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  <p className="text-cyan-400/90 text-sm uppercase tracking-[0.3em]">Get ready</p>
+                  <span className="text-[min(7rem,20vw)] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-cyan-200 via-fuchsia-400 to-pink-500 pixel-font tabular-nums drop-shadow-[0_0_24px_rgba(0,245,255,0.5)]">
+                    {countdown}
+                  </span>
+                </div>
+              )}
+              {flow === "playing" && (
+                <canvas
+                  ref={canvasRef}
+                  width={CANVAS_WIDTH}
+                  height={CANVAS_HEIGHT}
+                  className="rounded-lg touch-none"
+                  style={{ touchAction: "none" }}
+                />
+              )}
             </div>
           </div>
         )}
