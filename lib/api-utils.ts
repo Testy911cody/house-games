@@ -1176,7 +1176,7 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
         .from('game_states')
         .select('*')
         .eq('id', gameId)
-        .single();
+        .maybeSingle();
       
       if (error) {
         // Handle specific error codes gracefully
@@ -1234,86 +1234,32 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
 async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
   if (isSupabaseConfigured() && supabase) {
     try {
-      // Use insert with error handling for conflicts to avoid 400/409 errors
+      // Use upsert to avoid expected 409 conflict spam on existing IDs.
       const { data, error } = await supabase
         .from('game_states')
-        .insert({
+        .upsert({
           id: gameState.id,
           game_type: gameState.gameType,
           team_id: gameState.teamId,
           state: gameState.deviceId ? { ...gameState.state, _deviceId: gameState.deviceId } : gameState.state,
           last_updated: new Date().toISOString(),
           updated_by: gameState.updatedBy,
+        }, {
+          onConflict: 'id',
         })
         .select()
         .single();
       
-      // If insert fails due to conflict (duplicate key), try update instead
-      // Check for various error indicators: error code, status code, or error message
-      const isConflictError = error && (
-        error.code === '23505' || // PostgreSQL duplicate key error
-        error.code === 'PGRST301' || // PostgREST conflict
-        (error as any).status === 409 || // HTTP 409 Conflict
-        (error as any).statusCode === 409 || // HTTP 409 Conflict (alternative)
-        error.message?.toLowerCase().includes('duplicate') ||
-        error.message?.toLowerCase().includes('conflict') ||
-        error.message?.toLowerCase().includes('already exists')
-      );
-      
-      if (isConflictError) {
-        // Game state already exists, update it instead
-        const { data: updateData, error: updateError } = await supabase
-          .from('game_states')
-          .update({
-            game_type: gameState.gameType,
-            team_id: gameState.teamId,
-            state: gameState.deviceId ? { ...gameState.state, _deviceId: gameState.deviceId } : gameState.state,
-            last_updated: new Date().toISOString(),
-            updated_by: gameState.updatedBy,
-          })
-          .eq('id', gameState.id)
-          .select()
-          .single();
-        
-        if (updateError) {
-          console.error('❌ Supabase update error after conflict:', updateError);
-          throw updateError;
-        }
-        if (!updateData) {
-          console.error('❌ No data returned from Supabase after update');
-          throw new Error('No data returned from Supabase after update');
-        }
-        
-        // Extract deviceId from state metadata if present
-        const stateWithDeviceId = updateData.state as any;
-        const deviceId = stateWithDeviceId?._deviceId || stateWithDeviceId?.deviceId;
-        
-        // Remove deviceId from state before returning (clean state)
-        const cleanState = { ...updateData.state };
-        if (cleanState._deviceId) delete cleanState._deviceId;
-        if (cleanState.deviceId && !stateWithDeviceId._deviceId) delete cleanState.deviceId;
-        
-        return {
-          id: updateData.id,
-          gameType: updateData.game_type,
-          teamId: updateData.team_id,
-          state: cleanState,
-          lastUpdated: updateData.last_updated,
-          updatedBy: updateData.updated_by,
-          deviceId: deviceId,
-        };
-      }
-      
       if (error) {
-        console.error('❌ Supabase insert error:', error);
+        console.error('❌ Supabase upsert error:', error);
         console.error('   Error code:', error.code);
         console.error('   Error message:', error.message);
         console.error('   Error status:', (error as any).status);
         throw error;
       }
       if (!data) {
-        console.error('❌ No data returned from Supabase after insert');
-        throw new Error('No data returned from Supabase after insert');
+        console.error('❌ No data returned from Supabase after upsert');
+        throw new Error('No data returned from Supabase after upsert');
       }
       
       // Extract deviceId from state metadata if present

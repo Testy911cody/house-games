@@ -312,8 +312,9 @@ function CodenamesPageContent() {
           
           // Update team information from room if available (but don't start game)
           if (newRoom.teams && newRoom.teams.length >= 2) {
-            const redTeamData = newRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-            const blueTeamData = newRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+            const roomTeams = Array.isArray(newRoom?.teams) ? newRoom.teams.filter(Boolean) : [];
+            const redTeamData = roomTeams.find((t: any) => t?.id === "red" || t?.color === "#ef4444");
+            const blueTeamData = roomTeams.find((t: any) => t?.id === "blue" || t?.color === "#3b82f6");
             
             if (redTeamData) {
               setRedTeamName(redTeamData.name || "RED TEAM");
@@ -1872,8 +1873,9 @@ function CodenamesPageContent() {
               if (hasPlayers) {
                 // Extract team information from room if available
                 if (latestRoom?.teams && latestRoom.teams.length >= 2) {
-                  const redTeamData = latestRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-                  const blueTeamData = latestRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+                  const latestTeams = Array.isArray(latestRoom?.teams) ? latestRoom.teams.filter(Boolean) : [];
+                  const redTeamData = latestTeams.find((t: any) => t?.id === "red" || t?.color === "#ef4444");
+                  const blueTeamData = latestTeams.find((t: any) => t?.id === "blue" || t?.color === "#3b82f6");
                   
                   if (redTeamData) {
                     setRedTeamName(redTeamData.name || "RED TEAM");
@@ -2165,8 +2167,9 @@ function CodenamesPageContent() {
     if (!selectedTeam && currentUser) {
       // If we're in a room, determine team from room data
       if (gameRoom && gameRoom.teams && gameRoom.teams.length >= 2) {
-        const redTeamData = gameRoom.teams.find((t: any) => t.id === "red" || t.color === "#ef4444");
-        const blueTeamData = gameRoom.teams.find((t: any) => t.id === "blue" || t.color === "#3b82f6");
+        const roomTeams = Array.isArray(gameRoom?.teams) ? gameRoom.teams.filter(Boolean) : [];
+        const redTeamData = roomTeams.find((t: any) => t?.id === "red" || t?.color === "#ef4444");
+        const blueTeamData = roomTeams.find((t: any) => t?.id === "blue" || t?.color === "#3b82f6");
         const currentTeamData = localStorage.getItem("currentTeam");
         let currentTeamId = null;
         if (currentTeamData) {
