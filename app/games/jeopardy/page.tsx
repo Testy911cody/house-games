@@ -7,6 +7,7 @@ import Link from "next/link";
 import WaitingRoom from "@/app/components/WaitingRoom";
 import GameLobby from "@/app/components/GameLobby";
 import { devLog, devWarn } from "@/lib/dev-log";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Game Room types
 interface GameRoom {
@@ -475,6 +476,32 @@ interface CustomTopic {
   isAIGenerated: boolean;
 }
 
+function ensureJeopardyTeamForRender(teams: Team[], index: number): Team {
+  const t = teams[index];
+  if (t?.color?.text) return t;
+  const first = teams.find((x) => x?.color?.text);
+  if (first) return first;
+  return {
+    id: "_placeholder",
+    name: "Team",
+    color: TEAM_COLORS[0],
+    score: 0,
+  };
+}
+
+function normalizeJeopardyTeamsFromRemote(raw: unknown): Team[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw.map((t: any, i: number) => ({
+    id: typeof t?.id === "string" ? t.id : `team_${i}`,
+    name: typeof t?.name === "string" ? t.name : `Team ${i + 1}`,
+    score: typeof t?.score === "number" ? t.score : 0,
+    color:
+      t?.color?.text && t?.color?.glow && t?.color?.bg
+        ? t.color
+        : TEAM_COLORS[i % TEAM_COLORS.length],
+  }));
+}
+
 function JeopardyPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -691,6 +718,7 @@ function JeopardyPageContent() {
   };
   const deviceIdRef = useRef<string>(getDeviceId());
   const lastSyncedStateRef = useRef<string>("");
+  const localWriteLockUntilRef = useRef(0);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -793,6 +821,7 @@ function JeopardyPageContent() {
   };
 
   const addTeam = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (teams.length >= 6) return;
     const usedColors = teams.map(t => t.color.name);
     const availableColor = TEAM_COLORS.find(c => !usedColors.includes(c.name)) || TEAM_COLORS[0];
@@ -806,24 +835,29 @@ function JeopardyPageContent() {
   };
 
   const removeTeam = (id: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setTeams(teams.filter(t => t.id !== id));
   };
 
   const updateTeamName = (id: string, name: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setTeams(teams.map(t => t.id === id ? { ...t, name } : t));
   };
 
   const updateTeamColor = (id: string, color: typeof TEAM_COLORS[0]) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setTeams(teams.map(t => t.id === id ? { ...t, color } : t));
   };
 
   const startGame = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (teams.length < 2) return;
     setShowLobby(false); // Hide lobby when starting game
     setPhase("topicSelect");
   };
 
   const selectTopic = (topic: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setSelectedTopic(topic);
     setSelectedCategories([]);
     setShowAddCategory(false);
@@ -839,6 +873,7 @@ function JeopardyPageContent() {
   };
 
   const toggleCategory = (category: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (selectedCategories.includes(category)) {
       setSelectedCategories(selectedCategories.filter(c => c !== category));
     } else if (selectedCategories.length < numCategories) {
@@ -847,16 +882,19 @@ function JeopardyPageContent() {
   };
 
   const randomizeCategories = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const shuffled = [...availableCategories].sort(() => Math.random() - 0.5);
     setSelectedCategories(shuffled.slice(0, Math.min(numCategories, shuffled.length)));
   };
 
   const selectAllCategories = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const maxCats = Math.min(numCategories, availableCategories.length);
     setSelectedCategories(availableCategories.slice(0, maxCats));
   };
 
   const startPlaying = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (selectedCategories.length < 1) return;
     setPhase("playing");
     setUsedQuestions(new Set());
@@ -919,6 +957,7 @@ function JeopardyPageContent() {
     
     const syncGameState = async () => {
       try {
+        if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
         const { gameStateAPI } = await import('@/lib/api-utils');
         const result = await gameStateAPI.getGameState(gameId);
         
@@ -951,10 +990,12 @@ function JeopardyPageContent() {
               setPhase(remoteState.phase);
             }
             if (remoteState.teams && Array.isArray(remoteState.teams)) {
-              // Deep compare teams to avoid unnecessary updates
-              const teamsChanged = JSON.stringify(remoteState.teams) !== JSON.stringify(teams);
-              if (teamsChanged) {
-                setTeams(remoteState.teams);
+              const normalized = normalizeJeopardyTeamsFromRemote(remoteState.teams);
+              if (normalized) {
+                const teamsChanged = JSON.stringify(normalized) !== JSON.stringify(teams);
+                if (teamsChanged) {
+                  setTeams(normalized);
+                }
               }
             }
             if (remoteState.currentTeamIndex !== undefined && remoteState.currentTeamIndex !== currentTeamIndex) {
@@ -1010,6 +1051,7 @@ function JeopardyPageContent() {
   }, [currentUser, gameId, gameRoom, phase, teams, currentTeamIndex, selectedTopic, selectedCategories, usedQuestions, selectedQuestion, showAnswer, buzzedTeam]);
 
   const selectQuestion = (category: string, questionIndex: number) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!selectedTopic) return;
     const questions = getCategoryData(category);
     if (!questions || !questions[questionIndex]) return;
@@ -1024,6 +1066,7 @@ function JeopardyPageContent() {
   };
   
   const saveCustomCategory = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!selectedTopic || !newCategoryName.trim()) return;
     
     // Validate all questions are filled
@@ -1084,16 +1127,19 @@ function JeopardyPageContent() {
   };
 
   const handleBuzz = (team: Team) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (buzzedTeam) return;
     setBuzzedTeam(team);
   };
 
   const revealAnswer = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setShowAnswer(true);
     setPhase("answer");
   };
 
   const handleCorrect = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!selectedQuestion || !buzzedTeam) return;
     
     setTeams(teams.map(t => 
@@ -1106,6 +1152,7 @@ function JeopardyPageContent() {
   };
 
   const handleIncorrect = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!selectedQuestion || !buzzedTeam) return;
     
     setTeams(teams.map(t => 
@@ -1120,11 +1167,13 @@ function JeopardyPageContent() {
   };
 
   const handleNoAnswer = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setShowAnswer(true);
     setPhase("answer");
   };
 
   const finishQuestion = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!selectedQuestion || !selectedTopic) return;
     
     const questions = getCategoryData(selectedQuestion.category);
@@ -1154,6 +1203,7 @@ function JeopardyPageContent() {
   };
 
   const resetGame = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setPhase("setup");
     setTeams([]);
     setCurrentTeamIndex(0);
@@ -1166,6 +1216,7 @@ function JeopardyPageContent() {
   };
 
   const playAgain = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setPhase("topicSelect");
     setCurrentTeamIndex(0);
     setSelectedTopic(null);
@@ -1178,6 +1229,7 @@ function JeopardyPageContent() {
   };
 
   const changeTopic = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setPhase("topicSelect");
     setSelectedTopic(null);
     setSelectedCategories([]);
@@ -1240,7 +1292,7 @@ function JeopardyPageContent() {
 
   if (!currentUser) return null;
 
-  const currentTeam = teams[currentTeamIndex];
+  const currentTeam = ensureJeopardyTeamForRender(teams, currentTeamIndex);
   const topicColor = currentTopicData ? COLOR_CLASSES[currentTopicData.color] : COLOR_CLASSES.cyan;
 
   // If using new room system, use WaitingRoom component

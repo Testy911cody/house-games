@@ -7,6 +7,7 @@ import { ArrowLeft, Users, Moon, Sun, AlertTriangle, Shield, Skull, Vote, Eye, E
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
 import { devLog } from "@/lib/dev-log";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Game Room types
 interface GameRoom {
@@ -98,6 +99,7 @@ function WerewolfPageContent() {
   };
   const deviceIdRef = useRef<string>(getDeviceId());
   const lastSyncedStateRef = useRef<string>("");
+  const localWriteLockUntilRef = useRef(0);
   const [gameId, setGameId] = useState<string | null>(null);
 
   // Check for room code in URL
@@ -272,6 +274,7 @@ function WerewolfPageContent() {
     
     const syncGameState = async () => {
       try {
+        if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
         const { gameStateAPI } = await import('@/lib/api-utils');
         const result = await gameStateAPI.getGameState(gameId);
         
@@ -463,6 +466,7 @@ function WerewolfPageContent() {
   };
 
   const initializeGame = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const roles = assignRoles(playerCount);
     const newPlayers: Player[] = [];
     
@@ -522,6 +526,7 @@ function WerewolfPageContent() {
   }, [getWerewolves, getVillagers]);
 
   const handleNightAction = (actionType: "kill" | "check" | "protect", targetId: number) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setNightActions(prev => ({
       ...prev,
       [actionType === "kill" ? "werewolfKill" : actionType === "check" ? "seerCheck" : "guardianProtect"]: targetId,
@@ -533,6 +538,7 @@ function WerewolfPageContent() {
   };
 
   const resolveNight = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const werewolves = getWerewolves();
     const seer = players.find(p => p.alive && p.role === "seer");
     const guardian = players.find(p => p.alive && p.role === "guardian");
@@ -585,11 +591,13 @@ function WerewolfPageContent() {
   };
 
   const startVoting = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setVotingPhase(true);
     setPlayers(prev => prev.map(p => ({ ...p, votes: 0, votedFor: undefined })));
   };
 
   const castVote = (voterId: number, targetId: number) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!votingPhase) return;
     
     const voter = players.find(p => p.id === voterId);
@@ -607,6 +615,7 @@ function WerewolfPageContent() {
   };
 
   const resolveVoting = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const alivePlayers = players.filter(p => p.alive);
     const votedPlayers = alivePlayers.filter(p => p.votedFor !== undefined);
     

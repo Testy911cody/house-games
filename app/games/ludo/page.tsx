@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, RotateCcw, Users, Trophy, Zap, Globe, Lock, Copy, Check } from "lucide-react";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Player colors - matching the image
 const PLAYER_COLORS = [
@@ -142,6 +143,7 @@ function LudoPageContent() {
   const [winner, setWinner] = useState<Player | null>(null);
   const [consecutiveSixes, setConsecutiveSixes] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  const localWriteLockUntilRef = useRef(0);
   
   // Animation states
   const [animatingToken, setAnimatingToken] = useState<{ playerId: number; tokenId: number } | null>(null);
@@ -245,6 +247,7 @@ function LudoPageContent() {
     
     const syncGameState = async () => {
       try {
+        if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
         const { gameStateAPI } = await import("@/lib/api-utils");
         const gameId = `ludo_${gameRoom.code}`;
         const result = await gameStateAPI.getGameState(gameId);
@@ -284,7 +287,7 @@ function LudoPageContent() {
   // Save game state after changes
   const saveOnlineGameState = useCallback(async (state: any) => {
     if (!isOnlineGame || !gameRoom || !currentUser) return;
-    
+    markLocalWriteLock(localWriteLockUntilRef);
     try {
       const { gameStateAPI } = await import("@/lib/api-utils");
       const gameId = `ludo_${gameRoom.code}`;
@@ -447,6 +450,7 @@ function LudoPageContent() {
     
     // Sync initial state for online games
     if (isOnlineGame && gameRoom && currentUser) {
+      markLocalWriteLock(localWriteLockUntilRef);
       try {
         const { gameStateAPI } = await import("@/lib/api-utils");
         const gameId = `ludo_${gameRoom.code}`;

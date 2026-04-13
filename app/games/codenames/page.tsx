@@ -8,6 +8,11 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
 import { devLog, devWarn } from "@/lib/dev-log";
+import {
+  DEFAULT_LOCAL_WRITE_LOCK_MS,
+  markLocalWriteLock,
+  shouldDeferRemoteSync,
+} from "@/lib/game-sync-helpers";
 
 // Game Room types
 interface GameRoom {
@@ -457,8 +462,7 @@ function CodenamesPageContent() {
   const deviceIdRef = useRef<string>(getDeviceId());
 
   const markLocalWrite = () => {
-    // Prevent stale remote polls from immediately overwriting optimistic local UI changes.
-    localWriteLockUntilRef.current = Date.now() + 1500;
+    markLocalWriteLock(localWriteLockUntilRef, DEFAULT_LOCAL_WRITE_LOCK_MS);
   };
 
   const normalizeTeam = (team: unknown): "red" | "blue" | null => {
@@ -1158,7 +1162,7 @@ function CodenamesPageContent() {
                 // Check deviceId if available, otherwise fallback to updatedBy check
                 const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
                 
-                if (Date.now() < localWriteLockUntilRef.current) {
+                if (shouldDeferRemoteSync(localWriteLockUntilRef)) {
                   return;
                 }
 
@@ -1214,7 +1218,7 @@ function CodenamesPageContent() {
             // Update if state is different and not from this device
             const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
             
-            if (Date.now() < localWriteLockUntilRef.current) {
+            if (shouldDeferRemoteSync(localWriteLockUntilRef)) {
               return;
             }
 
@@ -1308,7 +1312,7 @@ function CodenamesPageContent() {
             const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
             const isFromOtherUser = result.state.updatedBy !== currentUser.id;
             
-            if (Date.now() < localWriteLockUntilRef.current) {
+            if (shouldDeferRemoteSync(localWriteLockUntilRef)) {
               return;
             }
 

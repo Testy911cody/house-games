@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, useCallback, useRef, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Dice1, Dice2, Dice3, Dice4, Dice5, Dice6, Home, DollarSign, Users, Trophy, Zap, Globe, Lock, Copy, Check } from "lucide-react";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Monopoly board spaces
 const BOARD_SPACES = [
@@ -187,6 +188,7 @@ function MonopolyPageContent() {
   const [isOnlineGame, setIsOnlineGame] = useState(false);
   const [myPlayerIndex, setMyPlayerIndex] = useState<number | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string>("");
+  const localWriteLockUntilRef = useRef(0);
   
   // Legacy gameState for compatibility
   const gameState = gamePhase === "setup" ? "setup" : gamePhase === "playing" ? "playing" : gamePhase === "ended" ? "ended" : "setup";
@@ -326,7 +328,7 @@ function MonopolyPageContent() {
   // Save game state for online multiplayer
   const saveOnlineGameState = useCallback(async (state: any) => {
     if (!isOnlineGame || !gameRoom || !currentUser) return;
-    
+    markLocalWriteLock(localWriteLockUntilRef);
     try {
       const { gameStateAPI } = await import("@/lib/api-utils");
       const gameId = `monopoly_${gameRoom.code}`;
@@ -358,6 +360,7 @@ function MonopolyPageContent() {
     
     const syncGameState = async () => {
       try {
+        if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
         const { gameStateAPI } = await import("@/lib/api-utils");
         const gameId = `monopoly_${gameRoom.code}`;
         const result = await gameStateAPI.getGameState(gameId);
@@ -480,6 +483,7 @@ function MonopolyPageContent() {
     
     // Sync initial state for online games
     if (isOnlineGame && gameRoom && currentUser) {
+      markLocalWriteLock(localWriteLockUntilRef);
       try {
         const { gameStateAPI } = await import("@/lib/api-utils");
         const gameId = `monopoly_${gameRoom.code}`;

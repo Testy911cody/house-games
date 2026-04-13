@@ -7,6 +7,7 @@ import Link from "next/link";
 import WaitingRoom from "@/app/components/WaitingRoom";
 import GameLobby from "@/app/components/GameLobby";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Taboo word card structure: each word has a guess word and forbidden taboo words
 interface TabooCard {
@@ -118,6 +119,27 @@ interface Team {
   score: number;
 }
 
+function ensureTabooTeamForRender(teams: Team[], index: number): Team {
+  const t = teams[index];
+  if (t?.color?.text) return t;
+  const first = teams.find((x) => x?.color?.text);
+  if (first) return first;
+  return { id: "_placeholder", name: "Team", color: TEAM_COLORS[0], score: 0 };
+}
+
+function normalizeTabooTeamsFromRemote(raw: unknown): Team[] | null {
+  if (!Array.isArray(raw)) return null;
+  return raw.map((t: any, i: number) => ({
+    id: typeof t?.id === "string" ? t.id : `team_${i}`,
+    name: typeof t?.name === "string" ? t.name : `Team ${i + 1}`,
+    score: typeof t?.score === "number" ? t.score : 0,
+    color:
+      t?.color?.text && t?.color?.glow && t?.color?.bg
+        ? t.color
+        : TEAM_COLORS[i % TEAM_COLORS.length],
+  }));
+}
+
 type GamePhase = "waiting" | "setup" | "playing" | "roundEnd" | "gameOver";
 type PlayerRole = "describer" | "guesser";
 
@@ -195,6 +217,7 @@ function TabooPageContent() {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
   const deviceIdRef = useRef<string>(getDeviceId());
+  const localWriteLockUntilRef = useRef(0);
 
   // Check for room code in URL
   useEffect(() => {
@@ -430,6 +453,7 @@ function TabooPageContent() {
           },
           async (payload) => {
             try {
+              if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
               const { gameStateAPI } = await import('@/lib/api-utils');
               const result = await gameStateAPI.getGameState(gameId);
               
@@ -444,7 +468,10 @@ function TabooPageContent() {
                   // Merge remote state
                   if (remoteState.phase) setPhase(remoteState.phase);
                   if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
-                  if (remoteState.teams) setTeams(remoteState.teams);
+                  if (remoteState.teams) {
+                    const n = normalizeTabooTeamsFromRemote(remoteState.teams);
+                    if (n) setTeams(n);
+                  }
                   if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
                   if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
                   if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
@@ -471,6 +498,7 @@ function TabooPageContent() {
       // Also poll initially and as fallback
       const pollState = async () => {
         try {
+          if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
           const { gameStateAPI } = await import('@/lib/api-utils');
           const result = await gameStateAPI.getGameState(gameId);
           
@@ -485,7 +513,10 @@ function TabooPageContent() {
               // Merge remote state
               if (remoteState.phase) setPhase(remoteState.phase);
               if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
-              if (remoteState.teams) setTeams(remoteState.teams);
+              if (remoteState.teams) {
+                const n = normalizeTabooTeamsFromRemote(remoteState.teams);
+                if (n) setTeams(n);
+              }
               if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
               if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
               if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
@@ -522,6 +553,7 @@ function TabooPageContent() {
       // Fallback to polling if Supabase not configured
       const pollState = async () => {
         try {
+          if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
           const { gameStateAPI } = await import('@/lib/api-utils');
           const result = await gameStateAPI.getGameState(gameId);
           
@@ -537,7 +569,10 @@ function TabooPageContent() {
               // Merge remote state
               if (remoteState.phase) setPhase(remoteState.phase);
               if (remoteState.difficulty) setDifficulty(remoteState.difficulty);
-              if (remoteState.teams) setTeams(remoteState.teams);
+              if (remoteState.teams) {
+                const n = normalizeTabooTeamsFromRemote(remoteState.teams);
+                if (n) setTeams(n);
+              }
               if (remoteState.currentTeamIndex !== undefined) setCurrentTeamIndex(remoteState.currentTeamIndex);
               if (remoteState.roundsPerTeam !== undefined) setRoundsPerTeam(remoteState.roundsPerTeam);
               if (remoteState.roundsPlayed) setRoundsPlayed(remoteState.roundsPlayed);
@@ -619,6 +654,7 @@ function TabooPageContent() {
   };
 
   const addTeam = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (teams.length >= 6) return;
     const usedColors = teams.map(t => t.color.name);
     const availableColor = TEAM_COLORS.find(c => !usedColors.includes(c.name)) || TEAM_COLORS[0];
@@ -632,18 +668,22 @@ function TabooPageContent() {
   };
 
   const removeTeam = (id: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setTeams(teams.filter(t => t.id !== id));
   };
 
   const updateTeamName = (id: string, name: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setTeams(teams.map(t => t.id === id ? { ...t, name } : t));
   };
 
   const updateTeamColor = (id: string, color: typeof TEAM_COLORS[0]) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setTeams(teams.map(t => t.id === id ? { ...t, color } : t));
   };
 
   const startGame = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const minPlayers = gameRoom?.minPlayers ?? 2;
     // When in a room with enough players, build teams from room if not yet synced
     let effectiveTeams = teams;
@@ -665,6 +705,7 @@ function TabooPageContent() {
   };
 
   const startRound = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const gridWords = generateWordGrid();
     setWords(gridWords);
     setUsedWords([]);
@@ -679,6 +720,7 @@ function TabooPageContent() {
   };
 
   const selectWord = (card: TabooCard) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (usedWords.includes(card.word) || role !== "describer") return;
     setCurrentWord(card);
     setDescriberText("");
@@ -705,6 +747,7 @@ function TabooPageContent() {
   };
   
   const handleTabooViolation = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!currentWord) return;
     setRoundScore(prev => ({ ...prev, violations: prev.violations + 1 }));
     setShowViolation(true);
@@ -716,6 +759,7 @@ function TabooPageContent() {
   };
 
   const handleCorrect = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!currentWord) return;
     setRoundScore(prev => ({ ...prev, correct: prev.correct + 1 }));
     setUsedWords(prev => [...prev, currentWord.word]);
@@ -726,6 +770,7 @@ function TabooPageContent() {
   };
 
   const handleSkip = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!currentWord || role !== "describer") return;
     setRoundScore(prev => ({ ...prev, skipped: prev.skipped + 1 }));
     setUsedWords(prev => [...prev, currentWord.word]);
@@ -734,6 +779,7 @@ function TabooPageContent() {
   };
 
   const submitGuess = (e: React.FormEvent) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     e.preventDefault();
     if (!guess.trim()) return;
     
@@ -755,6 +801,7 @@ function TabooPageContent() {
   };
 
   const endRound = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setIsPlaying(false);
     
     const currentTeam = teams[currentTeamIndex];
@@ -782,6 +829,7 @@ function TabooPageContent() {
   };
 
   const nextRound = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     const allTeamsFinished = teams.every(t => 
       (roundsPlayed[t.id] || 0) >= roundsPerTeam
     );
@@ -803,6 +851,7 @@ function TabooPageContent() {
   };
 
   const resetGame = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setPhase("waiting");
     setTeams([]);
     setCurrentTeamIndex(0);
@@ -826,7 +875,7 @@ function TabooPageContent() {
 
   if (!currentUser) return null;
 
-  const currentTeam = teams[currentTeamIndex];
+  const currentTeam = ensureTabooTeamForRender(teams, currentTeamIndex);
   
   // Get current team info
   const currentTeamData = localStorage.getItem("currentTeam");

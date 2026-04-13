@@ -7,6 +7,7 @@ import { ArrowLeft, Check, X, Users, Play, RotateCcw, Palette, Eraser, Trash2, Z
 import WaitingRoom from "@/app/components/WaitingRoom";
 import GameLobby from "@/app/components/GameLobby";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Game Room types
 interface GameRoom {
@@ -195,6 +196,7 @@ function DrawGuessPageContent() {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
   const deviceIdRef = useRef<string>(getDeviceId());
+  const localWriteLockUntilRef = useRef(0);
 
   useEffect(() => {
     const user = localStorage.getItem("currentUser");
@@ -371,6 +373,7 @@ function DrawGuessPageContent() {
           },
           async (payload) => {
             try {
+              if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
               const { gameStateAPI } = await import('@/lib/api-utils');
               const result = await gameStateAPI.getGameState(gameId);
               
@@ -419,6 +422,7 @@ function DrawGuessPageContent() {
       // Also poll initially and as fallback
       const pollState = async () => {
         try {
+          if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
           const { gameStateAPI } = await import('@/lib/api-utils');
           const result = await gameStateAPI.getGameState(gameId);
           
@@ -477,6 +481,7 @@ function DrawGuessPageContent() {
       // Fallback to polling if Supabase not configured
       const pollState = async () => {
         try {
+          if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
           const { gameStateAPI } = await import('@/lib/api-utils');
           const result = await gameStateAPI.getGameState(gameId);
           
@@ -618,6 +623,7 @@ function DrawGuessPageContent() {
   };
 
   const stopDrawing = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setIsDrawing(false);
   };
 
@@ -657,11 +663,13 @@ function DrawGuessPageContent() {
   };
 
   const clearCanvas = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     if (!canvasRef.current) return;
     initializeCanvas();
   };
 
   const addPlayer = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     // Try to get next available team member name
     let playerName = `Player ${players.length + 1}`;
     
@@ -705,14 +713,17 @@ function DrawGuessPageContent() {
   };
 
   const removePlayer = (id: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setPlayers(players.filter(p => p.id !== id));
   };
 
   const updatePlayerName = (id: string, name: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setPlayers(players.map(p => p.id === id ? { ...p, name } : p));
   };
 
   const startGame = async () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     // When starting from room, ensure players list is populated from room (host clicked Start Game)
     const roomPlayerCount = gameRoom?.currentPlayers?.length ?? 0;
     const minPlayers = gameRoom?.minPlayers ?? 2;
@@ -761,6 +772,7 @@ function DrawGuessPageContent() {
   };
 
   const selectWord = () => {
+    markLocalWriteLock(localWriteLockUntilRef);
     // Generate 3 random word options
     const shuffled = [...DRAWING_WORDS].sort(() => Math.random() - 0.5);
     setWordOptions(shuffled.slice(0, 3));
@@ -768,6 +780,7 @@ function DrawGuessPageContent() {
   };
 
   const chooseWord = (word: string) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     setCurrentWord(word);
     setShowWordSelection(false);
     setPhase("drawing");
@@ -778,6 +791,7 @@ function DrawGuessPageContent() {
   };
 
   const submitGuess = async (e: React.FormEvent) => {
+    markLocalWriteLock(localWriteLockUntilRef);
     e.preventDefault();
     if (!guess.trim() || !currentWord || role !== "guesser") return;
 
