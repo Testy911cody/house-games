@@ -1171,6 +1171,7 @@ export interface GameState {
 
 const GAME_STATE_SUPABASE_COOLDOWN_MS = 60_000;
 let gameStateSupabaseBlockedUntil = 0;
+let gameStateSaveInFlight = false;
 
 function canUseSupabaseForGameState(): boolean {
   return Date.now() >= gameStateSupabaseBlockedUntil;
@@ -1249,55 +1250,106 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
 
 async function saveGameStateToDB(gameState: GameState): Promise<GameState> {
   if (isSupabaseConfigured() && supabase && canUseSupabaseForGameState()) {
+    if (gameStateSaveInFlight) {
+      // Drop overlapping save attempts to prevent request storms from rapid polling loops.
+      return gameState;
+    }
+
+    gameStateSaveInFlight = true;
     try {
-      // Use upsert to avoid expected 409 conflict spam on existing IDs.
-      const { data, error } = await supabase
+      const rowPayload = {
+        game_type: gameState.gameType,
+        team_id: gameState.teamId,
+        state: gameState.deviceId ? { ...gameState.state, _deviceId: gameState.deviceId } : gameState.state,
+        last_updated: new Date().toISOString(),
+        updated_by: gameState.updatedBy,
+      };
+
+      // Update first to avoid ON CONFLICT dependency and reduce 409s under high contention.
+      const { data: updateData, error: updateError } = await supabase
         .from('game_states')
-        .upsert({
-          id: gameState.id,
-          game_type: gameState.gameType,
-          team_id: gameState.teamId,
-          state: gameState.deviceId ? { ...gameState.state, _deviceId: gameState.deviceId } : gameState.state,
-          last_updated: new Date().toISOString(),
-          updated_by: gameState.updatedBy,
-        }, {
-          onConflict: 'id',
-        })
+        .update(rowPayload)
+        .eq('id', gameState.id)
         .select()
-        .single();
+        .limit(1);
       
-      if (error) {
-        if ((error as any).status === 406 || (error as any).status === 409) {
-          blockSupabaseGameStateTemporarily(error.message);
+      if (updateError) {
+        if ((updateError as any).status === 406 || (updateError as any).status === 409) {
+          blockSupabaseGameStateTemporarily(updateError.message);
           return gameState;
         }
-        console.error('❌ Supabase upsert error:', error);
-        console.error('   Error code:', error.code);
-        console.error('   Error message:', error.message);
-        console.error('   Error status:', (error as any).status);
-        throw error;
+        throw updateError;
       }
-      if (!data) {
-        console.error('❌ No data returned from Supabase after upsert');
-        throw new Error('No data returned from Supabase after upsert');
+
+      const updatedRow = Array.isArray(updateData) ? updateData[0] : null;
+
+      // No existing row was updated, try insert.
+      const row = updatedRow ?? (() => null)();
+      let finalRow = row;
+
+      if (!finalRow) {
+        const { data: insertData, error: insertError } = await supabase
+          .from('game_states')
+          .insert({
+            id: gameState.id,
+            ...rowPayload,
+          })
+          .select()
+          .limit(1);
+
+        if (insertError) {
+          // Conflict race: another client inserted first; retry update once.
+          if ((insertError as any).status === 409 || insertError.code === '23505') {
+            const { data: retryData, error: retryError } = await supabase
+              .from('game_states')
+              .update(rowPayload)
+              .eq('id', gameState.id)
+              .select()
+              .limit(1);
+
+            if (retryError) {
+              if ((retryError as any).status === 406 || (retryError as any).status === 409) {
+                blockSupabaseGameStateTemporarily(retryError.message);
+                return gameState;
+              }
+              throw retryError;
+            }
+
+            finalRow = Array.isArray(retryData) ? retryData[0] : null;
+          } else if ((insertError as any).status === 406 || (insertError as any).status === 409) {
+            blockSupabaseGameStateTemporarily(insertError.message);
+            return gameState;
+          } else {
+            throw insertError;
+          }
+        } else {
+          finalRow = Array.isArray(insertData) ? insertData[0] : null;
+        }
+      }
+
+      if (!finalRow) {
+        // Avoid crashing gameplay on DB response anomalies.
+        return gameState;
       }
       
       // Extract deviceId from state metadata if present
-      const stateWithDeviceId = data.state as any;
+      const stateWithDeviceId = finalRow.state as any;
       const deviceId = stateWithDeviceId?._deviceId || stateWithDeviceId?.deviceId;
       
       return {
-        id: data.id,
-        gameType: data.game_type,
-        teamId: data.team_id,
-        state: data.state,
-        lastUpdated: data.last_updated,
-        updatedBy: data.updated_by,
+        id: finalRow.id,
+        gameType: finalRow.game_type,
+        teamId: finalRow.team_id,
+        state: finalRow.state,
+        lastUpdated: finalRow.last_updated,
+        updatedBy: finalRow.updated_by,
         deviceId: deviceId,
       };
     } catch (error) {
       console.error('❌ Supabase error saving game state:', error);
       throw error;
+    } finally {
+      gameStateSaveInFlight = false;
     }
   }
   
