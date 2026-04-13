@@ -441,6 +441,7 @@ function CodenamesPageContent() {
 
   const [gameId, setGameId] = useState<string | null>(null);
   const [lastSyncedState, setLastSyncedState] = useState<string>("");
+  const localWriteLockUntilRef = useRef<number>(0);
   // Device/session ID to track which device made the update (for multi-device same-user sync)
   const getDeviceId = (): string => {
     if (typeof window !== 'undefined') {
@@ -454,6 +455,15 @@ function CodenamesPageContent() {
     return `device_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
   const deviceIdRef = useRef<string>(getDeviceId());
+
+  const markLocalWrite = () => {
+    // Prevent stale remote polls from immediately overwriting optimistic local UI changes.
+    localWriteLockUntilRef.current = Date.now() + 1500;
+  };
+
+  const normalizeTeam = (team: unknown): "red" | "blue" | null => {
+    return team === "red" || team === "blue" ? team : null;
+  };
 
   // Helper function to determine which team the current user is on
   const getUserTeam = (): "red" | "blue" | null => {
@@ -780,8 +790,9 @@ function CodenamesPageContent() {
             if (remoteState.cards && Array.isArray(remoteState.cards)) {
               setCards(remoteState.cards);
             }
-            if (remoteState.currentTeam) {
-              setCurrentTeam(remoteState.currentTeam);
+            const normalizedTeam = normalizeTeam(remoteState.currentTeam);
+            if (normalizedTeam) {
+              setCurrentTeam(normalizedTeam);
             }
             if (remoteState.clue) {
               setClue(remoteState.clue);
@@ -1147,6 +1158,10 @@ function CodenamesPageContent() {
                 // Check deviceId if available, otherwise fallback to updatedBy check
                 const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
                 
+                if (Date.now() < localWriteLockUntilRef.current) {
+                  return;
+                }
+
                 if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
                   const userTeam = getUserTeam();
                   
@@ -1163,8 +1178,9 @@ function CodenamesPageContent() {
                   if (remoteState.blueTeamName && userTeam === "red") {
                     setBlueTeamName(remoteState.blueTeamName);
                   }
-                  if (remoteState.cards) setCards(remoteState.cards);
-                  if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
+                  if (Array.isArray(remoteState.cards)) setCards(remoteState.cards);
+                  const normalizedTeam = normalizeTeam(remoteState.currentTeam);
+                  if (normalizedTeam) setCurrentTeam(normalizedTeam);
                   if (remoteState.clue) setClue(remoteState.clue);
                   if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
                   if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
@@ -1198,6 +1214,10 @@ function CodenamesPageContent() {
             // Update if state is different and not from this device
             const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
             
+            if (Date.now() < localWriteLockUntilRef.current) {
+              return;
+            }
+
             if (remoteStateString !== lastSyncedState && !isFromThisDevice) {
               const userTeam = getUserTeam();
               
@@ -1229,11 +1249,12 @@ function CodenamesPageContent() {
                 }
               }
               
-              if (remoteState.cards && JSON.stringify(remoteState.cards) !== JSON.stringify(cards)) {
+              if (Array.isArray(remoteState.cards) && JSON.stringify(remoteState.cards) !== JSON.stringify(cards)) {
                 setCards(remoteState.cards);
               }
-              if (remoteState.currentTeam && remoteState.currentTeam !== currentTeam) {
-                setCurrentTeam(remoteState.currentTeam);
+              const normalizedTeam = normalizeTeam(remoteState.currentTeam);
+              if (normalizedTeam && normalizedTeam !== currentTeam) {
+                setCurrentTeam(normalizedTeam);
               }
               if (remoteState.clue && remoteState.clue !== clue) {
                 setClue(remoteState.clue);
@@ -1287,6 +1308,10 @@ function CodenamesPageContent() {
             const isFromThisDevice = (result.state as any).deviceId === deviceIdRef.current;
             const isFromOtherUser = result.state.updatedBy !== currentUser.id;
             
+            if (Date.now() < localWriteLockUntilRef.current) {
+              return;
+            }
+
             if (remoteStateString !== lastSyncedState && (!isFromThisDevice || isFromOtherUser)) {
               const userTeam = getUserTeam();
               
@@ -1301,8 +1326,9 @@ function CodenamesPageContent() {
               if (remoteState.blueTeamName && userTeam === "red") {
                 setBlueTeamName(remoteState.blueTeamName);
               }
-              if (remoteState.cards) setCards(remoteState.cards);
-              if (remoteState.currentTeam) setCurrentTeam(remoteState.currentTeam);
+              if (Array.isArray(remoteState.cards)) setCards(remoteState.cards);
+              const normalizedTeam = normalizeTeam(remoteState.currentTeam);
+              if (normalizedTeam) setCurrentTeam(normalizedTeam);
               if (remoteState.clue) setClue(remoteState.clue);
               if (remoteState.guessesRemaining !== undefined) setGuessesRemaining(remoteState.guessesRemaining);
               if (remoteState.gameOverReason) setGameOverReason(remoteState.gameOverReason);
@@ -1334,10 +1360,11 @@ function CodenamesPageContent() {
   };
 
   const getPlayerAvatar = (name: string) => {
-    const initials = getPlayerInitials(name);
+    const safeName = typeof name === "string" && name.trim() ? name : "?";
+    const initials = getPlayerInitials(safeName);
     const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500', 'bg-pink-500'];
-    const colorIndex = name.charCodeAt(0) % colors.length;
-    return { initials, color: colors[colorIndex] };
+    const colorIndex = safeName.charCodeAt(0) % colors.length;
+    return { initials, color: colors[colorIndex] || 'bg-cyan-500' };
   };
 
   const generateBoard = () => {
@@ -1446,7 +1473,7 @@ function CodenamesPageContent() {
               setBlueTeamName(savedState.blueTeamName);
             }
             setCards(savedState.cards || []);
-            setCurrentTeam(savedState.currentTeam || "red");
+            setCurrentTeam(normalizeTeam(savedState.currentTeam) || "red");
             setClue(savedState.clue || { word: "", number: 0 });
             setGuessesRemaining(savedState.guessesRemaining || 0);
             setGameOverReason(savedState.gameOverReason || "");
@@ -1493,6 +1520,7 @@ function CodenamesPageContent() {
     const newCards = [...cards];
     newCards[index].revealed = true;
     newCards[index].clickedBy = currentUser.name;
+    markLocalWrite();
     setCards(newCards);
     const newGuessesRemaining = guessesRemaining - 1;
     setGuessesRemaining(newGuessesRemaining);
@@ -1614,6 +1642,7 @@ function CodenamesPageContent() {
     if (role !== "spymaster" || selectedTeam !== currentTeam) return; // Only spymaster of current team can give clue
     
     const newGuessesRemaining = clue.number + 1; // +1 for the bonus guess
+    markLocalWrite();
     setGuessesRemaining(newGuessesRemaining);
     
     // Add to game log
@@ -1687,6 +1716,7 @@ function CodenamesPageContent() {
   };
 
   const passTurn = async () => {
+    markLocalWrite();
     const newLogEntry = {
       type: "pass" as const,
       team: currentTeam,
