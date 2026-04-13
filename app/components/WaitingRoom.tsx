@@ -626,30 +626,39 @@ export default function WaitingRoom({
           </div>
         )}
 
-        {/* Current Team/Player Info */}
+        {/* Current Team/Player Info — ready card matches PLAYERS IN ROOM boxes */}
         <div className="neon-card neon-box-purple p-4 mb-6">
-            <div className="flex items-center justify-between flex-wrap gap-3">
-              <div className="flex items-center gap-3">
-                <Users className="w-5 h-5 text-purple-400" />
-                <div>
-                <div className="text-purple-400 font-bold">
-                  {isHost ? "👑 You are the host" : "You are playing as"}: {currentTeamName || currentUser?.name || "Player"}
-                </div>
-              </div>
+          <div className="flex items-center gap-3 mb-3">
+            <Users className="w-5 h-5 text-purple-400 shrink-0" />
+            <div className="text-purple-400 font-bold">
+              {isHost ? "👑 You are the host" : "You are playing as"}:{" "}
+              <span className="text-white">
+                {currentTeamName || currentUser?.name || "Player"}
+              </span>
             </div>
-            {room && !isHost && (
-              <button
-                onClick={toggleReady}
-                className={`px-4 py-2 font-bold rounded-lg transition-colors ${
-                  isReady 
-                    ? "bg-green-500 text-white" 
-                    : "bg-gray-700 text-gray-300 hover:bg-gray-600"
+          </div>
+          {room && !isHost && (
+            <button
+              type="button"
+              onClick={toggleReady}
+              className={`w-full p-3 rounded-lg border-2 text-center transition-all ${
+                isReady
+                  ? "bg-green-500/20 border-green-500 shadow-[0_0_18px_rgba(34,197,94,0.2)]"
+                  : "bg-gray-800/50 border-gray-600 hover:border-gray-500"
+              }`}
+            >
+              <div className="text-white font-semibold text-sm truncate">
+                {currentUser?.name || "You"}
+              </div>
+              <div
+                className={`text-xs mt-1 font-medium ${
+                  isReady ? "text-green-400" : "text-gray-500"
                 }`}
               >
-                {isReady ? "READY ✓" : "CLICK WHEN READY"}
-              </button>
-            )}
-          </div>
+                {isReady ? "READY" : "NOT READY — tap to toggle"}
+              </div>
+            </button>
+          )}
         </div>
 
         {/* Game Status */}

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Trophy, RotateCcw, Users, Skull } from "lucide-react";
+import { ArrowLeft, Trophy, RotateCcw, Users, Skull, Clock } from "lucide-react";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
 
@@ -16,6 +16,8 @@ const PIPE_SPEED = 3;
 const PIPE_SPAWN_RATE = 1500;
 const PIPE_GAP = 150;
 const PIPE_WIDTH = 60;
+const COUNTDOWN_RING_R = 42;
+const COUNTDOWN_RING_LEN = 2 * Math.PI * COUNTDOWN_RING_R;
 
 interface Bird {
   x: number;
@@ -158,26 +160,29 @@ function FlappyPageContent() {
     particlesRef.current = [];
   }, [initBirds, initStars, playerCount, gameRoom]);
 
+  const startGameplayRef = useRef(startGameplay);
+  startGameplayRef.current = startGameplay;
+
   const beginCountdown = useCallback(() => {
     setCountdown(COUNTDOWN_START);
     setFlow("countdown");
   }, []);
 
-  // 5, 4, 3, 2, 1 — then start gameplay
+  // 5 → 1 then start (deps only [flow] so room poll / callback identity does not reset the timer)
   useEffect(() => {
     if (flow !== "countdown") return;
     const id = window.setInterval(() => {
       setCountdown((c) => {
         if (c <= 1) {
           window.clearInterval(id);
-          queueMicrotask(() => startGameplay());
+          queueMicrotask(() => startGameplayRef.current());
           return 0;
         }
         return c - 1;
       });
     }, 1000);
     return () => window.clearInterval(id);
-  }, [flow, startGameplay]);
+  }, [flow]);
 
   // Check user
   useEffect(() => {
@@ -772,6 +777,7 @@ function FlappyPageContent() {
   }
 
   return (
+    <>
     <div className="min-h-screen p-4 sm:p-8">
       <div className="max-w-5xl mx-auto">
         <Link
@@ -875,31 +881,16 @@ function FlappyPageContent() {
           </div>
         )}
 
-        {(flow === "countdown" || flow === "playing") && (
+        {flow === "playing" && (
           <div className="text-center">
             <div className="inline-block p-1 bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-500 rounded-lg relative">
-              {flow === "countdown" && countdown >= 1 && (
-                <div
-                  className="rounded-lg bg-[#0a0a0f] flex flex-col items-center justify-center gap-4 border-2 border-cyan-500/60 shadow-[0_0_40px_rgba(0,245,255,0.25)]"
-                  style={{ width: CANVAS_WIDTH, height: CANVAS_HEIGHT }}
-                  aria-live="polite"
-                  aria-atomic="true"
-                >
-                  <p className="text-cyan-400/90 text-sm uppercase tracking-[0.3em]">Get ready</p>
-                  <span className="text-[min(7rem,20vw)] leading-none font-bold text-transparent bg-clip-text bg-gradient-to-b from-cyan-200 via-fuchsia-400 to-pink-500 pixel-font tabular-nums drop-shadow-[0_0_24px_rgba(0,245,255,0.5)]">
-                    {countdown}
-                  </span>
-                </div>
-              )}
-              {flow === "playing" && (
-                <canvas
-                  ref={canvasRef}
-                  width={CANVAS_WIDTH}
-                  height={CANVAS_HEIGHT}
-                  className="rounded-lg touch-none"
-                  style={{ touchAction: "none" }}
-                />
-              )}
+              <canvas
+                ref={canvasRef}
+                width={CANVAS_WIDTH}
+                height={CANVAS_HEIGHT}
+                className="rounded-lg touch-none"
+                style={{ touchAction: "none" }}
+              />
             </div>
           </div>
         )}
@@ -947,6 +938,54 @@ function FlappyPageContent() {
         )}
       </div>
     </div>
+
+    {flow === "countdown" && countdown >= 1 && (
+      <div
+        className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md px-4"
+        role="dialog"
+        aria-modal="true"
+        aria-live="assertive"
+        aria-label="Game starting countdown"
+      >
+        <div className="flex items-center gap-3 text-cyan-400 mb-6">
+          <Clock className="w-10 h-10 shrink-0 text-cyan-300 drop-shadow-[0_0_12px_rgba(34,211,238,0.8)]" />
+          <span className="text-sm sm:text-base uppercase tracking-[0.35em] font-semibold">
+            Get ready
+          </span>
+        </div>
+        <div className="relative flex h-56 w-56 items-center justify-center sm:h-72 sm:w-72">
+          <svg className="absolute inset-0 h-full w-full -rotate-90" viewBox="0 0 100 100" aria-hidden>
+            <circle
+              cx="50"
+              cy="50"
+              r={COUNTDOWN_RING_R}
+              fill="none"
+              stroke="rgba(34,211,238,0.2)"
+              strokeWidth="5"
+            />
+            <circle
+              cx="50"
+              cy="50"
+              r={COUNTDOWN_RING_R}
+              fill="none"
+              stroke="#22d3ee"
+              strokeWidth="5"
+              strokeLinecap="round"
+              strokeDasharray={COUNTDOWN_RING_LEN}
+              strokeDashoffset={COUNTDOWN_RING_LEN * (1 - countdown / COUNTDOWN_START)}
+              className="transition-[stroke-dashoffset] duration-700 ease-out"
+            />
+          </svg>
+          <div className="relative z-[1] flex flex-col items-center justify-center">
+            <span className="text-7xl font-bold leading-none text-white tabular-nums sm:text-8xl pixel-font drop-shadow-[0_0_24px_rgba(34,211,238,0.7)]">
+              {countdown}
+            </span>
+            <span className="mt-2 text-sm text-cyan-200/90">seconds left</span>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
