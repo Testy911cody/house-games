@@ -262,10 +262,12 @@ function FlappyPageContent() {
     return () => window.clearInterval(id);
   }, [flow, countdownEndsAt]);
 
-  // Poll shared game state in online rooms (countdown + start + play again).
+  // Poll shared game state in online rooms (including while others are still on Waiting Room).
+  // IMPORTANT: Do not skip `flow === "room"` — only the host leaves the waiting screen first;
+  // other devices must poll here or they never see countdown/playing.
   useEffect(() => {
     if (!gameRoom || !currentUser) return;
-    if (flow === "lobby" || flow === "room") return;
+    if (flow === "lobby") return;
 
     const gameId = `flappy_${gameRoom.code}`;
     const sync = async () => {
@@ -276,6 +278,13 @@ function FlappyPageContent() {
         if (!result.success || !result.state?.state) return;
         const raw = result.state.state as FlappySharedState;
         if (!raw?.flowPhase || raw.roundId == null) return;
+
+        // Host entered match setup — pull followers out of Waiting Room.
+        if (raw.flowPhase === "setup" && flowRef.current === "room") {
+          if (typeof raw.playerCount === "number") setPlayerCount(raw.playerCount);
+          setFlow("setup");
+          return;
+        }
 
         if (raw.flowPhase === "countdown" && typeof raw.countdownEndsAt === "number") {
           if (raw.countdownEndsAt < Date.now() - 2500) return;
@@ -372,9 +381,10 @@ function FlappyPageContent() {
   };
 
   const handleStartFromWaitingRoom = async () => {
+    let nextPlayerCount = playerCount;
     if (gameRoom && gameRoom.currentPlayers.length >= 2) {
-      const n = Math.min(4, Math.max(2, gameRoom.currentPlayers.length));
-      setPlayerCount(n);
+      nextPlayerCount = Math.min(4, Math.max(2, gameRoom.currentPlayers.length));
+      setPlayerCount(nextPlayerCount);
     }
     try {
       if (gameRoom) {
@@ -385,6 +395,14 @@ function FlappyPageContent() {
       console.error("Error updating room status:", error);
     }
     setFlow("setup");
+    if (gameRoom && currentUser) {
+      void persistFlappyState({
+        flowPhase: "setup",
+        countdownEndsAt: null,
+        playerCount: nextPlayerCount,
+        roundId: lastSeenRoundIdRef.current,
+      });
+    }
   };
 
   // When entering setup from a room, align player count with lobby
