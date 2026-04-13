@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Trophy, RotateCcw, Users, Skull } from "lucide-react";
+import GameLobby from "@/app/components/GameLobby";
+import WaitingRoom from "@/app/components/WaitingRoom";
 
 // Game Configuration
 const CANVAS_WIDTH = 400;
@@ -44,11 +46,45 @@ interface Star {
   twinkle: number;
 }
 
-export default function FlappyGame() {
+interface GameRoom {
+  id: string;
+  code: string;
+  gameType: string;
+  hostId: string;
+  hostName: string;
+  isPrivate: boolean;
+  status: "waiting" | "playing" | "finished";
+  maxPlayers: number;
+  minPlayers: number;
+  currentPlayers: Array<{
+    id: string;
+    name: string;
+    team?: string;
+    isReady: boolean;
+    isHost: boolean;
+    joinedAt: string;
+  }>;
+  settings: Record<string, unknown>;
+  teamMode: boolean;
+  teams: Array<{
+    id: string;
+    name: string;
+    color: string;
+    players: Array<{ id: string; name: string }>;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+type FlowPhase = "lobby" | "room" | "setup" | "playing" | "ended";
+
+function FlappyPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
-  const [gameState, setGameState] = useState<"waiting" | "playing" | "ended">("waiting");
+  const [flow, setFlow] = useState<FlowPhase>("lobby");
+  const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
   const [playerCount, setPlayerCount] = useState(2);
   const [birds, setBirds] = useState<Bird[]>([]);
   const [pipes, setPipes] = useState<Pipe[]>([]);
@@ -82,11 +118,12 @@ export default function FlappyGame() {
   }, []);
 
   // Initialize birds
-  const initBirds = useCallback((count: number): Bird[] => {
+  const initBirds = useCallback((count: number, names?: string[]): Bird[] => {
     const newBirds: Bird[] = [];
     const spacing = CANVAS_HEIGHT / (count + 1);
     for (let i = 0; i < count; i++) {
       const config = playerConfigs[i];
+      const displayName = names?.[i]?.trim() || config.name;
       newBirds.push({
         x: 80,
         y: spacing * (i + 1) - 15,
@@ -99,7 +136,7 @@ export default function FlappyGame() {
         color: config.color,
         innerColor: config.innerColor,
         wingColor: config.wingColor,
-        name: config.name,
+        name: displayName,
         flapKey: config.flapKey,
       });
     }
@@ -108,14 +145,15 @@ export default function FlappyGame() {
 
   // Start game
   const startGame = useCallback(() => {
-    setBirds(initBirds(playerCount));
+    const names = gameRoom?.currentPlayers?.map((p) => p.name).slice(0, playerCount);
+    setBirds(initBirds(playerCount, names));
     setPipes([]);
     setStars(initStars());
-    setGameState("playing");
+    setFlow("playing");
     setWinner(null);
     pipeTimerRef.current = Date.now();
     particlesRef.current = [];
-  }, [initBirds, initStars, playerCount]);
+  }, [initBirds, initStars, playerCount, gameRoom]);
 
   // Check user
   useEffect(() => {
@@ -126,6 +164,70 @@ export default function FlappyGame() {
     }
     setCurrentUser(JSON.parse(user));
   }, [router]);
+
+  // Join via ?code= in URL
+  useEffect(() => {
+    const code = searchParams.get("code");
+    if (!code) return;
+    const user = localStorage.getItem("currentUser");
+    if (!user) return;
+    const userData = JSON.parse(user);
+    setCurrentUser(userData);
+    (async () => {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        const result = await gameRoomsAPI.joinRoom(code, userData.id, userData.name);
+        if (result.success && result.room) {
+          setGameRoom(result.room);
+          setFlow("room");
+        }
+      } catch (error) {
+        console.error("Error joining room:", error);
+      }
+    })();
+  }, [searchParams]);
+
+  const handleJoinRoom = (room: GameRoom) => {
+    setGameRoom(room);
+    setFlow("room");
+  };
+
+  const handleLeaveRoom = async () => {
+    if (gameRoom && currentUser) {
+      try {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.leaveRoom(gameRoom.id, currentUser.id);
+      } catch (error) {
+        console.error("Error leaving room:", error);
+      }
+    }
+    setGameRoom(null);
+    setFlow("lobby");
+  };
+
+  const handleStartFromWaitingRoom = async () => {
+    if (gameRoom && gameRoom.currentPlayers.length >= 2) {
+      const n = Math.min(4, Math.max(2, gameRoom.currentPlayers.length));
+      setPlayerCount(n);
+    }
+    try {
+      if (gameRoom) {
+        const { gameRoomsAPI } = await import("@/lib/api-utils");
+        await gameRoomsAPI.updateRoomStatus(gameRoom.id, "playing");
+      }
+    } catch (error) {
+      console.error("Error updating room status:", error);
+    }
+    setFlow("setup");
+  };
+
+  // When entering setup from a room, align player count with lobby
+  useEffect(() => {
+    if (flow === "setup" && gameRoom && gameRoom.currentPlayers.length >= 2) {
+      const n = Math.min(4, Math.max(2, gameRoom.currentPlayers.length));
+      setPlayerCount(n);
+    }
+  }, [flow, gameRoom]);
 
   // Helper function to flap a bird
   const flapBird = useCallback((birdIndex: number) => {
@@ -156,13 +258,13 @@ export default function FlappyGame() {
       if (!keysPressed.current.has(e.key)) {
         keysPressed.current.add(e.key);
         
-        if (gameState === "waiting" && (e.key === " " || e.key === "Enter")) {
+        if (flow === "setup" && (e.key === " " || e.key === "Enter")) {
           startGame();
           e.preventDefault();
           return;
         }
         
-        if (gameState === "playing") {
+        if (flow === "playing") {
           setBirds(currentBirds => {
             return currentBirds.map((bird, index) => {
               if (bird.alive && bird.flapKey.includes(e.key)) {
@@ -201,7 +303,7 @@ export default function FlappyGame() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("keyup", handleKeyUp);
     };
-  }, [gameState, startGame, flapBird]);
+  }, [flow, startGame, flapBird]);
 
   // Handle touch events for mobile
   useEffect(() => {
@@ -211,12 +313,12 @@ export default function FlappyGame() {
     const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
       
-      if (gameState === "waiting") {
+      if (flow === "setup") {
         startGame();
         return;
       }
       
-      if (gameState === "playing" && canvas) {
+      if (flow === "playing" && canvas) {
         const rect = canvas.getBoundingClientRect();
         const touch = e.touches[0];
         const x = touch.clientX - rect.left;
@@ -251,11 +353,11 @@ export default function FlappyGame() {
       canvas.removeEventListener("touchstart", handleTouchStart);
       canvas.removeEventListener("touchend", handleTouchEnd);
     };
-  }, [gameState, startGame, playerCount, flapBird]);
+  }, [flow, startGame, playerCount, flapBird]);
 
   // Game loop
   useEffect(() => {
-    if (gameState !== "playing" || !canvasRef.current) return;
+    if (flow !== "playing" || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
@@ -264,7 +366,7 @@ export default function FlappyGame() {
     let animationId: number;
 
     const gameLoop = () => {
-      if (gameState !== "playing") return;
+      if (flow !== "playing") return;
 
       // Update birds
       setBirds(currentBirds => {
@@ -370,11 +472,11 @@ export default function FlappyGame() {
           } else {
             setWinner("Game Over");
           }
-          setGameState("ended");
+          setFlow("ended");
         } else if (aliveBirds.length === 1 && currentBirds.length > 1) {
           // One bird remaining
           setWinner(aliveBirds[0].name);
-          setGameState("ended");
+          setFlow("ended");
         }
         return currentBirds;
       });
@@ -578,9 +680,72 @@ export default function FlappyGame() {
     return () => {
       if (animationId) cancelAnimationFrame(animationId);
     };
-  }, [gameState, pipes, birds, stars, playerCount]);
+  }, [flow, pipes, birds, stars, playerCount]);
 
   if (!currentUser) return null;
+
+  if (flow === "lobby") {
+    return (
+      <div className="min-h-screen p-4 sm:p-8">
+        <GameLobby
+          gameType="flappy"
+          gameName="NEON FLAP"
+          gameIcon="🐦"
+          maxPlayers={4}
+          minPlayers={2}
+          onJoinRoom={handleJoinRoom}
+          backUrl="/games"
+        />
+        <div className="max-w-5xl mx-auto text-center pb-8">
+          <button
+            type="button"
+            onClick={() => setFlow("setup")}
+            className="text-cyan-400 hover:text-cyan-200 underline text-sm"
+          >
+            Play locally on this device (no room)
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (flow === "room" && gameRoom) {
+    const currentTeamData = localStorage.getItem("currentTeam");
+    let teamInfo: { name?: string; id?: string } | null = null;
+    if (currentTeamData) {
+      try {
+        teamInfo = JSON.parse(currentTeamData);
+      } catch {
+        /* ignore */
+      }
+    }
+    const currentTeamName = teamInfo?.name || "Solo Player";
+    const currentTeamId = teamInfo?.id || null;
+
+    return (
+      <WaitingRoom
+        gameType="flappy"
+        gameName="NEON FLAP"
+        gameIcon="🐦"
+        currentTeamName={currentTeamName}
+        currentTeamId={currentTeamId}
+        gameId={`flappy_${gameRoom.code}`}
+        currentUser={currentUser}
+        roomCode={gameRoom.code}
+        room={gameRoom}
+        onLeaveRoom={handleLeaveRoom}
+        onStartGame={handleStartFromWaitingRoom}
+        onPlayAgainstComputer={() => {
+          setGameRoom(null);
+          setFlow("setup");
+        }}
+        minPlayers={2}
+        maxPlayers={4}
+        waitTime={30}
+        showAvailableGames
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen p-4 sm:p-8">
@@ -602,10 +767,15 @@ export default function FlappyGame() {
           </p>
         </div>
 
-        {gameState === "waiting" && (
+        {flow === "setup" && (
           <div className="neon-card neon-box-cyan p-4 sm:p-8 text-center card-3d">
             <Users className="w-16 h-16 mx-auto text-cyan-400 mb-4" />
             <h2 className="text-2xl font-bold text-white mb-4">Multiplayer Survival</h2>
+            {gameRoom && (
+              <p className="text-cyan-200/90 text-sm mb-4">
+                Room <span className="font-mono text-white">{gameRoom.code}</span> — play together on this screen (local controls).
+              </p>
+            )}
             
             <div className="mb-6">
               <label className="block text-cyan-300 mb-2">Number of Players:</label>
@@ -613,12 +783,14 @@ export default function FlappyGame() {
                 {[2, 3, 4].map(count => (
                   <button
                     key={count}
+                    type="button"
+                    disabled={!!gameRoom}
                     onClick={() => setPlayerCount(count)}
                     className={`px-6 py-2 rounded-lg font-bold transition-all ${
                       playerCount === count
                         ? "bg-cyan-500 text-white"
                         : "bg-slate-700 text-gray-300 hover:bg-slate-600"
-                    }`}
+                    } ${gameRoom ? "opacity-60 cursor-not-allowed" : ""}`}
                   >
                     {count} Players
                   </button>
@@ -630,7 +802,9 @@ export default function FlappyGame() {
               {playerConfigs.slice(0, playerCount).map((config, index) => (
                 <div key={index} className="bg-slate-700/50 p-4 rounded-xl border border-cyan-500/50">
                   <div className="text-3xl mb-2" style={{color: config.color}}>🐦</div>
-                  <h3 className="text-cyan-400 font-bold text-xl mb-2">{config.name}</h3>
+                  <h3 className="text-cyan-400 font-bold text-xl mb-2">
+                    {gameRoom?.currentPlayers?.[index]?.name?.trim() || config.name}
+                  </h3>
                   <div className="flex justify-center gap-2">
                     <span className="bg-cyan-600 px-6 py-2 rounded text-white font-mono text-xl">
                       {config.flapKey[0] === "ArrowUp" ? "↑" : config.flapKey[0].toUpperCase()}
@@ -654,15 +828,27 @@ export default function FlappyGame() {
             </p>
 
             <button
+              type="button"
               onClick={startGame}
               className="bg-gradient-to-r from-yellow-500 to-orange-600 hover:from-yellow-600 hover:to-orange-700 text-white px-8 py-4 rounded-xl text-xl font-bold transition-all transform hover:scale-105"
             >
               Start Game!
             </button>
+            {gameRoom && (
+              <p className="mt-6">
+                <button
+                  type="button"
+                  onClick={handleLeaveRoom}
+                  className="text-cyan-400/80 hover:text-cyan-200 text-sm underline"
+                >
+                  Leave room
+                </button>
+              </p>
+            )}
           </div>
         )}
 
-        {gameState === "playing" && (
+        {flow === "playing" && (
           <div className="text-center">
             <div className="inline-block p-1 bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-500 rounded-lg">
               <canvas
@@ -676,7 +862,7 @@ export default function FlappyGame() {
           </div>
         )}
 
-        {gameState === "ended" && (
+        {flow === "ended" && (
           <div className="neon-card neon-box-yellow p-4 sm:p-8 text-center card-3d">
             {winner === "Tie!" ? (
               <>
@@ -706,7 +892,7 @@ export default function FlappyGame() {
 
             <button
               onClick={() => {
-                setGameState("waiting");
+                setFlow("setup");
                 setBirds([]);
                 setPipes([]);
               }}
@@ -719,5 +905,19 @@ export default function FlappyGame() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function FlappyGame() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center bg-[#0a0a0f]">
+          <p className="text-cyan-400 text-lg">Loading NEON FLAP…</p>
+        </div>
+      }
+    >
+      <FlappyPageContent />
+    </Suspense>
   );
 }
