@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Trophy, RotateCcw, Users, Skull, Clock } from "lucide-react";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import { markLocalWriteLock, shouldDeferRemoteSync } from "@/lib/game-sync-helpers";
 
 // Game Configuration
 const CANVAS_WIDTH = 400;
@@ -81,6 +82,26 @@ interface GameRoom {
 type FlowPhase = "lobby" | "room" | "setup" | "countdown" | "playing" | "ended";
 
 const COUNTDOWN_START = 5;
+const COUNTDOWN_MS = COUNTDOWN_START * 1000;
+
+interface FlappySharedState {
+  flowPhase: "setup" | "countdown" | "playing" | "ended";
+  countdownEndsAt: number | null;
+  playerCount: number;
+  /** Increments when a new countdown starts so clients ignore stale rows */
+  roundId: number;
+  winner?: string | null;
+}
+
+function getDeviceId(): string {
+  if (typeof window === "undefined") return `device_${Date.now()}`;
+  let id = localStorage.getItem("flappy_deviceId");
+  if (!id) {
+    id = `device_${Date.now()}_${Math.random().toString(36).slice(2, 11)}`;
+    localStorage.setItem("flappy_deviceId", id);
+  }
+  return id;
+}
 
 function FlappyPageContent() {
   const router = useRouter();
@@ -98,7 +119,17 @@ function FlappyPageContent() {
   const keysPressed = useRef<Set<string>>(new Set());
   const pipeTimerRef = useRef<number>(0);
   const particlesRef = useRef<Array<{x: number, y: number, vx: number, vy: number, life: number, color: string}>>([]);
-  const [countdown, setCountdown] = useState(COUNTDOWN_START);
+  /** Wall-clock time when the shared countdown ends (synced across devices in a room). */
+  const [countdownEndsAt, setCountdownEndsAt] = useState<number | null>(null);
+  /** Bumps on a short interval so the ring re-renders with fresh `Date.now()` while counting down. */
+  const [countdownRenderTick, setCountdownRenderTick] = useState(0);
+  const deviceIdRef = useRef<string>(getDeviceId());
+  const localWriteLockUntilRef = useRef(0);
+  /** Monotonic round id for this session (also mirrored in shared state). */
+  const lastSeenRoundIdRef = useRef(0);
+  const gameplayStartedForRoundRef = useRef(false);
+  const flowRef = useRef<FlowPhase>(flow);
+  flowRef.current = flow;
 
   // Player configurations
   const playerConfigs = [
@@ -148,41 +179,147 @@ function FlappyPageContent() {
     return newBirds;
   }, []);
 
+  const persistFlappyState = useCallback(
+    async (payload: FlappySharedState) => {
+      if (!gameRoom || !currentUser) return;
+      markLocalWriteLock(localWriteLockUntilRef);
+      try {
+        const { gameStateAPI } = await import("@/lib/api-utils");
+        await gameStateAPI.saveGameState({
+          id: `flappy_${gameRoom.code}`,
+          gameType: "flappy",
+          state: payload,
+          lastUpdated: new Date().toISOString(),
+          updatedBy: currentUser.id,
+          deviceId: deviceIdRef.current,
+        });
+      } catch (error) {
+        console.error("Error saving Neon Flap game state:", error);
+      }
+    },
+    [gameRoom, currentUser]
+  );
+
   /** Runs after the 5-second countdown — spawns birds and starts the loop. */
-  const startGameplay = useCallback(() => {
-    const names = gameRoom?.currentPlayers?.map((p) => p.name).slice(0, playerCount);
-    setBirds(initBirds(playerCount, names));
-    setPipes([]);
-    setStars(initStars());
-    setFlow("playing");
-    setWinner(null);
-    pipeTimerRef.current = Date.now();
-    particlesRef.current = [];
-  }, [initBirds, initStars, playerCount, gameRoom]);
+  const startGameplay = useCallback(
+    (overrides?: { playerCount?: number }) => {
+      if (gameplayStartedForRoundRef.current) return;
+      gameplayStartedForRoundRef.current = true;
+
+      const pc =
+        typeof overrides?.playerCount === "number" ? overrides.playerCount : playerCount;
+      const names = gameRoom?.currentPlayers?.map((p) => p.name).slice(0, pc);
+      setBirds(initBirds(pc, names));
+      setPipes([]);
+      setStars(initStars());
+      setFlow("playing");
+      setWinner(null);
+      pipeTimerRef.current = Date.now();
+      particlesRef.current = [];
+      setCountdownEndsAt(null);
+
+      void persistFlappyState({
+        flowPhase: "playing",
+        countdownEndsAt: null,
+        playerCount: pc,
+        roundId: lastSeenRoundIdRef.current,
+      });
+    },
+    [initBirds, initStars, playerCount, gameRoom, persistFlappyState]
+  );
 
   const startGameplayRef = useRef(startGameplay);
   startGameplayRef.current = startGameplay;
 
   const beginCountdown = useCallback(() => {
-    setCountdown(COUNTDOWN_START);
+    lastSeenRoundIdRef.current += 1;
+    const roundId = lastSeenRoundIdRef.current;
+    gameplayStartedForRoundRef.current = false;
+    const endsAt = Date.now() + COUNTDOWN_MS;
+    setCountdownEndsAt(endsAt);
     setFlow("countdown");
-  }, []);
+    void persistFlappyState({
+      flowPhase: "countdown",
+      countdownEndsAt: endsAt,
+      playerCount,
+      roundId,
+    });
+  }, [playerCount, persistFlappyState]);
 
-  // 5 → 1 then start (deps only [flow] so room poll / callback identity does not reset the timer)
+  // Wall-clock countdown shared across devices via `countdownEndsAt` (deps: flow + endsAt only).
   useEffect(() => {
-    if (flow !== "countdown") return;
+    if (flow !== "countdown" || countdownEndsAt === null) return;
     const id = window.setInterval(() => {
-      setCountdown((c) => {
-        if (c <= 1) {
-          window.clearInterval(id);
-          queueMicrotask(() => startGameplayRef.current());
-          return 0;
-        }
-        return c - 1;
-      });
-    }, 1000);
+      const ms = countdownEndsAt - Date.now();
+      setCountdownRenderTick((t) => t + 1);
+      if (ms <= 0) {
+        window.clearInterval(id);
+        startGameplayRef.current();
+        setCountdownEndsAt(null);
+        return;
+      }
+    }, 100);
     return () => window.clearInterval(id);
-  }, [flow]);
+  }, [flow, countdownEndsAt]);
+
+  // Poll shared game state in online rooms (countdown + start + play again).
+  useEffect(() => {
+    if (!gameRoom || !currentUser) return;
+    if (flow === "lobby" || flow === "room") return;
+
+    const gameId = `flappy_${gameRoom.code}`;
+    const sync = async () => {
+      if (shouldDeferRemoteSync(localWriteLockUntilRef)) return;
+      try {
+        const { gameStateAPI } = await import("@/lib/api-utils");
+        const result = await gameStateAPI.getGameState(gameId);
+        if (!result.success || !result.state?.state) return;
+        const raw = result.state.state as FlappySharedState;
+        if (!raw?.flowPhase || raw.roundId == null) return;
+
+        if (raw.flowPhase === "countdown" && typeof raw.countdownEndsAt === "number") {
+          if (raw.countdownEndsAt < Date.now() - 2500) return;
+          // Only when another device started a *new* round (do not re-apply every poll).
+          if (raw.roundId <= lastSeenRoundIdRef.current) return;
+          lastSeenRoundIdRef.current = raw.roundId;
+          if (typeof raw.playerCount === "number") setPlayerCount(raw.playerCount);
+          gameplayStartedForRoundRef.current = false;
+          setCountdownEndsAt(raw.countdownEndsAt);
+          setFlow("countdown");
+          return;
+        }
+
+        if (raw.flowPhase === "playing") {
+          if (raw.roundId < lastSeenRoundIdRef.current) return;
+          if (raw.roundId > lastSeenRoundIdRef.current) {
+            lastSeenRoundIdRef.current = raw.roundId;
+          }
+          if (typeof raw.playerCount === "number") setPlayerCount(raw.playerCount);
+          setCountdownEndsAt(null);
+          if (!gameplayStartedForRoundRef.current) {
+            startGameplayRef.current({ playerCount: raw.playerCount });
+          }
+          return;
+        }
+
+        if (raw.flowPhase === "setup" && flowRef.current === "ended") {
+          lastSeenRoundIdRef.current = Math.max(lastSeenRoundIdRef.current, raw.roundId);
+          setBirds([]);
+          setPipes([]);
+          setWinner(null);
+          gameplayStartedForRoundRef.current = false;
+          setCountdownEndsAt(null);
+          setFlow("setup");
+        }
+      } catch (error) {
+        console.error("Error syncing Neon Flap state:", error);
+      }
+    };
+
+    const intervalId = window.setInterval(sync, 300);
+    void sync();
+    return () => window.clearInterval(intervalId);
+  }, [gameRoom, currentUser, flow]);
 
   // Check user
   useEffect(() => {
@@ -776,6 +913,12 @@ function FlappyPageContent() {
     );
   }
 
+  void countdownRenderTick;
+  const countdownMsLeft =
+    flow === "countdown" && countdownEndsAt !== null
+      ? Math.max(0, countdownEndsAt - Date.now())
+      : 0;
+
   return (
     <>
     <div className="min-h-screen p-4 sm:p-8">
@@ -928,6 +1071,16 @@ function FlappyPageContent() {
                 setFlow("setup");
                 setBirds([]);
                 setPipes([]);
+                setCountdownEndsAt(null);
+                gameplayStartedForRoundRef.current = false;
+                if (gameRoom && currentUser) {
+                  void persistFlappyState({
+                    flowPhase: "setup",
+                    countdownEndsAt: null,
+                    playerCount,
+                    roundId: lastSeenRoundIdRef.current,
+                  });
+                }
               }}
               className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-8 py-4 rounded-xl text-xl font-bold transition-all transform hover:scale-105 inline-flex items-center gap-2"
             >
@@ -939,7 +1092,7 @@ function FlappyPageContent() {
       </div>
     </div>
 
-    {flow === "countdown" && countdown >= 1 && (
+    {flow === "countdown" && countdownEndsAt !== null && countdownMsLeft > 0 && (
       <div
         className="fixed inset-0 z-[300] flex flex-col items-center justify-center bg-black/85 backdrop-blur-md px-4"
         role="dialog"
@@ -972,13 +1125,15 @@ function FlappyPageContent() {
               strokeWidth="5"
               strokeLinecap="round"
               strokeDasharray={COUNTDOWN_RING_LEN}
-              strokeDashoffset={COUNTDOWN_RING_LEN * (1 - countdown / COUNTDOWN_START)}
-              className="transition-[stroke-dashoffset] duration-700 ease-out"
+              strokeDashoffset={
+                COUNTDOWN_RING_LEN * (1 - Math.min(1, Math.max(0, countdownMsLeft) / COUNTDOWN_MS))
+              }
+              className="transition-[stroke-dashoffset] duration-100 ease-linear"
             />
           </svg>
           <div className="relative z-[1] flex flex-col items-center justify-center">
             <span className="text-7xl font-bold leading-none text-white tabular-nums sm:text-8xl pixel-font drop-shadow-[0_0_24px_rgba(34,211,238,0.7)]">
-              {countdown}
+              {Math.max(1, Math.ceil(countdownMsLeft / 1000))}
             </span>
             <span className="mt-2 text-sm text-cyan-200/90">seconds left</span>
           </div>
