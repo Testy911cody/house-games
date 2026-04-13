@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Users, Clock, Zap, Copy, Check, Crown, ArrowLeft, Share2 } from "lucide-react";
 import Link from "next/link";
+import { devLog, devWarn } from "@/lib/dev-log";
 
 interface RoomPlayer {
   id: string;
@@ -146,20 +147,16 @@ export default function WaitingRoom({
         if (result.success && result.room) {
           const newRoom = result.room;
           
-          // Update our activity when polling (this happens automatically in getRoomByCode, but ensure it's done)
-          if (newRoom && currentUser) {
-            const { gameRoomsAPI } = await import('@/lib/api-utils');
-            gameRoomsAPI.updatePlayerActivity(newRoom.id, currentUser.id).catch(() => {
-              // Ignore errors - activity update is best effort
-            });
-          }
+          // Don't call updatePlayerActivity here - it fetches and saves the room, which can overwrite
+          // other players' ready status if there's a race condition. Activity is already updated
+          // when we perform actions like setPlayerReady, updateRoomStatus, etc.
           
           // Get current previous players from ref
           const previousPlayers = previousPlayersRef.current;
           
           // Log player changes for debugging
           if (newRoom.currentPlayers.length !== previousPlayers.length) {
-            console.log('👥 Player count changed:', {
+            devLog('👥 Player count changed:', {
               previous: previousPlayers.length,
               current: newRoom.currentPlayers.length,
               previousPlayers: previousPlayers.map(p => p.name),
@@ -173,16 +170,25 @@ export default function WaitingRoom({
               p => !previousPlayers.some(existing => existing.id === p.id) && p.id !== currentUser.id
             );
             if (joinedPlayers.length > 0) {
-              console.log('👥 New players joined:', joinedPlayers.map(p => p.name));
+              devLog('👥 New players joined:', joinedPlayers.map(p => p.name));
               joinedPlayers.forEach(player => onPlayerJoined(player));
             }
           }
           
-          // Sync my ready status from server
+          // Sync my ready status from server, but only if we haven't just set it locally
+          // Use a ref to track if we're in the middle of setting ready to avoid race conditions
           const myPlayer = newRoom.currentPlayers.find(p => p.id === currentUser.id);
           if (myPlayer) {
             setIsReady(prevReady => {
+              // Only sync from server if it's different AND we're not in the middle of an optimistic update
+              // This prevents the poll from overwriting our optimistic update before the save completes
               if (myPlayer.isReady !== prevReady) {
+                // Check if this is a recent change (within last 2 seconds) - if so, trust local state
+                const timeSinceLastToggle = Date.now() - (window as any).__lastReadyToggle || 0;
+                if (timeSinceLastToggle < 2000) {
+                  // Recent toggle - keep local state, server might be stale
+                  return prevReady;
+                }
                 return myPlayer.isReady;
               }
               return prevReady;
@@ -405,19 +411,36 @@ export default function WaitingRoom({
     const newReady = !isReady;
     setIsReady(newReady); // Optimistic update
     
+    // Track when we toggled ready to prevent poll from overwriting it
+    if (typeof window !== 'undefined') {
+      (window as any).__lastReadyToggle = Date.now();
+    }
+    
     try {
       const { gameRoomsAPI } = await import('@/lib/api-utils');
       const result = await gameRoomsAPI.setPlayerReady(room.id, currentUser.id, newReady);
       if (result.success && result.room) {
         setRoom(result.room);
+        // Clear the flag after successful save (give it a bit more time to propagate)
+        setTimeout(() => {
+          if (typeof window !== 'undefined') {
+            (window as any).__lastReadyToggle = 0;
+          }
+        }, 3000);
       } else {
         // Rollback on failure
         setIsReady(!newReady);
+        if (typeof window !== 'undefined') {
+          (window as any).__lastReadyToggle = 0;
+        }
       }
     } catch (error) {
       console.error('Error toggling ready:', error);
       // Rollback on error
       setIsReady(!newReady);
+      if (typeof window !== 'undefined') {
+        (window as any).__lastReadyToggle = 0;
+      }
     }
   };
 
@@ -469,40 +492,50 @@ export default function WaitingRoom({
 
   // Start the game (host only)
   const handleStartGame = async () => {
-    console.log('🎮 handleStartGame called', { 
+    devLog('🎮 handleStartGame called', { 
       room: room?.code, 
       hostId: room?.hostId, 
       currentUserId: currentUser?.id,
       isHost: room && currentUser?.id === room.hostId,
-      playerCount: room?.currentPlayers?.length 
+      playerCount: room?.currentPlayers?.length,
+      allReady,
+      canStart
     });
     
+    // Always call onStartGame - let the game handle the transition logic
+    // But first update room status if we're the host
     if (room && currentUser?.id === room.hostId) {
       try {
         const { gameRoomsAPI } = await import('@/lib/api-utils');
-        console.log('🎮 Updating room status to playing...');
+        devLog('🎮 Updating room status to playing...');
         const result = await gameRoomsAPI.updateRoomStatus(room.id, 'playing');
-        console.log('🎮 Room status update result:', result);
-        if (result.success) {
-          // Update local room state
-          setRoom(prevRoom => prevRoom ? { ...prevRoom, status: 'playing' } : prevRoom);
-          // Wait a bit for other clients to receive the update
-          await new Promise(resolve => setTimeout(resolve, 500));
+        devLog('🎮 Room status update result:', result);
+        if (result.success && result.room) {
+          // Update local room state with the returned room (has latest status)
+          setRoom(result.room);
         } else {
           console.error('❌ Failed to update room status:', result.error);
+          // Still try to call onStartGame even if status update failed
         }
       } catch (error) {
-        console.error('❌ Error starting game:', error);
+        console.error('❌ Error updating room status:', error);
+        // Still try to call onStartGame even if status update failed
       }
     } else {
-      console.warn('⚠️ Not host or no room:', { 
+      devWarn('⚠️ Not host or no room:', { 
         hasRoom: !!room, 
         isHost: room && currentUser?.id === room.hostId 
       });
+      // If not host, still call onStartGame in case the room status changed
     }
     
-    console.log('🎮 Calling onStartGame callback');
-    onStartGame();
+    // Always call onStartGame callback - the game will check conditions and transition
+    devLog('🎮 Calling onStartGame callback');
+    try {
+      await onStartGame();
+    } catch (error) {
+      console.error('❌ Error in onStartGame callback:', error);
+    }
   };
 
   // Calculate player count
@@ -526,7 +559,7 @@ export default function WaitingRoom({
   // Debug logging (only log when room state changes)
   useEffect(() => {
     if (room && isHost) {
-      console.log('🎮 Ready status check:', {
+      devLog('🎮 Ready status check:', {
         playerCount: room.currentPlayers.length,
         minPlayers,
         nonHostPlayers: nonHostPlayers.length,

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter, useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Crown, UserPlus, Trash2, Edit2, Save, X, Copy, Check, Users, Gamepad2 } from "lucide-react";
+import { devLog } from "@/lib/dev-log";
 
 interface TeamMember {
   id: string;
@@ -169,7 +170,7 @@ export default function TeamDetailClient() {
       }
     } catch (e) {
       // API failed, continue with local - silently handle the error
-      console.log("API sync failed, using local storage:", e);
+      devLog("API sync failed, using local storage:", e);
     }
 
     // Fallback to local storage - always works even if API fails

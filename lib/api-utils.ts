@@ -1,5 +1,7 @@
 // Client-side utilities to replace Next.js API routes for GitHub Pages static hosting
 
+import { devLog, devWarn } from "@/lib/dev-log";
+
 /**
  * Generate Jeopardy topic (client-side version of /api/generate-jeopardy-topic)
  */
@@ -404,7 +406,7 @@ async function getTeamFromDB(teamId: string): Promise<Team | null> {
 async function getTeamsFromDB(): Promise<Team[]> {
   if (isSupabaseConfigured() && supabase) {
     try {
-      console.log('🔍 Querying Supabase for all teams...');
+      devLog('🔍 Querying Supabase for all teams...');
       const { data, error } = await supabase
         .from('teams')
         .select('*')
@@ -419,11 +421,11 @@ async function getTeamsFromDB(): Promise<Team[]> {
         throw error;
       }
       
-      console.log(`📊 Raw Supabase response: ${data?.length || 0} teams found`);
+      devLog(`📊 Raw Supabase response: ${data?.length || 0} teams found`);
       if (data && data.length > 0) {
-        console.log('   Team IDs:', data.map((t: any) => t.id));
-        console.log('   Team names:', data.map((t: any) => t.name));
-        console.log('   Team details:', data.map((t: any) => ({
+        devLog('   Team IDs:', data.map((t: any) => t.id));
+        devLog('   Team names:', data.map((t: any) => t.name));
+        devLog('   Team details:', data.map((t: any) => ({
           id: t.id,
           name: t.name,
           admin_id: t.admin_id,
@@ -433,10 +435,10 @@ async function getTeamsFromDB(): Promise<Team[]> {
           last_game_access: t.last_game_access
         })));
       } else {
-        console.warn('⚠️  No teams found in Supabase. This could mean:');
-        console.warn('   1. No teams have been created yet');
-        console.warn('   2. Teams are being created but not saved to Supabase');
-        console.warn('   3. RLS policies are blocking access');
+        devWarn('⚠️  No teams found in Supabase. This could mean:');
+        devWarn('   1. No teams have been created yet');
+        devWarn('   2. Teams are being created but not saved to Supabase');
+        devWarn('   3. RLS policies are blocking access');
       }
       
       const mappedTeams = (data || []).map((team: any) => ({
@@ -454,7 +456,7 @@ async function getTeamsFromDB(): Promise<Team[]> {
       // Filter out empty teams (teams with no members should not be shown)
       const nonEmptyTeams = mappedTeams.filter(team => team.members && team.members.length > 0);
       
-      console.log(`✅ Successfully mapped ${mappedTeams.length} teams from Supabase (${nonEmptyTeams.length} non-empty)`);
+      devLog(`✅ Successfully mapped ${mappedTeams.length} teams from Supabase (${nonEmptyTeams.length} non-empty)`);
       return nonEmptyTeams;
     } catch (error: any) {
       console.error('❌ Supabase error getting teams:', error);
@@ -466,20 +468,20 @@ async function getTeamsFromDB(): Promise<Team[]> {
       return [];
     }
   }
-  console.log('⚠️  Supabase not configured, returning local storage teams');
+  devLog('⚠️  Supabase not configured, returning local storage teams');
   // Filter out empty teams
   return teamsStorage.filter(team => team.members && team.members.length > 0);
 }
 
 async function saveTeamToDB(team: Team): Promise<Team> {
-  console.log('🔍 saveTeamToDB called with team:', team.id, team.name);
-  console.log('   isSupabaseConfigured():', isSupabaseConfigured());
-  console.log('   supabase client exists:', !!supabase);
+  devLog('🔍 saveTeamToDB called with team:', team.id, team.name);
+  devLog('   isSupabaseConfigured():', isSupabaseConfigured());
+  devLog('   supabase client exists:', !!supabase);
   
   if (isSupabaseConfigured() && supabase) {
     try {
-      console.log('💾 Saving team to Supabase:', team.id, team.name);
-      console.log('   Team data to save:', {
+      devLog('💾 Saving team to Supabase:', team.id, team.name);
+      devLog('   Team data to save:', {
         id: team.id,
         name: team.name,
         code: team.code,
@@ -519,8 +521,8 @@ async function saveTeamToDB(team: Team): Promise<Team> {
       
       // If error is about missing column, retry without last_game_access
       if (error && error.message?.includes('last_game_access') && error.message?.includes('schema cache')) {
-        console.warn('⚠️  last_game_access column not found, retrying without it...');
-        console.warn('   Run SUPABASE_ADD_LAST_GAME_ACCESS.sql in your Supabase SQL editor to add this column');
+        devWarn('⚠️  last_game_access column not found, retrying without it...');
+        devWarn('   Run SUPABASE_ADD_LAST_GAME_ACCESS.sql in your Supabase SQL editor to add this column');
         delete insertData.last_game_access;
         const retryResult = await supabase
           .from('teams')
@@ -533,7 +535,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
       
       // If insert fails due to conflict, try update instead
       if (error && (error.code === '23505' || error.message?.includes('duplicate') || error.message?.includes('conflict'))) {
-        console.log('   Team exists (duplicate key), updating instead...');
+        devLog('   Team exists (duplicate key), updating instead...');
         
         // Build update data object
         const updateDataObj: any = {
@@ -560,7 +562,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         
         // If error is about missing column, retry without last_game_access
         if (updateError && updateError.message?.includes('last_game_access') && updateError.message?.includes('schema cache')) {
-          console.warn('⚠️  last_game_access column not found in update, retrying without it...');
+          devWarn('⚠️  last_game_access column not found in update, retrying without it...');
           delete updateDataObj.last_game_access;
           const retryUpdate = await supabase
             .from('teams')
@@ -582,8 +584,8 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           throw new Error('No data returned from Supabase after update');
         }
         
-        console.log('✅ Team updated in Supabase successfully:', updateData.id);
-        console.log('   Verifying team is accessible...');
+        devLog('✅ Team updated in Supabase successfully:', updateData.id);
+        devLog('   Verifying team is accessible...');
         
         // Verify the team can be retrieved (to ensure it's visible to other devices)
         const { data: verifyData, error: verifyError } = await supabase
@@ -593,9 +595,9 @@ async function saveTeamToDB(team: Team): Promise<Team> {
           .single();
         
         if (verifyError || !verifyData) {
-          console.warn('⚠️  Warning: Team was updated but could not be verified. It may not be visible to other devices.');
+          devWarn('⚠️  Warning: Team was updated but could not be verified. It may not be visible to other devices.');
         } else {
-          console.log('✅ Team verified - should be visible to other devices');
+          devLog('✅ Team verified - should be visible to other devices');
         }
         
         return {
@@ -611,8 +613,8 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         };
       }
       
-      console.log('   Supabase response - data:', data);
-      console.log('   Supabase response - error:', error);
+      devLog('   Supabase response - data:', data);
+      devLog('   Supabase response - error:', error);
       
       if (error) {
         console.error('❌ Supabase insert error:', error);
@@ -621,7 +623,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         console.error('   Error details:', error.details);
         console.error('   Error hint:', error.hint);
         if (error.code === '23505') {
-          console.warn('   ⚠️  Duplicate key - team might already exist');
+          devWarn('   ⚠️  Duplicate key - team might already exist');
         }
         if (error.code === 'PGRST301' || error.message?.includes('permission') || error.message?.includes('policy')) {
           console.error('   ⚠️  RLS Policy Error: Row Level Security might be blocking insert.');
@@ -635,8 +637,8 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         throw new Error('No data returned from Supabase after insert');
       }
       
-      console.log('✅ Team saved to Supabase successfully:', data.id);
-      console.log('   Verifying team is accessible...');
+      devLog('✅ Team saved to Supabase successfully:', data.id);
+      devLog('   Verifying team is accessible...');
       
       // Verify the team can be retrieved (to ensure it's visible to other devices)
       const { data: verifyData, error: verifyError } = await supabase
@@ -646,10 +648,10 @@ async function saveTeamToDB(team: Team): Promise<Team> {
         .single();
       
       if (verifyError || !verifyData) {
-        console.warn('⚠️  Warning: Team was saved but could not be verified. It may not be visible to other devices.');
-        console.warn('   This could indicate an RLS policy issue. Check your Supabase policies.');
+        devWarn('⚠️  Warning: Team was saved but could not be verified. It may not be visible to other devices.');
+        devWarn('   This could indicate an RLS policy issue. Check your Supabase policies.');
       } else {
-        console.log('✅ Team verified - should be visible to other devices');
+        devLog('✅ Team verified - should be visible to other devices');
       }
       
       return {
@@ -673,7 +675,7 @@ async function saveTeamToDB(team: Team): Promise<Team> {
       throw error;
     }
   } else {
-    console.warn('⚠️ Supabase not configured or client not available - saving to local storage only');
+    devWarn('⚠️ Supabase not configured or client not available - saving to local storage only');
     teamsStorage.push(team);
     return team;
   }
@@ -697,8 +699,8 @@ async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<T
       
       // If error is about missing column, retry without last_game_access
       if (error && error.message?.includes('last_game_access') && error.message?.includes('schema cache')) {
-        console.warn('⚠️  last_game_access column not found in updateTeamInDB, retrying without it...');
-        console.warn('   Run SUPABASE_ADD_LAST_GAME_ACCESS.sql in your Supabase SQL editor to add this column');
+        devWarn('⚠️  last_game_access column not found in updateTeamInDB, retrying without it...');
+        devWarn('   Run SUPABASE_ADD_LAST_GAME_ACCESS.sql in your Supabase SQL editor to add this column');
         delete updateData.last_game_access;
         const retryResult = await supabase
           .from('teams')
@@ -737,7 +739,7 @@ async function updateTeamInDB(teamId: string, updates: Partial<Team>): Promise<T
 
 async function deleteTeamFromDB(teamId: string): Promise<boolean> {
   // Log all team deletions to track what's deleting teams
-  console.log(`🗑️ deleteTeamFromDB called for team: ${teamId}`);
+  devLog(`🗑️ deleteTeamFromDB called for team: ${teamId}`);
   console.trace('Stack trace for team deletion:'); // This will show where the deletion was called from
   
   if (isSupabaseConfigured() && supabase) {
@@ -751,7 +753,7 @@ async function deleteTeamFromDB(teamId: string): Promise<boolean> {
         console.error('❌ Supabase delete error:', error);
         throw error;
       }
-      console.log(`✅ Team ${teamId} deleted from Supabase`);
+      devLog(`✅ Team ${teamId} deleted from Supabase`);
       return true;
     } catch (error) {
       console.error('❌ Supabase error deleting team:', error);
@@ -759,7 +761,7 @@ async function deleteTeamFromDB(teamId: string): Promise<boolean> {
     }
   }
   teamsStorage = teamsStorage.filter(t => t.id !== teamId);
-  console.log(`✅ Team ${teamId} deleted from local storage`);
+  devLog(`✅ Team ${teamId} deleted from local storage`);
   return true;
 }
 
@@ -820,7 +822,7 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
           supabaseUnreachable = true;
           lastUnreachableCheck = now;
           if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
-            console.warn('⚠️ Supabase unreachable. Skipping team cleanup.');
+            devWarn('⚠️ Supabase unreachable. Skipping team cleanup.');
           }
           return [];
         }
@@ -849,7 +851,7 @@ async function getAllTeamsForCleanup(): Promise<Team[]> {
         supabaseUnreachable = true;
         lastUnreachableCheck = now;
         if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
-          console.warn('⚠️ Supabase unreachable. Skipping team cleanup.');
+          devWarn('⚠️ Supabase unreachable. Skipping team cleanup.');
         }
         return [];
       }
@@ -945,14 +947,14 @@ async function cleanupInactiveTeams(): Promise<void> {
       
       if (shouldDelete) {
         teamsToDelete.push(team.id);
-        console.log(`🗑️ Marking team for deletion: ${team.name} (ID: ${team.id}) - ${deleteReason}`);
+        devLog(`🗑️ Marking team for deletion: ${team.name} (ID: ${team.id}) - ${deleteReason}`);
       } else {
-        console.log(`✓ Keeping team: ${team.name} (ID: ${team.id}) - has active users or is new`);
+        devLog(`✓ Keeping team: ${team.name} (ID: ${team.id}) - has active users or is new`);
       }
     }
 
     if (teamsToDelete.length > 0) {
-      console.log(`🧹 Team cleanup: deleting ${teamsToDelete.length} inactive team(s)...`);
+      devLog(`🧹 Team cleanup: deleting ${teamsToDelete.length} inactive team(s)...`);
     }
 
     // Delete inactive teams from Supabase
@@ -975,7 +977,7 @@ async function cleanupInactiveTeams(): Promise<void> {
             }
           }
         } else {
-          console.log(`✅ Batch deleted ${teamsToDelete.length} team(s) from Supabase`);
+          devLog(`✅ Batch deleted ${teamsToDelete.length} team(s) from Supabase`);
         }
       } catch (error) {
         console.error('❌ Error in batch delete, trying individual:', error);
@@ -993,7 +995,7 @@ async function cleanupInactiveTeams(): Promise<void> {
       for (const teamId of teamsToDelete) {
         try {
           await deleteTeamFromDB(teamId);
-          console.log(`✅ Auto-deleted inactive team: ${teamId}`);
+          devLog(`✅ Auto-deleted inactive team: ${teamId}`);
         } catch (error) {
           console.error(`❌ Error deleting team ${teamId}:`, error);
         }
@@ -1005,11 +1007,11 @@ async function cleanupInactiveTeams(): Promise<void> {
       const localTeams = JSON.parse(localStorage.getItem("teams") || "[]");
       const filteredTeams = localTeams.filter((t: Team) => !teamsToDelete.includes(t.id));
       localStorage.setItem("teams", JSON.stringify(filteredTeams));
-      console.log(`🧹 Cleaned ${teamsToDelete.length} team(s) from localStorage`);
+      devLog(`🧹 Cleaned ${teamsToDelete.length} team(s) from localStorage`);
     }
     
     if (teamsToDelete.length > 0) {
-      console.log(`✅ Team cleanup: deleted ${teamsToDelete.length} inactive team(s)`);
+      devLog(`✅ Team cleanup: deleted ${teamsToDelete.length} inactive team(s)`);
     }
   } catch (error) {
     console.error('❌ Error cleaning up inactive teams:', error);
@@ -1052,7 +1054,7 @@ export const teamsAPI = {
       
       // If adminId is being changed (admin is leaving), delete the team immediately
       if (updates.adminId !== undefined && updates.adminId !== currentTeam.adminId) {
-        console.log(`🗑️ Deleting team ${currentTeam.name} because admin left (adminId changed)`);
+        devLog(`🗑️ Deleting team ${currentTeam.name} because admin left (adminId changed)`);
         await deleteTeamFromDB(teamId);
         return { success: true, deleted: true };
       }
@@ -1064,7 +1066,7 @@ export const teamsAPI = {
       
       // If team has no members after update, delete it
       if (!updatedTeam.members || updatedTeam.members.length === 0) {
-        console.log(`🗑️ Deleting empty team ${updatedTeam.name} after last member removed`);
+        devLog(`🗑️ Deleting empty team ${updatedTeam.name} after last member removed`);
         await deleteTeamFromDB(teamId);
         return { success: true, deleted: true };
       }
@@ -1125,7 +1127,7 @@ export const teamsAPI = {
         }
         
         const deletedCount = data?.length || 0;
-        console.log(`✅ Aggressive cleanup: Deleted ${deletedCount} team(s) from previous days`);
+        devLog(`✅ Aggressive cleanup: Deleted ${deletedCount} team(s) from previous days`);
         
         // Also clean localStorage
         if (typeof window !== 'undefined') {
@@ -1181,7 +1183,7 @@ async function getGameStateFromDB(gameId: string): Promise<GameState | null> {
         if (error.code === 'PGRST116') return null; // Not found
         if ((error as any).status === 406 || (error as any).status === 409) {
           // RLS policy or conflict - return null instead of throwing
-          console.warn('Supabase query blocked (RLS or conflict):', error.message);
+          devWarn('Supabase query blocked (RLS or conflict):', error.message);
           return null;
         }
         // Only throw for unexpected errors
@@ -1460,7 +1462,7 @@ export const gameStateAPI = {
         if (error) {
           // Handle RLS/conflict errors gracefully
           if ((error as any).status === 406 || (error as any).status === 409) {
-            console.warn('Supabase query blocked (RLS or conflict) for waiting games:', error.message);
+            devWarn('Supabase query blocked (RLS or conflict) for waiting games:', error.message);
             return { success: true, games: [] };
           }
           throw error;
@@ -1579,7 +1581,7 @@ async function getRoomFromDB(roomId: string): Promise<GameRoom | null> {
         if (error.code === 'PGRST116') return null; // Not found
         if ((error as any).status === 406 || (error as any).status === 409) {
           // RLS policy or conflict - return null instead of throwing
-          console.warn('Supabase query blocked (RLS or conflict) for room:', error.message);
+          devWarn('Supabase query blocked (RLS or conflict) for room:', error.message);
           return null;
         }
         // Only log unexpected errors, don't throw
@@ -1659,7 +1661,7 @@ async function getRoomByCodeFromDB(code: string): Promise<GameRoom | null> {
         if (error.code === 'PGRST116') return null; // Not found
         if ((error as any).status === 406 || (error as any).status === 409) {
           // RLS policy or conflict - return null instead of throwing
-          console.warn('Supabase query blocked (RLS or conflict):', error.message);
+          devWarn('Supabase query blocked (RLS or conflict):', error.message);
           return null;
         }
         // Only log unexpected errors, don't throw
@@ -1736,7 +1738,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         supabaseUnreachable = false;
         // Log successful fetch for debugging
         if (data && data.length > 0) {
-          console.log(`✅ Fetched ${data.length} public room(s) from Supabase`);
+          devLog(`✅ Fetched ${data.length} public room(s) from Supabase`);
         }
       }
       
@@ -1748,7 +1750,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
           // Log warning (will be throttled by the check interval)
           const timeSinceLastCheck = now - lastUnreachableCheck;
           if (timeSinceLastCheck >= UNREACHABLE_CHECK_INTERVAL || lastUnreachableCheck === 0) {
-            console.warn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
+            devWarn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
           }
           const err = new Error('CONNECTION_FAILED') as Error & { connectionFailed?: boolean };
           err.connectionFailed = true;
@@ -1757,7 +1759,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         
         // Handle RLS/conflict errors gracefully
         if ((error as any).status === 406 || (error as any).status === 409) {
-          console.warn('Supabase query blocked (RLS or conflict) for public rooms:', error.message);
+          devWarn('Supabase query blocked (RLS or conflict) for public rooms:', error.message);
           return [];
         }
         // Log other errors but don't throw
@@ -1792,7 +1794,7 @@ async function getPublicRoomsFromDB(gameType?: string): Promise<GameRoom[]> {
         // Log warning (will be throttled by the check interval)
         const timeSinceLastCheck = now - lastUnreachableCheck;
         if (timeSinceLastCheck >= UNREACHABLE_CHECK_INTERVAL || lastUnreachableCheck === 0) {
-          console.warn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
+          devWarn('⚠️ Supabase unreachable (network error). Rooms will be saved locally only. Will retry in 1 minute.');
         }
         const err = new Error('CONNECTION_FAILED') as Error & { connectionFailed?: boolean };
         err.connectionFailed = true;
@@ -1884,7 +1886,7 @@ async function saveRoomToDB(room: GameRoom): Promise<GameRoom> {
       supabaseUnreachable = false;
       
       const savedRoom = mapDBRoomToGameRoom(data);
-      console.log(`✅ Room ${savedRoom.code} saved to Supabase successfully (synced across devices)`);
+      devLog(`✅ Room ${savedRoom.code} saved to Supabase successfully (synced across devices)`);
       
       return savedRoom;
     } catch (error: any) {
@@ -2011,11 +2013,11 @@ export const gameRoomsAPI = {
                 
                 if (isUserInRoom) {
                   // User is still in their existing room, return it instead of creating a new one
-                  console.log(`♻️ User ${options.hostId} already has room ${room.code}, returning existing room`);
+                  devLog(`♻️ User ${options.hostId} already has room ${room.code}, returning existing room`);
                   return { success: true, room };
                 } else {
                   // User left their room, delete it
-                  console.log(`🗑️ Deleting abandoned room ${room.code} for user ${options.hostId}`);
+                  devLog(`🗑️ Deleting abandoned room ${room.code} for user ${options.hostId}`);
                   await deleteRoomFromDB(room.id);
                 }
               }
@@ -2041,7 +2043,7 @@ export const gameRoomsAPI = {
       if (existingRoom) {
         const isUserInRoom = existingRoom.currentPlayers.some(p => p.id === options.hostId);
         if (isUserInRoom) {
-          console.log(`♻️ User ${options.hostId} already has room ${existingRoom.code}, returning existing room`);
+          devLog(`♻️ User ${options.hostId} already has room ${existingRoom.code}, returning existing room`);
           return { success: true, room: existingRoom };
         } else {
           // Remove abandoned room
@@ -2159,14 +2161,14 @@ export const gameRoomsAPI = {
       
       // If the host left, delete the room immediately (don't assign new host)
       if (room.hostId === userId) {
-        console.log(`🗑️ Deleting room ${room.code} because host left`);
+        devLog(`🗑️ Deleting room ${room.code} because host left`);
         await deleteRoomFromDB(roomId);
         return { success: true };
       }
       
       // If room is empty, delete it immediately
       if (room.currentPlayers.length === 0) {
-        console.log(`🗑️ Deleting empty room ${room.code} after last player left`);
+        devLog(`🗑️ Deleting empty room ${room.code} after last player left`);
         await deleteRoomFromDB(roomId);
         return { success: true };
       }
@@ -2311,7 +2313,7 @@ export const gameRoomsAPI = {
               activePlayers.push(player);
             } else {
               cleaned++;
-              console.log(`🧹 Removing inactive player ${player.name} (${player.id}) from room ${room.code} - inactive for ${Math.floor(timeSinceActive / 1000)}s`);
+              devLog(`🧹 Removing inactive player ${player.name} (${player.id}) from room ${room.code} - inactive for ${Math.floor(timeSinceActive / 1000)}s`);
             }
           }
           
@@ -2338,7 +2340,7 @@ export const gameRoomsAPI = {
             // If room is empty, delete it
             if (room.currentPlayers.length === 0) {
               await deleteRoomFromDB(room.id);
-              console.log(`🗑️ Deleted empty room ${room.code}`);
+              devLog(`🗑️ Deleted empty room ${room.code}`);
             } else {
               await saveRoomToDB(room);
             }
@@ -2351,7 +2353,7 @@ export const gameRoomsAPI = {
       }
       
       if (totalCleaned > 0) {
-        console.log(`✅ Cleaned up ${totalCleaned} inactive player(s) from ${rooms.length} room(s)`);
+        devLog(`✅ Cleaned up ${totalCleaned} inactive player(s) from ${rooms.length} room(s)`);
       }
       
       return { success: true, cleaned: totalCleaned };
@@ -2538,7 +2540,7 @@ export const gameRoomsAPI = {
             
             if (isUserInRoom) {
               // User is still in their existing room, return it
-              console.log(`♻️ Quick match: User ${options.userId} already in room ${room.code}`);
+              devLog(`♻️ Quick match: User ${options.userId} already in room ${room.code}`);
               return { success: true, room, isNew: false };
             }
           }
@@ -2620,7 +2622,7 @@ export const gameRoomsAPI = {
             lastUnreachableCheck = now;
             // Only log if this is the first time we're detecting it (wasn't already unreachable)
             if (!wasUnreachable) {
-              console.warn('⚠️ Supabase unreachable. Skipping cleanup.');
+              devWarn('⚠️ Supabase unreachable. Skipping cleanup.');
             }
             return;
           }
@@ -2663,32 +2665,32 @@ export const gameRoomsAPI = {
             if (isFromPreviousDay) {
               shouldDelete = true;
               const daysOld = Math.floor(createdAge / ONE_DAY);
-              console.log(`🗑️ Deleting room ${room.code} from previous day (${daysOld} day${daysOld !== 1 ? 's' : ''} old) - AGGRESSIVE CLEANUP`);
+              devLog(`🗑️ Deleting room ${room.code} from previous day (${daysOld} day${daysOld !== 1 ? 's' : ''} old) - AGGRESSIVE CLEANUP`);
             }
             // PRIORITY 2: Delete empty rooms immediately
             else if (playersArray.length === 0) {
               shouldDelete = true;
-              console.log(`🗑️ Deleting empty room ${room.code} immediately`);
+              devLog(`🗑️ Deleting empty room ${room.code} immediately`);
             }
             // PRIORITY 3: Delete finished rooms immediately (no need to keep them)
             else if (room.status === 'finished') {
               shouldDelete = true;
-              console.log(`🗑️ Deleting finished room ${room.code} immediately`);
+              devLog(`🗑️ Deleting finished room ${room.code} immediately`);
             }
             // PRIORITY 4: Delete waiting rooms with only 1 player after 1 minute (very aggressive)
             else if (room.status === 'waiting' && playersArray.length === 1 && createdAge > ONE_MINUTE) {
               shouldDelete = true;
-              console.log(`🗑️ Deleting abandoned waiting room ${room.code} (1 player, ${Math.floor(createdAge / 60000)} min old)`);
+              devLog(`🗑️ Deleting abandoned waiting room ${room.code} (1 player, ${Math.floor(createdAge / 60000)} min old)`);
             }
             // PRIORITY 5: Delete waiting rooms older than 10 minutes (even with multiple players if inactive)
             else if (room.status === 'waiting' && createdAge > 10 * ONE_MINUTE && updatedAge > 5 * ONE_MINUTE) {
               shouldDelete = true;
-              console.log(`🗑️ Deleting inactive waiting room ${room.code} (${Math.floor(createdAge / 60000)} min old, no updates)`);
+              devLog(`🗑️ Deleting inactive waiting room ${room.code} (${Math.floor(createdAge / 60000)} min old, no updates)`);
             }
             // PRIORITY 6: Delete rooms playing for more than 2 hours (likely abandoned)
             else if (room.status === 'playing' && createdAge > 2 * ONE_HOUR) {
               shouldDelete = true;
-              console.log(`🗑️ Deleting abandoned playing room ${room.code} (${Math.floor(createdAge / ONE_HOUR)} hours old)`);
+              devLog(`🗑️ Deleting abandoned playing room ${room.code} (${Math.floor(createdAge / ONE_HOUR)} hours old)`);
             }
             
             if (shouldDelete) {
@@ -2697,7 +2699,7 @@ export const gameRoomsAPI = {
           }
           
           if (roomsToDelete.length > 0) {
-            console.log(`🧹 Room cleanup: deleting ${roomsToDelete.length} stale room(s)...`);
+            devLog(`🧹 Room cleanup: deleting ${roomsToDelete.length} stale room(s)...`);
             const { error: batchError } = await supabase
               .from('game_rooms')
               .delete()
@@ -2714,7 +2716,7 @@ export const gameRoomsAPI = {
                 }
               }
             } else {
-              console.log(`✅ Room cleanup: deleted ${roomsToDelete.length} room(s)`);
+              devLog(`✅ Room cleanup: deleted ${roomsToDelete.length} room(s)`);
             }
           }
         }
@@ -2730,7 +2732,7 @@ export const gameRoomsAPI = {
               return;
             }
             // RPC might not exist, that's okay
-            console.warn('Could not run cleanup_stale_game_rooms RPC:', rpcError);
+            devWarn('Could not run cleanup_stale_game_rooms RPC:', rpcError);
           }
         } catch (error: any) {
           // Check if it's a network error
@@ -2738,7 +2740,7 @@ export const gameRoomsAPI = {
             supabaseUnreachable = true;
             lastUnreachableCheck = now;
             if ((now - lastUnreachableCheck) >= UNREACHABLE_CHECK_INTERVAL) {
-              console.warn('⚠️ Supabase unreachable. Skipping cleanup.');
+              devWarn('⚠️ Supabase unreachable. Skipping cleanup.');
             }
             return;
           }
@@ -2758,29 +2760,29 @@ export const gameRoomsAPI = {
           
           // Delete empty rooms immediately
           if (room.currentPlayers.length === 0) {
-            console.log(`🗑️ Removing empty room ${room.code}`);
+            devLog(`🗑️ Removing empty room ${room.code}`);
             return false;
           }
           // Delete finished rooms immediately
           if (room.status === 'finished') {
-            console.log(`🗑️ Removing finished room ${room.code}`);
+            devLog(`🗑️ Removing finished room ${room.code}`);
             return false;
           }
           // Delete waiting rooms with 1 player after 1 minute
           if (room.status === 'waiting' && room.currentPlayers.length === 1 && createdAge > ONE_MINUTE) {
-            console.log(`🗑️ Removing abandoned waiting room ${room.code}`);
+            devLog(`🗑️ Removing abandoned waiting room ${room.code}`);
             return false;
           }
           // Delete inactive waiting rooms (10 min old, no updates for 5 min)
           if (room.status === 'waiting' && createdAge > 10 * ONE_MINUTE && updatedAge > 5 * ONE_MINUTE) {
-            console.log(`🗑️ Removing inactive waiting room ${room.code}`);
+            devLog(`🗑️ Removing inactive waiting room ${room.code}`);
             return false;
           }
           // Keep active waiting rooms with 2+ players
           if (room.status === 'waiting' && room.currentPlayers.length >= 2) return true;
           // Delete playing rooms older than 2 hours
           if (room.status === 'playing' && createdAge > 2 * ONE_HOUR) {
-            console.log(`🗑️ Removing old playing room ${room.code}`);
+            devLog(`🗑️ Removing old playing room ${room.code}`);
             return false;
           }
           // Keep active playing rooms

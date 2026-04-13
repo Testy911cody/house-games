@@ -6,6 +6,7 @@ import Link from "next/link";
 import { ArrowLeft, Users, Moon, Sun, AlertTriangle, Shield, Skull, Vote, Eye, EyeOff, Globe } from "lucide-react";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import { devLog } from "@/lib/dev-log";
 
 // Game Room types
 interface GameRoom {
@@ -302,7 +303,7 @@ function WerewolfPageContent() {
           
           // Only sync if remote state is different from local AND not from this device
           if (remoteStateString !== currentLocalState && !isFromThisDevice) {
-            console.log('🔄 Syncing Werewolf game state from remote player');
+            devLog('🔄 Syncing Werewolf game state from remote player');
             
             // Update state from remote - only update if different
             if (remoteState.gameState && remoteState.gameState !== gameState) {

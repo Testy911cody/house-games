@@ -6,6 +6,7 @@ import { ArrowLeft, Users, Plus, Trash2, Play, RotateCcw, Check, X, Shuffle, Che
 import Link from "next/link";
 import WaitingRoom from "@/app/components/WaitingRoom";
 import GameLobby from "@/app/components/GameLobby";
+import { devLog, devWarn } from "@/lib/dev-log";
 
 // Game Room types
 interface GameRoom {
@@ -548,6 +549,17 @@ function JeopardyPageContent() {
     return () => clearInterval(intervalId);
   }, [gameRoom?.code, currentUser, phase]);
 
+  // Non-host: when room status becomes "playing", transition to topicSelect (host already did via onStartGame)
+  useEffect(() => {
+    if (phase !== "waiting" || !gameRoom) return;
+    if (gameRoom.status === "playing") {
+      const hasEnoughPlayers = (gameRoom.currentPlayers?.length ?? 0) >= 2;
+      if (hasEnoughPlayers) {
+        setPhase("topicSelect");
+      }
+    }
+  }, [gameRoom?.status, gameRoom?.currentPlayers?.length, phase]);
+
   // Join room by code from URL
   const joinRoomByCode = async (code: string) => {
     const user = localStorage.getItem("currentUser");
@@ -932,7 +944,7 @@ function JeopardyPageContent() {
           
           // Only sync if remote state is different from local AND not from this device
           if (remoteStateString !== currentLocalState && !isFromThisDevice) {
-            console.log('🔄 Syncing game state from remote player');
+            devLog('🔄 Syncing game state from remote player');
             
             // Update state from remote - only update if different
             if (remoteState.phase && remoteState.phase !== phase) {
@@ -1277,10 +1289,48 @@ function JeopardyPageContent() {
           });
         }}
         onStartGame={async () => {
-          // Start game when host clicks start
-          if (teams.length >= 2) {
-            setPhase("topicSelect");
+          devLog('🎯 Jeopardy onStartGame called', {
+            teamsCount: teams.length,
+            playersCount: gameRoom?.currentPlayers?.length,
+            gameRoom: gameRoom?.code,
+            currentPlayers: gameRoom?.currentPlayers?.map(p => ({ id: p.id, name: p.name }))
+          });
+          
+          // Ensure we have at least 2 players
+          const playerCount = gameRoom?.currentPlayers?.length ?? 0;
+          if (playerCount < 2) {
+            devWarn('⚠️ Not enough players to start:', playerCount);
+            return;
           }
+          
+          // Build teams from currentPlayers if we don't have enough teams
+          let teamsToUse = teams;
+          if (teams.length < 2 && gameRoom?.currentPlayers) {
+            devLog('🔨 Building teams from currentPlayers...');
+            const newTeams: Team[] = gameRoom.currentPlayers.map((player, idx) => {
+              const existingTeam = teams.find(t => t.id === `team_${player.id}`);
+              if (existingTeam) {
+                return existingTeam;
+              }
+              const availableColor = TEAM_COLORS[idx % TEAM_COLORS.length];
+              return {
+                id: `team_${player.id}`,
+                name: player.name + "'s Team",
+                color: availableColor,
+                score: 0
+              };
+            });
+            devLog('✅ Teams built:', newTeams.map(t => ({ id: t.id, name: t.name })));
+            setTeams(newTeams);
+            teamsToUse = newTeams;
+          }
+          
+          // Transition to topic selection - we have enough players (and teams if needed)
+          devLog('🎯 Transitioning to topicSelect phase', {
+            finalTeamsCount: teamsToUse.length,
+            playerCount
+          });
+          setPhase("topicSelect");
         }}
         onPlayAgainstComputer={() => {
           setIsPlayingAgainstComputer(true);

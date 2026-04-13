@@ -7,6 +7,7 @@ import Link from "next/link";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import GameLobby from "@/app/components/GameLobby";
 import WaitingRoom from "@/app/components/WaitingRoom";
+import { devLog, devWarn } from "@/lib/dev-log";
 
 // Game Room types
 interface GameRoom {
@@ -594,19 +595,19 @@ function CodenamesPageContent() {
         const currentTeamData = localStorage.getItem("currentTeam");
         const currentTeamId = currentTeamData ? JSON.parse(currentTeamData).id : null;
         
-        console.log(`🔍 Codenames: Loaded ${result.teams.length} teams, current team: ${currentTeamId}`);
+        devLog(`🔍 Codenames: Loaded ${result.teams.length} teams, current team: ${currentTeamId}`);
         
         const onlineTeams = result.teams
           .filter((team: any) => {
             // Don't show the current user's team
             if (team.id === currentTeamId) {
-              console.log(`   ⏭️ Skipping own team: ${team.name}`);
+              devLog(`   ⏭️ Skipping own team: ${team.name}`);
               return false;
             }
             
             // If Supabase is configured, show ALL teams (they're synced across devices)
             if (isSupabaseConfigured()) {
-              console.log(`   ✅ Showing Supabase team: ${team.name} (${team.id})`);
+              devLog(`   ✅ Showing Supabase team: ${team.name} (${team.id})`);
               return true;
             }
             
@@ -628,9 +629,9 @@ function CodenamesPageContent() {
             const shouldShow = adminOnline || membersOnline || isNewTeam || hasRecentGameAccess;
             
             if (shouldShow) {
-              console.log(`   ✅ Showing local team: ${team.name} (admin: ${adminOnline}, members: ${membersOnline}, new: ${isNewTeam}, recent game: ${hasRecentGameAccess})`);
+              devLog(`   ✅ Showing local team: ${team.name} (admin: ${adminOnline}, members: ${membersOnline}, new: ${isNewTeam}, recent game: ${hasRecentGameAccess})`);
             } else {
-              console.log(`   ⏭️ Skipping inactive local team: ${team.name}`);
+              devLog(`   ⏭️ Skipping inactive local team: ${team.name}`);
             }
             
             return shouldShow;
@@ -643,10 +644,10 @@ function CodenamesPageContent() {
             adminName: team.adminName,
           }));
         
-        console.log(`   📋 Showing ${onlineTeams.length} available teams:`, onlineTeams.map(t => t.name));
+        devLog(`   📋 Showing ${onlineTeams.length} available teams:`, onlineTeams.map(t => t.name));
         setAvailableTeams(onlineTeams);
       } else {
-        console.warn('⚠️ Failed to load teams:', result);
+        devWarn('⚠️ Failed to load teams:', result);
         setAvailableTeams([]);
       }
     } catch (error) {
@@ -1412,7 +1413,7 @@ function CodenamesPageContent() {
   };
 
   const startGame = async () => {
-    console.log('🎮 startGame() called', { gameId, gameRoom: gameRoom?.code, currentUser: currentUser?.id });
+    devLog('🎮 startGame() called', { gameId, gameRoom: gameRoom?.code, currentUser: currentUser?.id });
     
     // When host clicks start, always start a NEW game (don't load old state)
     // Only load existing state if we're joining a game that's already in progress
@@ -1433,7 +1434,7 @@ function CodenamesPageContent() {
           
           if (result.success && result.state && result.state.state.phase === "playing") {
             // Load existing game state (we're joining a game in progress)
-            console.log('🎮 Loading existing game state');
+            devLog('🎮 Loading existing game state');
             const savedState = result.state.state;
             setPhase(savedState.phase || "playing");
             setDifficulty(savedState.difficulty || difficulty);
@@ -1462,7 +1463,7 @@ function CodenamesPageContent() {
     }
     
     // Start new game
-    console.log('🎮 Starting NEW game');
+    devLog('🎮 Starting NEW game');
     generateBoard();
     setPhase("playing");
     setCurrentTeam("red");
@@ -1830,21 +1831,26 @@ function CodenamesPageContent() {
             // When a player joins, ensure they're added to the game state
             // Players are managed through teams in codenames, so this is mainly for room sync
             // The game state will sync players from the room when the game starts
-            console.log("Player joined:", player.name);
+            devLog("Player joined:", player.name);
           }}
           onStartGame={async () => {
-            console.log('🎮 onStartGame called', { gameRoom, currentUser });
+            devLog('🎮 onStartGame called', { gameRoom, currentUser });
             
             try {
               // Get latest room state to ensure we have current player count
               let latestRoom = gameRoom;
+              const isHost = gameRoom?.hostId === currentUser?.id;
               if (gameRoom?.code) {
                 try {
                   const { gameRoomsAPI } = await import('@/lib/api-utils');
                   const roomResult = await gameRoomsAPI.getRoomByCode(gameRoom.code);
                   if (roomResult.success && roomResult.room) {
                     latestRoom = roomResult.room;
-                    setGameRoom(latestRoom);
+                    // Host just set status to playing; don't overwrite with stale "waiting" from fetch
+                    const roomToSet = isHost && latestRoom.status !== 'playing'
+                      ? { ...latestRoom, status: 'playing' as const }
+                      : latestRoom;
+                    setGameRoom(roomToSet);
                   }
                 } catch (error) {
                   console.error('Error fetching latest room:', error);
@@ -1856,7 +1862,7 @@ function CodenamesPageContent() {
               const minPlayersRequired = latestRoom?.minPlayers || 4;
               const hasPlayers = playerCount >= minPlayersRequired;
               
-              console.log('🎮 Start game check:', { 
+              devLog('🎮 Start game check:', { 
                 playerCount, 
                 minPlayersRequired, 
                 hasPlayers,
@@ -1894,12 +1900,12 @@ function CodenamesPageContent() {
                   setDifficulty(latestRoom.settings.difficulty);
                 }
                 
-                console.log('🎮 Starting game...');
+                devLog('🎮 Starting game...');
                 // Start game directly - skip setup phase
                 await startGame();
-                console.log('🎮 Game started successfully');
+                devLog('🎮 Game started successfully');
               } else {
-                console.warn('⚠️ Not enough players to start:', { playerCount, minPlayersRequired });
+                devWarn('⚠️ Not enough players to start:', { playerCount, minPlayersRequired });
                 // Not enough players - stay in waiting room
                 // Setup phase removed, team selection happens in waiting room
               }

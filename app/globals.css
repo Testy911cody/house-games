@@ -327,6 +327,12 @@ body {
   z-index: 1000;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .scanlines::after {
+    display: none;
+  }
+}
+
 /* Flicker Animation */
 @keyframes flicker {
   0%, 19%, 21%, 23%, 25%, 54%, 56%, 100% {
@@ -1262,6 +1268,10 @@ button, a, input, select, textarea {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .neon-card {
+    backdrop-filter: none !important;
   }
 }
 

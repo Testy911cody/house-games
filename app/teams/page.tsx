@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Users, Plus, Search, Crown, UserPlus, Copy, Check, RefreshCw } from "lucide-react";
+import { devLog, devWarn } from "@/lib/dev-log";
 
 interface TeamMember {
   id: string;
@@ -149,10 +150,10 @@ export default function TeamsPage() {
         
         // Check if Supabase is configured
         if (!isSupabaseConfigured()) {
-          console.warn("⚠️ Supabase not configured - teams will only sync locally. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
-          console.warn("   To enable cross-device sync, add these to your .env.local file:");
-          console.warn("   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co");
-          console.warn("   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key");
+          devWarn("⚠️ Supabase not configured - teams will only sync locally. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY for cross-browser sync.");
+          devWarn("   To enable cross-device sync, add these to your .env.local file:");
+          devWarn("   NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co");
+          devWarn("   NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key");
           setApiStatus("offline");
         } else {
           const data = await teamsAPI.getTeams();
@@ -160,11 +161,11 @@ export default function TeamsPage() {
           if (data.success && Array.isArray(data.teams)) {
             apiTeams = data.teams;
             setApiStatus("connected");
-            console.log(`✅ Loaded ${apiTeams.length} teams from Supabase:`, apiTeams.map(t => `${t.name} (${t.id})`));
+            devLog(`✅ Loaded ${apiTeams.length} teams from Supabase:`, apiTeams.map(t => `${t.name} (${t.id})`));
             
             // Debug: Log team details
             if (apiTeams.length > 0) {
-              console.log("   Team details:", apiTeams.map(t => ({
+              devLog("   Team details:", apiTeams.map(t => ({
                 id: t.id,
                 name: t.name,
                 code: t.code,
@@ -268,7 +269,7 @@ export default function TeamsPage() {
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       
-      console.log(`📋 Showing ${sortedTeams.length} teams total (${apiTeams.length} from Supabase, ${activeLocalTeams.length} local)`);
+      devLog(`📋 Showing ${sortedTeams.length} teams total (${apiTeams.length} from Supabase, ${activeLocalTeams.length} local)`);
       
       setTeams(sortedTeams);
       
@@ -277,8 +278,8 @@ export default function TeamsPage() {
       
       // If Supabase is connected but we have local teams not in Supabase, sync them
       if (apiStatus === "connected" && localTeams.length > 0 && apiTeams.length === 0) {
-        console.log("🔄 Supabase connected but empty - syncing local teams to Supabase...");
-        console.log(`   Found ${localTeams.length} local teams to sync`);
+        devLog("🔄 Supabase connected but empty - syncing local teams to Supabase...");
+        devLog(`   Found ${localTeams.length} local teams to sync`);
         
         // Sync teams one by one (don't await, do it in background)
         (async () => {
@@ -287,7 +288,7 @@ export default function TeamsPage() {
               const { teamsAPI } = await import('@/lib/api-utils');
               const result = await teamsAPI.createTeam(team);
               if (result.success) {
-                console.log(`   ✅ Synced team to Supabase: ${team.name} (${team.id})`);
+                devLog(`   ✅ Synced team to Supabase: ${team.name} (${team.id})`);
               } else {
                 console.error(`   ❌ Failed to sync team ${team.name}:`, result.error);
               }
@@ -296,27 +297,27 @@ export default function TeamsPage() {
             }
           }
           // Reload teams after sync attempt
-          console.log("   🔄 Reloading teams after sync...");
+          devLog("   🔄 Reloading teams after sync...");
           setTimeout(() => loadTeams(), 2000);
         })();
       }
       
       // If Supabase is configured but we have local teams not in Supabase, try to sync them
       if (apiStatus === "connected" && localTeams.length > 0 && apiTeams.length === 0) {
-        console.log("🔄 Detected local teams but none in Supabase - attempting to sync...");
+        devLog("🔄 Detected local teams but none in Supabase - attempting to sync...");
         const localTeamIds = new Set(localTeams.map((t: Team) => t.id));
         const apiTeamIds = new Set(apiTeams.map((t: Team) => t.id));
         const teamsToSync = localTeams.filter((t: Team) => !apiTeamIds.has(t.id));
         
         if (teamsToSync.length > 0) {
-          console.log(`   Found ${teamsToSync.length} local teams to sync to Supabase`);
+          devLog(`   Found ${teamsToSync.length} local teams to sync to Supabase`);
           // Sync teams one by one
           for (const team of teamsToSync) {
             try {
               const { teamsAPI } = await import('@/lib/api-utils');
               const result = await teamsAPI.createTeam(team);
               if (result.success) {
-                console.log(`   ✅ Synced team to Supabase: ${team.name}`);
+                devLog(`   ✅ Synced team to Supabase: ${team.name}`);
               } else {
                 console.error(`   ❌ Failed to sync team ${team.name}:`, result.error);
               }

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Save, Users } from "lucide-react";
+import { devLog, devWarn } from "@/lib/dev-log";
 
 export default function CreateTeamPage() {
   const router = useRouter();
@@ -77,25 +78,25 @@ export default function CreateTeamPage() {
       const { teamsAPI } = await import('@/lib/api-utils');
       const { isSupabaseConfigured } = await import('@/lib/supabase');
       
-      console.log("🔄 Attempting to sync team to Supabase...");
-      console.log("   Team data:", JSON.stringify(newTeam, null, 2));
-      console.log("   Supabase configured:", isSupabaseConfigured());
+      devLog("🔄 Attempting to sync team to Supabase...");
+      devLog("   Team data:", JSON.stringify(newTeam, null, 2));
+      devLog("   Supabase configured:", isSupabaseConfigured());
       
       if (!isSupabaseConfigured()) {
         syncError = "Supabase not configured. Team created locally only - it won't appear on other devices.";
-        console.warn("⚠️", syncError);
+        devWarn("⚠️", syncError);
       } else {
-        console.log("   Calling teamsAPI.createTeam...");
+        devLog("   Calling teamsAPI.createTeam...");
         const result = await teamsAPI.createTeam(newTeam);
         
-        console.log("   Result:", JSON.stringify(result, null, 2));
+        devLog("   Result:", JSON.stringify(result, null, 2));
         
         if (result.success) {
           syncSuccess = true;
           // API sync successful - the team is now on the server
-          console.log("✅ Team synced to Supabase successfully - visible across all browsers!");
-          console.log("   Team ID:", newTeam.id);
-          console.log("   Team Name:", newTeam.name);
+          devLog("✅ Team synced to Supabase successfully - visible across all browsers!");
+          devLog("   Team ID:", newTeam.id);
+          devLog("   Team Name:", newTeam.name);
           // Update admin activity immediately so team shows up
           teamsAPI.updateUserActivity(currentUser.id);
         } else {
@@ -124,9 +125,9 @@ export default function CreateTeamPage() {
 
     // Only redirect after sync attempt completes
     if (syncSuccess) {
-      console.log("✅ Redirecting to team page...");
+      devLog("✅ Redirecting to team page...");
     } else {
-      console.warn("⚠️ Redirecting despite sync failure - team may not appear on other devices");
+      devWarn("⚠️ Redirecting despite sync failure - team may not appear on other devices");
     }
     router.push(`/teams/${newTeam.id}`);
   };
